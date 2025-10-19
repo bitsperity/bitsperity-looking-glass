@@ -13,10 +13,21 @@
   let loading: boolean = false;
   let err: string | null = null;
   
+  // Date range is optional - empty = load all data
+  let from: string = '';
+  let to: string = '';
+  
   const today = new Date().toISOString().slice(0, 10);
-  const sixMonthsAgo = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10);
-  let from = sixMonthsAgo;
-  let to = today;
+  
+  // Validate and clamp dates to today
+  function validateDates() {
+    if (from && from > today) from = today;
+    if (to && to > today) to = today;
+    if (from && to && from > to) {
+      // If from is after to, swap them
+      [from, to] = [to, from];
+    }
+  }
   
   async function loadWatchlist() {
     try {
@@ -34,8 +45,14 @@
   let retryCount = 0;
   const MAX_RETRIES = 10; // 10 * 3s = 30 seconds max
 
+  let isRetrying = false; // Track if we're in a retry loop
+  
   async function loadChart() {
     if (!selectedTicker) return;
+    if (isRetrying) return; // Don't start new load if already retrying
+    
+    validateDates(); // Validate dates before loading
+    
     loading = true;
     err = null;
     
@@ -54,28 +71,36 @@
           }))
           .sort((a: any, b: any) => a.time - b.time);
         retryCount = 0; // Reset on success
+        isRetrying = false; // Clear retry flag
       } else {
         // No data available, but not an error condition
         chartData = [];
+        isRetrying = false;
       }
     } catch (e: any) {
       // Handle 202 gracefully - data is being fetched
       if (e?.message?.includes('202') || e?.status === 202) {
         if (retryCount < MAX_RETRIES) {
           retryCount++;
+          isRetrying = true; // Set retry flag
           err = `Fetching data for ${selectedTicker}... (${retryCount}/${MAX_RETRIES})`;
           // Keep existing chartData if available
           setTimeout(() => {
-            if (selectedTicker) loadChart();
+            if (selectedTicker) {
+              isRetrying = false; // Clear before retry
+              loadChart();
+            }
           }, 3000);
         } else {
           err = `Timeout: Data for ${selectedTicker} could not be fetched. The ticker may be invalid or the data source is unavailable.`;
           retryCount = 0;
+          isRetrying = false;
           chartData = []; // Clear on timeout
         }
       } else {
         err = String(e);
         retryCount = 0;
+        isRetrying = false;
         chartData = []; // Clear on error
       }
     } finally {
@@ -145,7 +170,7 @@
   $: {
     // Trigger reload when any of these dependencies change
     const _ = [selectedTicker, from, to, btcView];
-    if (selectedTicker && from && to) {
+    if (selectedTicker) {
       loadChart();
     }
   }
@@ -202,11 +227,11 @@
     <div class="flex items-center gap-3 mb-4 pb-3 border-b border-neutral-800">
       <div class="flex items-center gap-2">
         <span class="text-xs text-neutral-500">From</span>
-        <input type="date" bind:value={from} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        <input type="date" bind:value={from} max={today} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
       </div>
       <div class="flex items-center gap-2">
         <span class="text-xs text-neutral-500">To</span>
-        <input type="date" bind:value={to} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        <input type="date" bind:value={to} max={today} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
       </div>
       
       <label class="flex items-center gap-2 text-xs cursor-pointer">

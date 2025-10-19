@@ -10,7 +10,7 @@ from ..models.price import DailyBar
 import polars as pl
 from ..config.settings import load_settings
 from .http import get_text, default_headers
-from ..storage.stage import write_parquet
+from ..storage.stage import upsert_parquet_by_id
 
 
 BASE = "https://stooq.com/q/d/l/"
@@ -113,6 +113,26 @@ def sink(models: Iterable[DailyBar], partition_dt: date) -> dict:
     rows = [m.model_dump() for m in models]
     if not rows:
         return {"count": 0, "skipped": True}
-    p = write_parquet(load_settings().stage_dir, "stooq", partition_dt, "prices_daily", rows)
+    
+    # Merge with existing data (append + dedupe by ticker+date)
+    s = load_settings()
+    p_dir = Path(s.stage_dir) / "stooq" / f"{partition_dt.year:04d}" / f"{partition_dt.month:02d}" / f"{partition_dt.day:02d}"
+    p_dir.mkdir(parents=True, exist_ok=True)
+    p = p_dir / "prices_daily.parquet"
+    
+    new_df = pl.DataFrame(rows)
+    if p.exists():
+        try:
+            existing = pl.read_parquet(p)
+            combined = pl.concat([existing, new_df], how="vertical_relaxed")
+            # Dedupe by ticker+date, keep last (newest data wins)
+            combined = combined.unique(subset=["ticker", "date"], keep="last")
+            combined.write_parquet(p)
+        except Exception:
+            # If merge fails, just write new data
+            new_df.write_parquet(p)
+    else:
+        new_df.write_parquet(p)
+    
     return {"path": str(p), "count": len(rows)}
 

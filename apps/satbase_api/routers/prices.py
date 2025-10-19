@@ -11,10 +11,17 @@ router = APIRouter()
 @router.get("/prices/daily/{ticker}")
 def prices_daily(ticker: str, from_: str | None = Query(None, alias="from"), to: str | None = None, btc_view: bool = False):
     s = load_settings()
-    if not from_ or not to:
-        return {"ticker": ticker.upper(), "from": from_, "to": to, "btc_view": btc_view, "bars": []}
-    dfrom = date.fromisoformat(from_)
-    dto = date.fromisoformat(to)
+    
+    # If no date range specified, load all available data
+    use_date_filter = bool(from_ and to)
+    if use_date_filter:
+        dfrom = date.fromisoformat(from_)
+        dto = date.fromisoformat(to)
+    else:
+        # Load last 10 years of data (effectively "all")
+        dfrom = date(2015, 1, 1)
+        dto = date.today()
+    
     lf = scan_parquet_glob(s.stage_dir, "stooq", "prices_daily", dfrom, dto)
     l_t = lf.filter(pl.col("ticker") == ticker.upper())
     if btc_view:
@@ -37,8 +44,11 @@ def prices_daily(ticker: str, from_: str | None = Query(None, alias="from"), to:
         
         # Now join and convert
         l_joined = l_t.join(l_btc, on="date", how="inner")
+        lf_filtered = l_joined
+        if use_date_filter:
+            lf_filtered = lf_filtered.filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))
         df = (
-            l_joined
+            lf_filtered
             .with_columns([
                 (pl.col("open") / pl.col("btc_close")).alias("open"),
                 (pl.col("high") / pl.col("btc_close")).alias("high"),
@@ -53,7 +63,15 @@ def prices_daily(ticker: str, from_: str | None = Query(None, alias="from"), to:
         records = df.to_dicts()
         return {"ticker": ticker.upper(), "from": from_, "to": to, "btc_view": True, "bars": records}
     else:
-        df = l_t.unique(subset=["ticker","date"]).sort("date", descending=True).collect()
+        lf_filtered = l_t
+        if use_date_filter:
+            lf_filtered = lf_filtered.filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))
+        df = (
+            lf_filtered
+            .unique(subset=["ticker","date"])
+            .sort("date", descending=True)
+            .collect()
+        )
         records = df.to_dicts()
         if len(records) == 0:
             job_id = enqueue_prices_daily([ticker])
@@ -82,6 +100,7 @@ def prices_daily_multi(tickers: str, from_: str | None = Query(None, alias="from
         l_joined = l_all.join(l_btc, on="date", how="inner")
         df = (
             l_joined
+            .filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))  # Filter to requested date range
             .with_columns([
                 (pl.col("open") / pl.col("btc_close")).alias("open"),
                 (pl.col("high") / pl.col("btc_close")).alias("high"),
@@ -96,6 +115,7 @@ def prices_daily_multi(tickers: str, from_: str | None = Query(None, alias="from
     else:
         df = (
             l_all
+            .filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))  # Filter to requested date range
             .unique(subset=["ticker","date"])  # Dedupe
             .sort(["ticker","date"], descending=[False, True])
             .collect()
