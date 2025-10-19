@@ -7,7 +7,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./libs/satbase_core/config:/app/libs/satbase_core/config:ro
-    command: ["uvicorn", "apps.satbase_api.main:app", "--host", "0.0.0.0", "--port", "8080"]
+      - ./apps:/app/apps:ro
+      - ./libs:/app/libs:ro
+    command: ["uvicorn", "apps.satbase_api.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]
 
   satbase-ingest:
     build: .
@@ -25,4 +27,6 @@ services:
     environment:
       - VITE_API_BASE=http://127.0.0.1:8080
     working_dir: /app
+    volumes:
+      - ./apps/looking_glass/src:/app/src:ro
 
