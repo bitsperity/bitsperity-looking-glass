@@ -48,6 +48,7 @@
       watchlist = res;
       if (watchlist.length > 0 && !selectedTicker) {
         selectedTicker = watchlist[0].symbol;
+        await loadCompanyInfo(watchlist[0].symbol);
         await loadChart();
       }
     } catch (e) {
@@ -355,7 +356,7 @@
   <!-- Main Area -->
   <div class="flex-1 flex flex-col p-4 overflow-hidden">
     <!-- Compact Toolbar -->
-    <div class="flex items-center gap-3 mb-4 pb-3 border-b border-neutral-800">
+    <div class="flex items-center gap-3 mb-4 pb-3 border-b border-neutral-800 flex-shrink-0">
       <div class="flex items-center gap-2">
         <span class="text-xs text-neutral-500">From</span>
         <input type="date" bind:value={from} max={today} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -379,22 +380,58 @@
       </button>
     </div>
     
-    <!-- Error / Info -->
-    {#if err}
-      <div class="mb-3 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2">
-        {#if err.includes('Fetching')}
-          <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <!-- Scrollable Content Area -->
+    <div class="flex-1 min-h-0 overflow-y-auto space-y-3">
+      <!-- Error / Info -->
+      {#if err}
+        <div class="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2">
+          {#if err.includes('Fetching')}
+            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          {/if}
+          <span>{err}</span>
+        </div>
+      {/if}
+      
+      <!-- Chart Container -->
+      <div class="h-[500px] min-h-[400px]">
+      {#if loading}
+        <div class="h-full flex items-center justify-center">
+          <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-        {/if}
-        <span>{err}</span>
+        </div>
+      {:else if selectedTicker && chartData.length > 0}
+        <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} />
+      {:else if selectedTicker}
+        <div class="h-full flex items-center justify-center text-center">
+          <div>
+            <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <h3 class="text-sm font-semibold text-neutral-300 mb-1">No data available</h3>
+            <p class="text-xs text-neutral-500">Adjust date range or wait for fetch</p>
+          </div>
+        </div>
+      {:else}
+        <div class="h-full flex items-center justify-center text-center">
+          <div>
+            <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+            </svg>
+            <h3 class="text-sm font-semibold text-neutral-300 mb-1">Select a ticker</h3>
+            <p class="text-xs text-neutral-500">Choose from watchlist or add new</p>
+          </div>
+        </div>
+      {/if}
       </div>
-    {/if}
-    
-    <!-- Company Info Card -->
-    {#if selectedTicker && showCompanyInfo && (tickerInfo || tickerFundamentals)}
-      <div class="mb-3 bg-neutral-800/50 border border-neutral-700/50 rounded-xl overflow-hidden">
+      
+      <!-- Company Info Card (below chart) -->
+      {#if selectedTicker && (tickerInfo || tickerFundamentals)}
+        <div class="bg-neutral-800/50 border border-neutral-700/50 rounded-xl overflow-hidden">
         <button
           on:click={() => showCompanyInfo = !showCompanyInfo}
           class="w-full p-3 flex items-center justify-between hover:bg-neutral-800/70 transition-colors"
@@ -416,7 +453,7 @@
         </button>
         
         {#if showCompanyInfo}
-          <div class="p-3 pt-0 space-y-3 max-h-64 overflow-y-auto">
+          <div class="p-4 pt-0 space-y-4 max-h-96 overflow-y-auto">
             <!-- Description -->
             {#if tickerInfo?.description}
               <div>
@@ -501,39 +538,6 @@
             </div>
           </div>
         {/if}
-      </div>
-    {/if}
-    
-    <!-- Chart Container -->
-    <div class="flex-1 overflow-hidden">
-      {#if loading}
-        <div class="h-full flex items-center justify-center">
-          <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        </div>
-      {:else if selectedTicker && chartData.length > 0}
-        <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} />
-      {:else if selectedTicker}
-        <div class="h-full flex items-center justify-center text-center">
-          <div>
-            <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            <h3 class="text-sm font-semibold text-neutral-300 mb-1">No data available</h3>
-            <p class="text-xs text-neutral-500">Adjust date range or wait for fetch</p>
-          </div>
-        </div>
-      {:else}
-        <div class="h-full flex items-center justify-center text-center">
-          <div>
-            <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-            </svg>
-            <h3 class="text-sm font-semibold text-neutral-300 mb-1">Select a ticker</h3>
-            <p class="text-xs text-neutral-500">Choose from watchlist or add new</p>
-          </div>
         </div>
       {/if}
     </div>
