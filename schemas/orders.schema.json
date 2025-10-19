@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Orders",
+  "type": "object",
+  "properties": {
+    "asof": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "orders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "symbol": {"type": "string"},
+          "side": {"type": "string", "enum": ["buy","sell"]},
+          "qty": {"type": "number", "exclusiveMinimum": 0},
+          "type": {"type": "string", "enum": ["limit"]},
+          "limit_price": {"type": "number", "exclusiveMinimum": 0},
+          "tif": {"type": "string", "enum": ["day"]},
+          "bracket": {
+            "type": "object",
+            "properties": {
+              "tp": {"type": "number", "exclusiveMinimum": 0},
+              "sl": {"type": "number", "exclusiveMinimum": 0}
+            },
+            "required": ["tp","sl"],
+            "additionalProperties": false
+          },
+          "client_order_id": {"type": "string"}
+        },
+        "required": ["symbol","side","qty","type","limit_price","tif"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["asof","orders"],
+  "additionalProperties": false
+}

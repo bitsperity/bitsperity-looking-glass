@@ -1,0 +1,8 @@
+{
+  "max_weight": 0.20,
+  "cash_min": 0.00,
+  "cash_max": 0.20,
+  "max_leverage": 1.2,
+  "turnover_caps": {"daily": 0.10, "weekly": 0.25, "monthly": 0.50},
+  "banned": []
+}

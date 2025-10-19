@@ -1,0 +1,32 @@
+gdelt_doc_v2:
+  enabled: true
+  query: "semiconductor OR chip OR foundry"
+  window_hours: 1
+
+news_google_rss:
+  enabled: true
+  query: "semiconductor OR chip OR foundry"
+  hl: "en-US"
+  gl: "US"
+  ceid: "US:en"
+
+stooq:
+  enabled: true
+  tickers: ["NVDA","AAPL","MSFT","TSM","BTCUSD"]
+  market_suffix: "us"
+  ticker_map: {"BTCUSD": "btcusd"}
+
+eod_yfinance:
+  enabled: true
+  tickers: ["NVDA","AAPL","MSFT","TSM"]
+  period: "2y"
+  interval: "1d"
+
+fred:
+  enabled: true
+  series: ["CPIAUCSL","UNRATE","FEDFUNDS"]
+
+btc_oracle:
+  enabled: false
+  days: "365"
+

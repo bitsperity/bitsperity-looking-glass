@@ -1,0 +1,18 @@
+{
+  "mcp": {
+    "servers": {
+      "knowledge-graph": {
+        "command": "node",
+        "args": [
+          "${workspaceFolder}/mcp-knowledge-graph/dist/index.js"
+        ],
+        "env": {
+          "KNOWLEDGEGRAPH_STORAGE_TYPE": "sqlite",
+          "KNOWLEDGEGRAPH_SQLITE_PATH": "${workspaceFolder}/knowledge_graph/knowledgegraph.db",
+          "KNOWLEDGEGRAPH_PROJECT": "alpaca-trading-bot"
+        }
+      }
+    }
+  }
+}
+

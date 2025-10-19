@@ -1,0 +1,22 @@
+version: "3.9"
+services:
+  satbase-api:
+    build: .
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./libs/satbase_core/config:/app/libs/satbase_core/config:ro
+    command: ["uvicorn", "apps.satbase_api.main:app", "--host", "0.0.0.0", "--port", "8080"]
+
+  satbase-ingest:
+    build: .
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./libs/satbase_core/config:/app/libs/satbase_core/config:ro
+    command: ["python", "-m", "libs.satbase_core.ingest.run_daily"]
+

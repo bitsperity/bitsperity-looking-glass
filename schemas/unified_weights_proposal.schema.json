@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Unified Weights Proposal",
+  "type": "object",
+  "properties": {
+    "mode": {"type": "string", "enum": ["paper","live"]},
+    "asof": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "weights": {
+      "type": "object",
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "turnover_est": {"type": "number", "minimum": 0, "maximum": 1},
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "max_weight": {"type": "number", "minimum": 0, "maximum": 1},
+        "turnover_cap": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "rationale_keys": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["mode","asof","weights"],
+  "additionalProperties": false
+}
