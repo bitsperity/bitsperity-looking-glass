@@ -40,8 +40,7 @@
         timeVisible: true,
         secondsVisible: false,
       },
-      width: chartContainer.clientWidth,
-      height: 600,
+      autoSize: true,
     });
     
     candleSeries = chart.addSeries(CandlestickSeries, {
@@ -71,15 +70,6 @@
     if (data && data.length > 0) {
       initChart();
     }
-    
-    const handleResize = () => {
-      if (chart && chartContainer) {
-        chart.applyOptions({ width: chartContainer.clientWidth });
-      }
-    };
-    
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
   });
   
   onDestroy(() => {

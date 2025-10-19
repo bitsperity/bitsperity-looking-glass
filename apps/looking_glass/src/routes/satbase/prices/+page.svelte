@@ -380,23 +380,21 @@
       </button>
     </div>
     
-    <!-- Scrollable Content Area -->
-    <div class="flex-1 min-h-0 overflow-y-auto space-y-3">
-      <!-- Error / Info -->
-      {#if err}
-        <div class="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2">
-          {#if err.includes('Fetching')}
-            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-          {/if}
-          <span>{err}</span>
-        </div>
-      {/if}
-      
-      <!-- Chart Container -->
-      <div class="h-[500px] min-h-[400px]">
+    <!-- Error / Info -->
+    {#if err}
+      <div class="mb-3 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2 flex-shrink-0">
+        {#if err.includes('Fetching')}
+          <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        {/if}
+        <span>{err}</span>
+      </div>
+    {/if}
+    
+    <!-- Chart Container (70% height) -->
+    <div class="flex-[0_0_70%] min-h-0 overflow-hidden bg-neutral-800/50 border border-neutral-700/50 rounded-xl">
       {#if loading}
         <div class="h-full flex items-center justify-center">
           <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -405,7 +403,9 @@
           </svg>
         </div>
       {:else if selectedTicker && chartData.length > 0}
-        <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} />
+        <div class="h-full">
+          <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} />
+        </div>
       {:else if selectedTicker}
         <div class="h-full flex items-center justify-center text-center">
           <div>
@@ -427,14 +427,15 @@
           </div>
         </div>
       {/if}
-      </div>
-      
-      <!-- Company Info Card (below chart) -->
-      {#if selectedTicker && (tickerInfo || tickerFundamentals)}
-        <div class="bg-neutral-800/50 border border-neutral-700/50 rounded-xl overflow-hidden">
+    </div>
+    
+    <!-- Company Info Card (flexible height) -->
+    {#if selectedTicker && (tickerInfo || tickerFundamentals)}
+      <div class="{showCompanyInfo ? 'flex-[0_0_30%]' : 'flex-shrink-0'} min-h-0 mt-1">
+        <div class="bg-neutral-800/50 border border-neutral-700/50 rounded-xl overflow-hidden h-full flex flex-col">
         <button
           on:click={() => showCompanyInfo = !showCompanyInfo}
-          class="w-full p-3 flex items-center justify-between hover:bg-neutral-800/70 transition-colors"
+          class="w-full p-3 flex items-center justify-between hover:bg-neutral-800/70 transition-colors flex-shrink-0"
         >
           <div class="flex items-center gap-3">
             <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -453,7 +454,7 @@
         </button>
         
         {#if showCompanyInfo}
-          <div class="p-4 pt-0 space-y-4 max-h-96 overflow-y-auto">
+          <div class="p-4 pt-0 space-y-4 overflow-y-auto flex-1">
             <!-- Description -->
             {#if tickerInfo?.description}
               <div>
@@ -539,7 +540,7 @@
           </div>
         {/if}
         </div>
-      {/if}
-    </div>
+      </div>
+    {/if}
   </div>
 </div>
