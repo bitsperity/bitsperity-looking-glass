@@ -5,6 +5,9 @@
   
   export let item: NewsItem;
   
+  let expanded = false;
+  let showHtml = false;
+  
   function formatDate(dateStr: string): string {
     const d = new Date(dateStr);
     const now = new Date();
@@ -22,6 +25,18 @@
     } catch {
       return 'unknown';
     }
+  }
+  
+  function toggleExpanded(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    expanded = !expanded;
+  }
+  
+  function toggleHtmlView(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    showHtml = !showHtml;
   }
 </script>
 
@@ -50,12 +65,67 @@
       </p>
     {/if}
     
-    <!-- Body Preview -->
-    {#if item.content_text}
+    <!-- Body Preview/Full Content -->
+    {#if item.content_text || item.content_html}
       <div class="mt-3 pt-3 border-t border-neutral-700/50">
-        <p class="text-sm text-neutral-300 leading-relaxed line-clamp-3">
-          {item.content_text}
-        </p>
+        {#if !expanded}
+          <!-- Collapsed Preview -->
+          <p class="text-sm text-neutral-300 leading-relaxed line-clamp-3">
+            {item.content_text || 'Content available'}
+          </p>
+          <button 
+            on:click={toggleExpanded}
+            class="mt-2 text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors flex items-center gap-1"
+          >
+            <span>Read full article</span>
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        {:else}
+          <!-- Expanded Full Content -->
+          <div class="space-y-3">
+            <!-- Toggle between Plain Text and HTML -->
+            {#if item.content_html}
+              <div class="flex items-center gap-2 mb-2">
+                <button
+                  on:click={toggleHtmlView}
+                  class="text-xs px-2 py-1 rounded {showHtml ? 'bg-neutral-700 text-neutral-300' : 'bg-blue-600 text-white'} font-medium transition-colors"
+                >
+                  Plain Text
+                </button>
+                <button
+                  on:click={toggleHtmlView}
+                  class="text-xs px-2 py-1 rounded {showHtml ? 'bg-blue-600 text-white' : 'bg-neutral-700 text-neutral-300'} font-medium transition-colors"
+                >
+                  HTML
+                </button>
+              </div>
+            {/if}
+            
+            {#if showHtml && item.content_html}
+              <!-- HTML View (Rendered) -->
+              <div class="prose prose-invert prose-sm max-w-none bg-neutral-900/50 rounded-lg p-4 overflow-x-auto max-h-[600px] overflow-y-auto">
+                {@html item.content_html}
+              </div>
+            {:else if item.content_text}
+              <!-- Plain Text View -->
+              <div class="text-sm text-neutral-300 leading-relaxed bg-neutral-900/50 rounded-lg p-4 whitespace-pre-wrap max-h-[600px] overflow-y-auto">
+                {item.content_text}
+              </div>
+            {/if}
+            
+            <button 
+              on:click={toggleExpanded}
+              class="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors flex items-center gap-1"
+            >
+              <span>Show less</span>
+              <svg class="w-3 h-3 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+        {/if}
       </div>
     {/if}
     
