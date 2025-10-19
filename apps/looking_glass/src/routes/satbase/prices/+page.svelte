@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getPricesSingle } from '$lib/api/prices';
-  import { getWatchlist, postWatchlist } from '$lib/api/watchlist';
+  import { getWatchlist, postWatchlist, deleteWatchlist } from '$lib/api/watchlist';
   import CandlestickChart from '$lib/components/charts/CandlestickChart.svelte';
   import type { CandlestickData } from 'lightweight-charts';
   
@@ -31,26 +31,53 @@
     }
   }
   
+  let retryCount = 0;
+  const MAX_RETRIES = 10; // 10 * 3s = 30 seconds max
+
   async function loadChart() {
     if (!selectedTicker) return;
     loading = true;
     err = null;
+    
     try {
       const res = await getPricesSingle(selectedTicker, from, to, btcView);
       
       // Convert bars to CandlestickData format
-      chartData = res.bars
-        .map((bar: any) => ({
-          time: new Date(bar.date).getTime() / 1000,
-          open: bar.open,
-          high: bar.high,
-          low: bar.low,
-          close: bar.close,
-        }))
-        .sort((a: any, b: any) => a.time - b.time);
-    } catch (e) {
-      err = String(e);
-      chartData = [];
+      if (res.bars && res.bars.length > 0) {
+        chartData = res.bars
+          .map((bar: any) => ({
+            time: new Date(bar.date).getTime() / 1000,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+          }))
+          .sort((a: any, b: any) => a.time - b.time);
+        retryCount = 0; // Reset on success
+      } else {
+        // No data available, but not an error condition
+        chartData = [];
+      }
+    } catch (e: any) {
+      // Handle 202 gracefully - data is being fetched
+      if (e?.message?.includes('202') || e?.status === 202) {
+        if (retryCount < MAX_RETRIES) {
+          retryCount++;
+          err = `Fetching data for ${selectedTicker}... (${retryCount}/${MAX_RETRIES})`;
+          // Keep existing chartData if available
+          setTimeout(() => {
+            if (selectedTicker) loadChart();
+          }, 3000);
+        } else {
+          err = `Timeout: Data for ${selectedTicker} could not be fetched. The ticker may be invalid or the data source is unavailable.`;
+          retryCount = 0;
+          chartData = []; // Clear on timeout
+        }
+      } else {
+        err = String(e);
+        retryCount = 0;
+        chartData = []; // Clear on error
+      }
     } finally {
       loading = false;
     }
@@ -58,14 +85,30 @@
   
   async function addTicker() {
     if (!newTicker.trim()) return;
+    const tickerToAdd = newTicker.trim().toUpperCase();
     loading = true;
     err = null;
     try {
-      await postWatchlist({ symbols: [newTicker.trim().toUpperCase()], ttl_days: 365, ingest: true });
+      await postWatchlist({ symbols: [tickerToAdd], ttl_days: 365, ingest: true });
       newTicker = '';
       await loadWatchlist();
-    } catch (e) {
-      err = String(e);
+      // Auto-select the newly added ticker
+      selectedTicker = tickerToAdd;
+      retryCount = 0;
+      loadChart();
+    } catch (e: any) {
+      // Job failed (invalid ticker or API error) - remove from watchlist
+      const errMsg = e?.body?.error || e?.message || String(e);
+      if (errMsg.includes('No data found')) {
+        err = `Invalid ticker: ${tickerToAdd} is not available.`;
+      } else {
+        err = `Error adding ${tickerToAdd}: ${errMsg}`;
+      }
+      // Clean up: remove from watchlist
+      try {
+        await deleteWatchlist(tickerToAdd);
+        await loadWatchlist();
+      } catch {}
     } finally {
       loading = false;
     }
@@ -73,13 +116,38 @@
   
   function selectTicker(ticker: string) {
     selectedTicker = ticker;
-    loadChart();
+    retryCount = 0; // Reset retry counter when switching tickers
+    // Note: loadChart() is called automatically by the reactive statement
+  }
+  
+  async function removeTicker(ticker: string) {
+    if (!confirm(`Remove ${ticker} from watchlist?`)) return;
+    loading = true;
+    err = null;
+    try {
+      await deleteWatchlist(ticker);
+      await loadWatchlist();
+      // If the removed ticker was selected, clear selection
+      if (selectedTicker === ticker) {
+        selectedTicker = '';
+        chartData = [];
+      }
+    } catch (e) {
+      err = `Failed to remove ${ticker}: ${String(e)}`;
+    } finally {
+      loading = false;
+    }
   }
   
   onMount(loadWatchlist);
   
-  $: if (selectedTicker && (from || to || btcView !== undefined)) {
-    loadChart();
+  // Reactive: reload chart when ticker, date range, or btc view changes
+  $: {
+    // Trigger reload when any of these dependencies change
+    const _ = [selectedTicker, from, to, btcView];
+    if (selectedTicker && from && to) {
+      loadChart();
+    }
   }
 </script>
 
@@ -87,36 +155,37 @@
   <!-- Compact Sidebar -->
   <div class="w-56 flex-shrink-0 bg-neutral-900/50 border-r border-neutral-800 flex flex-col relative z-10">
     <div class="p-3 border-b border-neutral-800">
-      <h2 class="text-sm font-semibold text-neutral-300 mb-2">WATCHLIST</h2>
-      <div class="flex gap-1">
-        <input
-          type="text"
-          placeholder="Ticker"
-          bind:value={newTicker}
-          on:keydown={(e) => e.key === 'Enter' && addTicker()}
-          class="flex-1 bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-        <button
-          on:click={addTicker}
-          disabled={loading}
-          class="px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-xs font-medium"
-        >
-          +
-        </button>
-      </div>
+      <h2 class="text-xs uppercase tracking-wider text-neutral-500 mb-2">Watchlist</h2>
+      <input
+        type="text"
+        placeholder="Add ticker (press Enter)"
+        bind:value={newTicker}
+        on:keydown={(e) => e.key === 'Enter' && addTicker()}
+        disabled={loading}
+        class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 transition-all"
+      />
     </div>
     
     <div class="flex-1 overflow-y-auto p-2 space-y-1">
       {#each watchlist as item}
-        <button
-          on:click={() => selectTicker(item.symbol)}
-          class="w-full text-left px-2 py-1.5 rounded text-sm font-mono transition-colors
-            {selectedTicker === item.symbol 
-              ? 'bg-blue-600 text-white' 
-              : 'bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300'}"
-        >
-          {item.symbol}
-        </button>
+        <div class="flex items-center gap-1 group">
+          <button
+            on:click={() => selectTicker(item.symbol)}
+            class="flex-1 text-left px-2 py-1.5 rounded text-sm font-mono transition-colors
+              {selectedTicker === item.symbol 
+                ? 'bg-blue-600 text-white' 
+                : 'bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300'}"
+          >
+            {item.symbol}
+          </button>
+          <button
+            on:click|stopPropagation={() => removeTicker(item.symbol)}
+            class="w-6 h-6 flex items-center justify-center rounded text-neutral-500 hover:bg-red-500/20 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+            title="Remove {item.symbol}"
+          >
+            ×
+          </button>
+        </div>
       {/each}
     </div>
     
@@ -154,10 +223,16 @@
       </button>
     </div>
     
-    <!-- Error -->
+    <!-- Error / Info -->
     {#if err}
-      <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-sm text-red-400">
-        {err}
+      <div class="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2">
+        {#if err.includes('Fetching')}
+          <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        {/if}
+        <span>{err}</span>
       </div>
     {/if}
     

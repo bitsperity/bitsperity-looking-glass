@@ -74,6 +74,9 @@ def _run_prices_daily(job_id: str, tickers: list[str]) -> None:
     try:
         raw = fetch(params)
         models = list(normalize(raw))
+        if not models:
+            _JOBS[job_id].update({"status": "error", "error": f"No data found for tickers: {', '.join(tickers)}"})
+            return
         info = sink(models, date.today())
         _JOBS[job_id].update({"status": "done", "result": info})
     except Exception as e:

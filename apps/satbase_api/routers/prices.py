@@ -18,11 +18,24 @@ def prices_daily(ticker: str, from_: str | None = Query(None, alias="from"), to:
     lf = scan_parquet_glob(s.stage_dir, "stooq", "prices_daily", dfrom, dto)
     l_t = lf.filter(pl.col("ticker") == ticker.upper())
     if btc_view:
+        # Check if ticker has data
+        df_t = l_t.unique(subset=["ticker","date"]).collect()
+        if df_t.height == 0:
+            job_id = enqueue_prices_daily([ticker, "BTCUSD"])
+            return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
+        
+        # Check if BTCUSD has data for the date range
         l_btc = (
             lf.filter(pl.col("ticker") == "BTCUSD")
               .select(["date", "close"])  # EOD-Schlusskurs
               .rename({"close": "btc_close"})
         )
+        df_btc = l_btc.collect()
+        if df_btc.height == 0:
+            job_id = enqueue_prices_daily(["BTCUSD"])
+            return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
+        
+        # Now join and convert
         l_joined = l_t.join(l_btc, on="date", how="inner")
         df = (
             l_joined
@@ -38,9 +51,6 @@ def prices_daily(ticker: str, from_: str | None = Query(None, alias="from"), to:
             .collect()
         )
         records = df.to_dicts()
-        if len(records) == 0:
-            job_id = enqueue_prices_daily([ticker, "BTCUSD"])  # sicherstellen, dass BTC auch da ist
-            return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
         return {"ticker": ticker.upper(), "from": from_, "to": to, "btc_view": True, "bars": records}
     else:
         df = l_t.unique(subset=["ticker","date"]).sort("date", descending=True).collect()
