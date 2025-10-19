@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getPricesSingle } from '$lib/api/prices';
+  import { getPricesSingle, searchTickers, getTickerInfo, getTickerFundamentals, type TickerSearchResult, type TickerInfo, type TickerFundamentals } from '$lib/api/prices';
   import { getWatchlist, postWatchlist, deleteWatchlist } from '$lib/api/watchlist';
   import CandlestickChart from '$lib/components/charts/CandlestickChart.svelte';
+  import { ApiError } from '$lib/api/client';
   import type { CandlestickData } from 'lightweight-charts';
   
   let watchlist: Array<{ symbol: string }> = [];
@@ -12,6 +13,18 @@
   let btcView: boolean = false;
   let loading: boolean = false;
   let err: string | null = null;
+  
+  // Search autocomplete state
+  let searchResults: TickerSearchResult[] = [];
+  let showDropdown: boolean = false;
+  let searchLoading: boolean = false;
+  let searchDebounceTimer: number | null = null;
+  
+  // Company info state
+  let tickerInfo: TickerInfo | null = null;
+  let tickerFundamentals: TickerFundamentals | null = null;
+  let showCompanyInfo: boolean = false;
+  let infoLoading: boolean = false;
   
   // Date range is optional - empty = load all data
   let from: string = '';
@@ -108,6 +121,62 @@
     }
   }
   
+  async function handleSearchInput() {
+    const query = newTicker.trim();
+    
+    if (!query || query.length < 1) {
+      searchResults = [];
+      showDropdown = false;
+      return;
+    }
+    
+    // Debounce search
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+    }
+    
+    searchDebounceTimer = window.setTimeout(async () => {
+      searchLoading = true;
+      try {
+        const result = await searchTickers(query, 10);
+        if (result.error) {
+          searchResults = [];
+        } else {
+          searchResults = result.results;
+        }
+        showDropdown = searchResults.length > 0;
+      } catch (e) {
+        searchResults = [];
+        showDropdown = false;
+      } finally {
+        searchLoading = false;
+      }
+    }, 300);
+  }
+  
+  function selectSearchResult(ticker: TickerSearchResult) {
+    newTicker = ticker.symbol;
+    searchResults = [];
+    showDropdown = false;
+    addTicker();
+  }
+  
+  function handleBlur() {
+    // Delay to allow click on dropdown item
+    setTimeout(() => {
+      showDropdown = false;
+    }, 200);
+  }
+  
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !showDropdown) {
+      addTicker();
+    } else if (e.key === 'Escape') {
+      showDropdown = false;
+      searchResults = [];
+    }
+  }
+  
   async function addTicker() {
     if (!newTicker.trim()) return;
     const tickerToAdd = newTicker.trim().toUpperCase();
@@ -121,6 +190,8 @@
       selectedTicker = tickerToAdd;
       retryCount = 0;
       loadChart();
+      // Load company info
+      await loadCompanyInfo(tickerToAdd);
     } catch (e: any) {
       // Job failed (invalid ticker or API error) - remove from watchlist
       const errMsg = e?.body?.error || e?.message || String(e);
@@ -139,9 +210,40 @@
     }
   }
   
+  async function loadCompanyInfo(ticker: string) {
+    infoLoading = true;
+    try {
+      const [info, fundamentals] = await Promise.all([
+        getTickerInfo(ticker),
+        getTickerFundamentals(ticker)
+      ]);
+      
+      if ('error' in info) {
+        tickerInfo = null;
+      } else {
+        tickerInfo = info;
+      }
+      
+      if ('error' in fundamentals) {
+        tickerFundamentals = null;
+      } else {
+        tickerFundamentals = fundamentals;
+      }
+      
+      showCompanyInfo = true;
+    } catch (e) {
+      console.error("Failed to load company info:", e);
+      tickerInfo = null;
+      tickerFundamentals = null;
+    } finally {
+      infoLoading = false;
+    }
+  }
+  
   function selectTicker(ticker: string) {
     selectedTicker = ticker;
     retryCount = 0; // Reset retry counter when switching tickers
+    loadCompanyInfo(ticker); // Load company info when selecting ticker
     // Note: loadChart() is called automatically by the reactive statement
   }
   
@@ -179,16 +281,45 @@
 <div class="h-screen flex relative">
   <!-- Compact Sidebar -->
   <div class="w-56 flex-shrink-0 bg-neutral-900/50 border-r border-neutral-800 flex flex-col relative z-10">
-    <div class="p-3 border-b border-neutral-800">
+    <div class="p-3 border-b border-neutral-800 relative overflow-visible">
       <h2 class="text-xs uppercase tracking-wider text-neutral-500 mb-2">Watchlist</h2>
       <input
         type="text"
-        placeholder="Add ticker (press Enter)"
+        placeholder="Search ticker or company..."
         bind:value={newTicker}
-        on:keydown={(e) => e.key === 'Enter' && addTicker()}
+        on:input={handleSearchInput}
+        on:keydown={handleKeydown}
+        on:blur={handleBlur}
         disabled={loading}
         class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 transition-all"
       />
+      
+      <!-- Autocomplete Dropdown -->
+      {#if showDropdown && searchResults.length > 0}
+        <div class="absolute z-50 w-[calc(100%-1.5rem)] mt-1 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl max-h-80 overflow-y-auto">
+          {#each searchResults as result}
+            <button
+              on:click={() => selectSearchResult(result)}
+              class="w-full text-left px-3 py-2 hover:bg-neutral-700/50 transition-colors border-b border-neutral-700/30 last:border-b-0"
+            >
+              <div class="flex flex-col gap-0.5">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-sm text-blue-400 font-mono">{result.symbol}</span>
+                  {#if result.exchange}
+                    <span class="text-xs text-neutral-500">{result.exchange}</span>
+                  {/if}
+                </div>
+                {#if result.name}
+                  <div class="text-xs text-neutral-300 line-clamp-1">{result.name}</div>
+                {/if}
+                {#if result.sector}
+                  <div class="text-xs text-neutral-500">{result.sector}</div>
+                {/if}
+              </div>
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
     
     <div class="flex-1 overflow-y-auto p-2 space-y-1">
@@ -250,7 +381,7 @@
     
     <!-- Error / Info -->
     {#if err}
-      <div class="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2">
+      <div class="mb-3 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2">
         {#if err.includes('Fetching')}
           <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -258,6 +389,118 @@
           </svg>
         {/if}
         <span>{err}</span>
+      </div>
+    {/if}
+    
+    <!-- Company Info Card -->
+    {#if selectedTicker && showCompanyInfo && (tickerInfo || tickerFundamentals)}
+      <div class="mb-3 bg-neutral-800/50 border border-neutral-700/50 rounded-xl overflow-hidden">
+        <button
+          on:click={() => showCompanyInfo = !showCompanyInfo}
+          class="w-full p-3 flex items-center justify-between hover:bg-neutral-800/70 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="text-left">
+              <h3 class="text-sm font-semibold text-neutral-100">{tickerInfo?.name || selectedTicker}</h3>
+              {#if tickerInfo?.sector}
+                <p class="text-xs text-neutral-400">{tickerInfo.sector} • {tickerInfo.industry || ''}</p>
+              {/if}
+            </div>
+          </div>
+          <svg class="w-5 h-5 text-neutral-500 transition-transform {showCompanyInfo ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        
+        {#if showCompanyInfo}
+          <div class="p-3 pt-0 space-y-3 max-h-64 overflow-y-auto">
+            <!-- Description -->
+            {#if tickerInfo?.description}
+              <div>
+                <h4 class="text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-1">About</h4>
+                <p class="text-xs text-neutral-300 leading-relaxed">{tickerInfo.description}</p>
+              </div>
+            {/if}
+            
+            <!-- Key Metrics Grid -->
+            {#if tickerFundamentals}
+              <div>
+                <h4 class="text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">Key Metrics</h4>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {#if tickerFundamentals.market_cap}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">Market Cap</div>
+                      <div class="text-sm font-semibold text-neutral-100">${(tickerFundamentals.market_cap / 1e9).toFixed(2)}B</div>
+                    </div>
+                  {/if}
+                  {#if tickerFundamentals.pe_ratio}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">P/E Ratio</div>
+                      <div class="text-sm font-semibold text-neutral-100">{tickerFundamentals.pe_ratio.toFixed(2)}</div>
+                    </div>
+                  {/if}
+                  {#if tickerFundamentals.eps}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">EPS</div>
+                      <div class="text-sm font-semibold text-neutral-100">${tickerFundamentals.eps.toFixed(2)}</div>
+                    </div>
+                  {/if}
+                  {#if tickerFundamentals.dividend_yield}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">Dividend Yield</div>
+                      <div class="text-sm font-semibold text-neutral-100">{(tickerFundamentals.dividend_yield * 100).toFixed(2)}%</div>
+                    </div>
+                  {/if}
+                  {#if tickerFundamentals.beta}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">Beta</div>
+                      <div class="text-sm font-semibold text-neutral-100">{tickerFundamentals.beta.toFixed(2)}</div>
+                    </div>
+                  {/if}
+                  {#if tickerFundamentals.profit_margin}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">Profit Margin</div>
+                      <div class="text-sm font-semibold text-neutral-100">{(tickerFundamentals.profit_margin * 100).toFixed(2)}%</div>
+                    </div>
+                  {/if}
+                  {#if tickerFundamentals['52_week_high']}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">52W High</div>
+                      <div class="text-sm font-semibold text-neutral-100">${tickerFundamentals['52_week_high'].toFixed(2)}</div>
+                    </div>
+                  {/if}
+                  {#if tickerFundamentals['52_week_low']}
+                    <div class="bg-neutral-900/50 rounded p-2">
+                      <div class="text-xs text-neutral-500">52W Low</div>
+                      <div class="text-sm font-semibold text-neutral-100">${tickerFundamentals['52_week_low'].toFixed(2)}</div>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            {/if}
+            
+            <!-- Additional Info -->
+            <div class="flex items-center gap-4 text-xs text-neutral-400">
+              {#if tickerInfo?.website}
+                <a href={tickerInfo.website} target="_blank" rel="noreferrer" class="hover:text-blue-400 transition-colors flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  Website
+                </a>
+              {/if}
+              {#if tickerInfo?.exchange}
+                <span>{tickerInfo.exchange}</span>
+              {/if}
+              {#if tickerInfo?.country}
+                <span>{tickerInfo.country}</span>
+              {/if}
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
     

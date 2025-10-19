@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from .ingest import enqueue_prices_daily
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.stage import scan_parquet_glob
+import yfinance as yf
 
 router = APIRouter()
 
@@ -128,4 +129,105 @@ def prices_daily_multi(tickers: str, from_: str | None = Query(None, alias="from
         job_id = enqueue_prices_daily(tick_list)
         return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
     return {"tickers": tick_list, "from": from_, "to": to, "btc_view": btc_view, "series": out}
+
+
+@router.get("/prices/search")
+async def search_tickers(q: str, limit: int = 10):
+    """Search for stocks by ticker or company name using Yahoo Finance"""
+    if not q or len(q) < 1:
+        return {"query": q, "count": 0, "results": []}
+    
+    try:
+        # Use yfinance search (via Ticker quotes search)
+        import yfinance as yf
+        
+        # Search for tickers matching the query
+        search_results = yf.Search(q, max_results=limit, news_count=0)
+        quotes = search_results.quotes
+        
+        results = []
+        for quote in quotes:
+            results.append({
+                "symbol": quote.get("symbol", ""),
+                "name": quote.get("shortname") or quote.get("longname", ""),
+                "exchange": quote.get("exchDisp", ""),
+                "type": quote.get("quoteType", ""),
+                "sector": quote.get("sector", ""),
+            })
+        
+        return {"query": q, "count": len(results), "results": results}
+    except Exception as e:
+        return {"query": q, "count": 0, "results": [], "error": str(e)}
+
+
+@router.get("/prices/info/{ticker}")
+async def ticker_info(ticker: str):
+    """Get detailed company information for a ticker"""
+    try:
+        t = yf.Ticker(ticker.upper())
+        info = t.info
+        
+        if not info or "symbol" not in info:
+            return {"error": f"No info found for ticker {ticker.upper()}"}
+        
+        # Extract relevant fields
+        return {
+            "symbol": info.get("symbol"),
+            "name": info.get("longName") or info.get("shortName"),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "description": info.get("longBusinessSummary"),
+            "website": info.get("website"),
+            "country": info.get("country"),
+            "currency": info.get("currency"),
+            "exchange": info.get("exchange"),
+            "market_cap": info.get("marketCap"),
+            "enterprise_value": info.get("enterpriseValue"),
+            "employees": info.get("fullTimeEmployees"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/prices/fundamentals/{ticker}")
+async def ticker_fundamentals(ticker: str):
+    """Get key financial metrics for a ticker"""
+    try:
+        t = yf.Ticker(ticker.upper())
+        info = t.info
+        
+        if not info or "symbol" not in info:
+            return {"error": f"No fundamentals found for ticker {ticker.upper()}"}
+        
+        # Extract financial metrics
+        return {
+            "symbol": info.get("symbol"),
+            "current_price": info.get("currentPrice"),
+            "previous_close": info.get("previousClose"),
+            "day_high": info.get("dayHigh"),
+            "day_low": info.get("dayLow"),
+            "volume": info.get("volume"),
+            "avg_volume": info.get("averageVolume"),
+            "market_cap": info.get("marketCap"),
+            "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
+            "peg_ratio": info.get("pegRatio"),
+            "price_to_book": info.get("priceToBook"),
+            "eps": info.get("trailingEps"),
+            "dividend_yield": info.get("dividendYield"),
+            "beta": info.get("beta"),
+            "52_week_high": info.get("fiftyTwoWeekHigh"),
+            "52_week_low": info.get("fiftyTwoWeekLow"),
+            "revenue": info.get("totalRevenue"),
+            "revenue_per_share": info.get("revenuePerShare"),
+            "profit_margin": info.get("profitMargins"),
+            "operating_margin": info.get("operatingMargins"),
+            "return_on_equity": info.get("returnOnEquity"),
+            "return_on_assets": info.get("returnOnAssets"),
+            "debt_to_equity": info.get("debtToEquity"),
+            "recommendation": info.get("recommendationKey"),
+            "target_price": info.get("targetMeanPrice"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
