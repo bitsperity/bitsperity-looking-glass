@@ -20,6 +20,33 @@ def write_parquet(base: Path, source: str, dt: date, table: str, rows: Iterable[
     return out
 
 
+def upsert_parquet_by_id(base: Path, source: str, dt: date, table: str, id_field: str, new_rows: Iterable[dict]) -> Path:
+    """Write rows into a daily-partitioned parquet file, de-duplicated by id_field.
+
+    If the destination file exists, it will be loaded, concatenated with new_rows,
+    unique rows will be kept based on id_field, and the file will be overwritten.
+    """
+    p = partition_path(base, source, dt)
+    p.mkdir(parents=True, exist_ok=True)
+    out = p / f"{table}.parquet"
+    new_df = pl.from_dicts(list(new_rows)) if not isinstance(new_rows, pl.DataFrame) else new_rows
+    if out.exists():
+        try:
+            existing = pl.read_parquet(out)
+            combined = pl.concat([existing, new_df], how="vertical_relaxed")
+            if id_field in combined.columns:
+                combined = combined.unique(subset=[id_field], keep="last")
+            combined.write_parquet(out)
+            return out
+        except Exception:
+            # If reading existing fails, fall back to writing only new rows
+            new_df.write_parquet(out)
+            return out
+    else:
+        new_df.write_parquet(out)
+        return out
+
+
 def scan_parquet_glob(base: Path, source: str, table: str, date_from: date, date_to: date) -> pl.LazyFrame:
     # Präzises Partition-Pruning: Tagespfade iterieren; falls keine Treffer, fallback enger auf Monats-Wildcards
     daily_paths: list[str] = []

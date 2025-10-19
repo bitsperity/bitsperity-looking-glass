@@ -8,10 +8,10 @@ from libs.satbase_core.storage.stage import scan_parquet_glob
 router = APIRouter()
 
 @router.get("/news")
-def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, tickers: str | None = None, limit: int = 100):
+def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, tickers: str | None = None, limit: int = 100, include_body: bool = False):
     s = load_settings()
     if not from_ or not to:
-        return {"items": [], "from": from_, "to": to, "limit": limit}
+        return {"items": [], "from": from_, "to": to, "limit": limit, "include_body": include_body}
     dfrom = date.fromisoformat(from_)
     dto = date.fromisoformat(to)
     lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", dfrom, dto)
@@ -60,7 +60,21 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
             term = term.strip()
             if term:
                 df = df.filter(pl.col("title").str.contains(term, literal=False) | pl.col("text").str.contains(term, literal=False))
-    # Sort first (string sort is fine for ISO-like values), then apply optional tickers filter in Python for robustness
+    # Join optional body
+    if include_body:
+        try:
+            lf_bg = scan_parquet_glob(s.stage_dir, "news_body", "news_body", dfrom, dto)
+            df_b = lf_bg.collect()
+        except Exception:
+            df_b = pl.DataFrame(schema={"id": pl.Utf8, "content_text": pl.Utf8, "content_html": pl.Utf8, "fetched_at": pl.Datetime, "published_at": pl.Datetime})
+        # Normalize fetched_at for compatibility
+        if df_b.height and "fetched_at" in df_b.columns:
+            df_b = df_b.with_columns(pl.col("fetched_at").cast(pl.Utf8))
+        if df_b.height and "published_at" in df_b.columns:
+            df_b = df_b.with_columns(pl.col("published_at").cast(pl.Utf8))
+        if df_b.height and "id" in df_b.columns:
+            df = df.join(df_b, on="id", how="left")
+    # Sort first, then Python-side tickers filter for robustness
     df = df.sort("published_at", descending=True)
     items = df.to_dicts()
     if tickers:
@@ -68,5 +82,5 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         if tick_set:
             items = [it for it in items if isinstance(it.get("tickers"), list) and any(t in tick_set for t in it.get("tickers", []))]
     items = items[: max(0, int(limit))]
-    return {"items": items, "from": from_, "to": to, "limit": limit}
+    return {"items": items, "from": from_, "to": to, "limit": limit, "include_body": include_body}
 

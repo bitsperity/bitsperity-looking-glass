@@ -15,3 +15,12 @@ class NewsDoc(BaseModel):
     regions: list[str] | None = None
     themes: list[str] | None = None
 
+
+class NewsBody(BaseModel):
+    id: str
+    url: str
+    content_text: str | None = None
+    content_html: str | None = None
+    fetched_at: datetime
+    published_at: datetime
+

@@ -13,6 +13,7 @@ AdapterFns = tuple[
 def registry() -> dict[str, AdapterFns]:
     from ..adapters import stooq, fred, btc_oracle
     from ..adapters import gdelt_doc_v2, news_google_rss, eod_yfinance
+    from ..adapters import news_body_fetcher
 
     return {
         "gdelt_doc_v2": (gdelt_doc_v2.fetch, gdelt_doc_v2.normalize, gdelt_doc_v2.sink),
@@ -21,5 +22,6 @@ def registry() -> dict[str, AdapterFns]:
         "eod_yfinance": (eod_yfinance.fetch, eod_yfinance.normalize, eod_yfinance.sink),
         "fred": (fred.fetch, fred.normalize, fred.sink),
         "btc_oracle": (btc_oracle.fetch, btc_oracle.normalize, btc_oracle.sink),
+        "news_body_fetcher": (news_body_fetcher.fetch, news_body_fetcher.normalize, news_body_fetcher.sink),
     }
 

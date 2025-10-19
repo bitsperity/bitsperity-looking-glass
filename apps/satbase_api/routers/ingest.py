@@ -12,6 +12,9 @@ from fastapi.responses import JSONResponse
 
 from libs.satbase_core.ingest.registry import registry
 from libs.satbase_core.utils.logging import log
+from libs.satbase_core.config.settings import load_settings
+from libs.satbase_core.storage.stage import scan_parquet_glob
+import polars as pl
 
 
 router = APIRouter()
@@ -52,6 +55,12 @@ def enqueue_macro_fred(series: list[str]) -> str:
 def enqueue_news(query: str, hours: int | None = None) -> str:
     job_id = _new_job("news", {"query": query, "hours": hours})
     _start_thread(_run_news, job_id, query, hours)
+    return job_id
+
+
+def enqueue_news_bodies(date_from: date, date_to: date) -> str:
+    job_id = _new_job("news_bodies", {"from": date_from.isoformat(), "to": date_to.isoformat()})
+    _start_thread(_run_news_bodies, job_id, date_from, date_to)
     return job_id
 
 
@@ -115,6 +124,50 @@ def _run_news(job_id: str, query: str, hours: int | None) -> None:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
 
 
+def _run_news_bodies(job_id: str, date_from: date, date_to: date) -> None:
+    _JOBS[job_id]["status"] = "running"
+    reg = registry()
+    try:
+        s = load_settings()
+        # Load news_docs for range
+        lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", date_from, date_to)
+        lf_r = scan_parquet_glob(s.stage_dir, "news_rss", "news_docs", date_from, date_to)
+        try:
+            df_g = lf_g.collect()
+        except Exception:
+            df_g = pl.DataFrame()
+        try:
+            df_r = lf_r.collect()
+        except Exception:
+            df_r = pl.DataFrame()
+        # Align published_at dtype to avoid tz conflicts (let Pydantic parse ISO later)
+        if df_g.height and "published_at" in df_g.columns:
+            df_g = df_g.with_columns(pl.col("published_at").cast(pl.Utf8))
+        if df_r.height and "published_at" in df_r.columns:
+            df_r = df_r.with_columns(pl.col("published_at").cast(pl.Utf8))
+        # Build NewsDoc list without polars concat to avoid tz dtype conflicts
+        from libs.satbase_core.models.news import NewsDoc
+        rows: list[dict[str, Any]] = []
+        if df_g.height:
+            g_rows = df_g.with_columns(
+                pl.col("published_at").cast(pl.Utf8)
+            ).to_dicts()
+            rows.extend(g_rows)
+        if df_r.height:
+            r_rows = df_r.with_columns(
+                pl.col("published_at").cast(pl.Utf8)
+            ).to_dicts()
+            rows.extend(r_rows)
+        docs = [NewsDoc(**row) for row in rows] if rows else []
+        # Run body fetcher
+        fetch, normalize, sink = reg["news_body_fetcher"]
+        models = list(normalize(docs))
+        info = sink(models, date.today())
+        _JOBS[job_id].update({"status": "done", "result": info})
+    except Exception as e:
+        _JOBS[job_id].update({"status": "error", "error": str(e)})
+
+
 @router.post("/ingest/prices/daily", status_code=status.HTTP_202_ACCEPTED)
 def ingest_prices_daily(body: dict[str, Any]):
     tickers = body.get("tickers", [])
@@ -137,6 +190,19 @@ def ingest_news(body: dict[str, Any]):
     hours: int | None = body.get("hours")
     job_id = _new_job("news", {"query": query, "hours": hours})
     _start_thread(_run_news, job_id, query, hours)
+    return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post("/ingest/news/bodies", status_code=status.HTTP_202_ACCEPTED)
+def ingest_news_bodies(body: dict[str, Any]):
+    from_str = body.get("from")
+    to_str = body.get("to")
+    if not from_str or not to_str:
+        return JSONResponse({"error": "from/to required"}, status_code=400)
+    dfrom = date.fromisoformat(from_str)
+    dto = date.fromisoformat(to_str)
+    job_id = _new_job("news_bodies", {"from": from_str, "to": to_str})
+    _start_thread(_run_news_bodies, job_id, dfrom, dto)
     return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
 
 
