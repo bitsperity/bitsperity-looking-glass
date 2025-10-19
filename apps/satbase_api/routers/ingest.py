@@ -75,7 +75,8 @@ def _run_prices_daily(job_id: str, tickers: list[str]) -> None:
         raw = fetch(params)
         models = list(normalize(raw))
         if not models:
-            _JOBS[job_id].update({"status": "error", "error": f"No data found for tickers: {', '.join(tickers)}"})
+            # No new data (delta-fetch returned empty) - this is OK, mark as done
+            _JOBS[job_id].update({"status": "done", "result": {"count": 0, "message": "No new data (already up-to-date)"}})
             return
         info = sink(models, date.today())
         _JOBS[job_id].update({"status": "done", "result": info})

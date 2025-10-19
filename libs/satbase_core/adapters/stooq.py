@@ -85,6 +85,8 @@ def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
     tickers: list[str] = params.get("tickers", [])
     s = load_settings()
     result: dict[str, list[DailyBar]] = {}
+    invalid_tickers: list[str] = []
+    
     for t in tickers:
         sym = _normalize_symbol(t, params)
         url = f"{BASE}?s={sym}&i=d"
@@ -94,12 +96,23 @@ def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
             # Falls Timeout: nächster Ticker, aber vorhandene bleiben
             result[t.upper()] = []
             continue
+        
+        # Check if Stooq returned "No data" (invalid ticker)
+        if text.strip() == "No data":
+            invalid_tickers.append(t.upper())
+            continue
+        
         bars = _parse_csv(t, text)
         # Delta: nur neue Tage über der bisherigen Max(date)
         last_dt = _latest_date_for_ticker(Path(s.stage_dir), t.upper())
         if last_dt is not None:
             bars = [b for b in bars if b.date > last_dt]
         result[t.upper()] = bars
+    
+    # If any tickers were invalid, raise an error
+    if invalid_tickers:
+        raise ValueError(f"Invalid ticker(s): {', '.join(invalid_tickers)}")
+    
     return result
 
 
