@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark Mode aktivieren ohne @apply dark (nicht als Utility verfügbar) */
+html { color-scheme: dark; background-color: #0a0a0a; color: #e5e7eb; }
+
