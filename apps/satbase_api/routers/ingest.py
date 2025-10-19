@@ -209,6 +209,24 @@ def ingest_news_bodies(body: dict[str, Any]):
     return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
 
 
+@router.get("/ingest/jobs")
+def list_all_jobs(limit: int = 100, status_filter: str | None = None):
+    """List all jobs with optional status filter and limit"""
+    jobs = []
+    for job_id, job_data in _JOBS.items():
+        if status_filter and job_data.get("status") != status_filter:
+            continue
+        jobs.append({"job_id": job_id, **job_data})
+    
+    # Sort by newest first (reverse insertion order approximation)
+    jobs = sorted(jobs, key=lambda x: x.get("job_id", ""), reverse=True)
+    
+    return {
+        "count": len(jobs),
+        "jobs": jobs[:limit]
+    }
+
+
 @router.get("/ingest/jobs/{job_id}")
 def ingest_job_status(job_id: str):
     job = _JOBS.get(job_id)
