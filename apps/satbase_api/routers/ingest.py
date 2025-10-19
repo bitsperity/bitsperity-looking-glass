@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import threading
 import uuid
-from datetime import date
+import json
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,51 @@ router = APIRouter()
 
 
 _JOBS: dict[str, dict[str, Any]] = {}
+
+
+def _jobs_log_path() -> Path:
+    """Get path to jobs log file (JSONL format)"""
+    s = load_settings()
+    log_dir = Path(s.stage_dir).parent / "logs" / "jobs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / "jobs.jsonl"
+
+
+def _persist_job(job_id: str) -> None:
+    """Append job to JSONL log file"""
+    if job_id not in _JOBS:
+        return
+    
+    job_data = {"job_id": job_id, **_JOBS[job_id], "updated_at": datetime.utcnow().isoformat()}
+    log_path = _jobs_log_path()
+    
+    try:
+        with open(log_path, "a") as f:
+            f.write(json.dumps(job_data) + "\n")
+    except Exception as e:
+        log.error(f"Failed to persist job {job_id}: {e}")
+
+
+def _load_jobs_from_log(limit: int = 100) -> list[dict[str, Any]]:
+    """Load recent jobs from JSONL log"""
+    log_path = _jobs_log_path()
+    if not log_path.exists():
+        return []
+    
+    jobs = []
+    try:
+        with open(log_path, "r") as f:
+            lines = f.readlines()
+            # Get last N lines (most recent jobs)
+            for line in lines[-limit:]:
+                if line.strip():
+                    jobs.append(json.loads(line))
+        # Reverse to get newest first
+        jobs.reverse()
+    except Exception as e:
+        log.error(f"Failed to load jobs from log: {e}")
+    
+    return jobs
 
 
 def _load_cfg() -> dict[str, Any]:
@@ -66,6 +112,8 @@ def enqueue_news_bodies(date_from: date, date_to: date) -> str:
 
 def _run_prices_daily(job_id: str, tickers: list[str]) -> None:
     _JOBS[job_id]["status"] = "running"
+    _persist_job(job_id)  # Persist running state
+    
     reg = registry()
     fetch, normalize, sink = reg["stooq"]
     cfg = _load_cfg()
@@ -77,15 +125,20 @@ def _run_prices_daily(job_id: str, tickers: list[str]) -> None:
         if not models:
             # No new data (delta-fetch returned empty) - this is OK, mark as done
             _JOBS[job_id].update({"status": "done", "result": {"count": 0, "message": "No new data (already up-to-date)"}})
+            _persist_job(job_id)  # Persist final state
             return
         info = sink(models, date.today())
         _JOBS[job_id].update({"status": "done", "result": info})
+        _persist_job(job_id)  # Persist final state
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
+        _persist_job(job_id)  # Persist error state
 
 
 def _run_macro_fred(job_id: str, series: list[str]) -> None:
     _JOBS[job_id]["status"] = "running"
+    _persist_job(job_id)
+    
     reg = registry()
     fetch, normalize, sink = reg["fred"]
     cfg = _load_cfg()
@@ -96,12 +149,16 @@ def _run_macro_fred(job_id: str, series: list[str]) -> None:
         models = list(normalize(raw))
         info = sink(models, date.today())
         _JOBS[job_id].update({"status": "done", "result": info})
+        _persist_job(job_id)
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
+        _persist_job(job_id)
 
 
 def _run_news(job_id: str, query: str, hours: int | None) -> None:
     _JOBS[job_id]["status"] = "running"
+    _persist_job(job_id)
+    
     reg = registry()
     results: dict[str, Any] = {}
     try:
@@ -124,12 +181,16 @@ def _run_news(job_id: str, query: str, hours: int | None) -> None:
             info = sink(models, date.today())
             results["news_google_rss"] = info
         _JOBS[job_id].update({"status": "done", "result": results})
+        _persist_job(job_id)
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
+        _persist_job(job_id)
 
 
 def _run_news_bodies(job_id: str, date_from: date, date_to: date) -> None:
     _JOBS[job_id]["status"] = "running"
+    _persist_job(job_id)
+    
     reg = registry()
     try:
         s = load_settings()
@@ -168,8 +229,10 @@ def _run_news_bodies(job_id: str, date_from: date, date_to: date) -> None:
         models = list(normalize(docs))
         info = sink(models, date.today())
         _JOBS[job_id].update({"status": "done", "result": info})
+        _persist_job(job_id)
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
+        _persist_job(job_id)
 
 
 @router.post("/ingest/prices/daily", status_code=status.HTTP_202_ACCEPTED)
@@ -212,14 +275,27 @@ def ingest_news_bodies(body: dict[str, Any]):
 
 @router.get("/ingest/jobs")
 def list_all_jobs(limit: int = 100, status_filter: str | None = None):
-    """List all jobs with optional status filter and limit"""
-    jobs = []
-    for job_id, job_data in _JOBS.items():
-        if status_filter and job_data.get("status") != status_filter:
-            continue
-        jobs.append({"job_id": job_id, **job_data})
+    """List all jobs with optional status filter and limit (from persistent log + in-memory)"""
+    # Merge in-memory jobs with persisted jobs
+    jobs_dict = {}
     
-    # Sort by newest first (reverse insertion order approximation)
+    # Load from persistent log first
+    persisted_jobs = _load_jobs_from_log(limit=1000)  # Load more, then filter
+    for job in persisted_jobs:
+        jobs_dict[job["job_id"]] = job
+    
+    # Override/add with in-memory jobs (most recent state)
+    for job_id, job_data in _JOBS.items():
+        jobs_dict[job_id] = {"job_id": job_id, **job_data}
+    
+    # Convert to list and filter
+    jobs = []
+    for job in jobs_dict.values():
+        if status_filter and job.get("status") != status_filter:
+            continue
+        jobs.append(job)
+    
+    # Sort by job_id (UUID hex) - newer UUIDs are lexicographically later
     jobs = sorted(jobs, key=lambda x: x.get("job_id", ""), reverse=True)
     
     return {
