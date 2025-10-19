@@ -10,6 +10,7 @@ from ..config.settings import load_settings
 from .http import get_json, default_headers
 from ..storage.stage import write_parquet
 from ..utils.logging import log
+from ..resolver.watcher import load_watchlist_symbols, match_text_to_symbols
 
 
 BASE = "https://api.gdeltproject.org/api/v2/doc/doc"
@@ -26,7 +27,7 @@ def _normalize(rec: dict[str, Any]) -> NewsDoc | None:
     except Exception:
         published_at = datetime.utcnow()
     nid = sha1_hex(f"{url}|{published_at.isoformat()}")
-    return NewsDoc(
+    doc = NewsDoc(
         id=nid,
         source="gdelt",
         title=rec.get("title") or rec.get("DocumentTitle") or "",
@@ -37,6 +38,15 @@ def _normalize(rec: dict[str, Any]) -> NewsDoc | None:
         regions=None,
         themes=None,
     )
+    # naive mapping: watchlist symbols in title/text
+    try:
+        symbols = load_watchlist_symbols()
+        m = match_text_to_symbols(f"{doc.title} {doc.text}", symbols)
+        if m:
+            doc.tickers = m
+    except Exception:
+        pass
+    return doc
 
 
 def fetch(params: dict[str, Any]) -> List[dict]:

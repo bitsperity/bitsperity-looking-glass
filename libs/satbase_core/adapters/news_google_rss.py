@@ -10,6 +10,7 @@ from urllib.parse import quote_plus
 from ..utils.hashing import sha1_hex
 from ..config.settings import load_settings
 from ..storage.stage import write_parquet
+from ..resolver.watcher import load_watchlist_symbols, match_text_to_symbols
 
 
 BASE = "https://news.google.com/rss/search"
@@ -37,7 +38,7 @@ def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
         else:
             published_at = datetime.now(tz=timezone.utc)
         nid = sha1_hex(f"{link}|{published_at.isoformat()}")
-        yield NewsDoc(
+        doc = NewsDoc(
             id=nid,
             source="google_rss",
             title=title,
@@ -48,6 +49,14 @@ def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
             regions=None,
             themes=None,
         )
+        try:
+            symbols = load_watchlist_symbols()
+            m = match_text_to_symbols(f"{doc.title} {doc.text}", symbols)
+            if m:
+                doc.tickers = m
+        except Exception:
+            pass
+        yield doc
 
 
 def sink(models: Iterable[NewsDoc], partition_dt: date) -> dict:
