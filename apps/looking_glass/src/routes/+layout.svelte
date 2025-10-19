@@ -5,11 +5,11 @@
   import '../app.css';
 </script>
 
-<div class="flex bg-neutral-900 text-neutral-100 min-h-screen">
+<div class="flex bg-neutral-900 text-neutral-100 h-screen overflow-hidden">
   <Sidebar current={data.section || ''} />
-  <div class="flex-1 flex flex-col">
+  <div class="flex-1 flex flex-col overflow-hidden">
     <Topbar apiBase={data.apiBase} />
-    <main class="flex-1 p-6">
+    <main class="flex-1 overflow-hidden">
       <slot />
     </main>
   </div>

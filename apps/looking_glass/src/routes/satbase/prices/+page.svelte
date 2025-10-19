@@ -279,9 +279,9 @@
   }
 </script>
 
-<div class="h-screen flex relative">
+<div class="h-screen flex relative overflow-hidden">
   <!-- Compact Sidebar -->
-  <div class="w-56 flex-shrink-0 bg-neutral-900/50 border-r border-neutral-800 flex flex-col relative z-10">
+  <div class="w-56 flex-shrink-0 bg-neutral-900/50 border-r border-neutral-800 flex flex-col relative z-10 overflow-hidden">
     <div class="p-3 border-b border-neutral-800 relative overflow-visible">
       <h2 class="text-xs uppercase tracking-wider text-neutral-500 mb-2">Watchlist</h2>
       <input
@@ -354,9 +354,9 @@
   </div>
   
   <!-- Main Area -->
-  <div class="flex-1 flex flex-col p-4 overflow-hidden">
+  <div class="flex-1 flex flex-col overflow-hidden">
     <!-- Compact Toolbar -->
-    <div class="flex items-center gap-3 mb-4 pb-3 border-b border-neutral-800 flex-shrink-0">
+    <div class="flex items-center gap-3 p-3 pb-2 border-b border-neutral-800 flex-shrink-0">
       <div class="flex items-center gap-2">
         <span class="text-xs text-neutral-500">From</span>
         <input type="date" bind:value={from} max={today} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
@@ -382,7 +382,7 @@
     
     <!-- Error / Info -->
     {#if err}
-      <div class="mb-3 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-300 flex items-center gap-2 flex-shrink-0">
+      <div class="mx-3 mb-2 bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 text-sm text-blue-300 flex items-center gap-2 flex-shrink-0">
         {#if err.includes('Fetching')}
           <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -393,8 +393,8 @@
       </div>
     {/if}
     
-    <!-- Chart Container (70% height) -->
-    <div class="flex-[0_0_70%] min-h-0 overflow-hidden bg-neutral-800/50 border border-neutral-700/50 rounded-xl">
+    <!-- Chart Container (takes remaining space) -->
+    <div class="flex-1 min-h-0 overflow-hidden bg-neutral-800/50 border border-neutral-700/50 rounded-xl mx-3 mb-2">
       {#if loading}
         <div class="h-full flex items-center justify-center">
           <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -429,9 +429,9 @@
       {/if}
     </div>
     
-    <!-- Company Info Card (flexible height) -->
+    <!-- Company Info Card (fixed 30vh height when expanded) -->
     {#if selectedTicker && (tickerInfo || tickerFundamentals)}
-      <div class="{showCompanyInfo ? 'flex-[0_0_30%]' : 'flex-shrink-0'} min-h-0 mt-1">
+      <div class="flex-shrink-0 mx-3 mb-3" style="height: {showCompanyInfo ? '30vh' : 'auto'}">
         <div class="bg-neutral-800/50 border border-neutral-700/50 rounded-xl overflow-hidden h-full flex flex-col">
         <button
           on:click={() => showCompanyInfo = !showCompanyInfo}
