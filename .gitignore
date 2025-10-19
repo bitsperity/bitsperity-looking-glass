@@ -3,3 +3,5 @@ data/
 .cursor/
 __pycache__/
 *.parquet
+x-mcp/
+yfinance-mcp/
