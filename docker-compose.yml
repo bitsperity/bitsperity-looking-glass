@@ -26,7 +26,40 @@ services:
     network_mode: host
     environment:
       - VITE_API_BASE=http://127.0.0.1:8080
+      - VITE_TESSERACT_BASE=http://127.0.0.1:8081
     working_dir: /app
     volumes:
       - ./apps/looking_glass/src:/app/src:ro
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    environment:
+      - QDRANT__LOG_LEVEL=INFO
+    restart: unless-stopped
+
+  tesseract-api:
+    build: .
+    network_mode: host
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./libs:/app/libs:ro
+      - ./apps:/app/apps:ro
+    command: ["uvicorn", "apps.tesseract_api.main:app", "--host", "0.0.0.0", "--port", "8081", "--reload"]
+    depends_on:
+      - qdrant
+      - satbase-api
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 

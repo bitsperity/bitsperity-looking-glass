@@ -8,6 +8,9 @@
     <li>
       <a href="/satbase" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='satbase' ? 'bg-neutral-800' : ''}">Satbase</a>
     </li>
+    <li>
+      <a href="/tesseract" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='tesseract' ? 'bg-neutral-800' : ''}">Tesseract</a>
+    </li>
   </ul>
 </nav>
 
