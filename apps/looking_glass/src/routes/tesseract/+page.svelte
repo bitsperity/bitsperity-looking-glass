@@ -8,6 +8,7 @@
     adminEmbedStatus,
     adminListCollections,
     adminSwitchCollection,
+    adminDeleteCollection,
     type SearchResult,
     type EmbedStatus
   } from '$lib/api/tesseract';
@@ -129,6 +130,15 @@
     try {
       await adminSwitchCollection(event.detail.name);
       await refreshStatus();
+      await refreshCollections();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  async function handleCollectionDelete(event: CustomEvent) {
+    try {
+      await adminDeleteCollection(event.detail.name);
       await refreshCollections();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -365,6 +375,7 @@
   on:initCollection={handleInitCollection}
   on:batchStart={handleBatchStart}
   on:collectionSwitch={handleCollectionSwitch}
+  on:collectionDelete={handleCollectionDelete}
 />
 
 <!-- Similar Articles Modal -->

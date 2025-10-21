@@ -80,3 +80,9 @@ export async function adminSwitchCollection(name: string): Promise<{ status: str
   return await resp.json();
 }
 
+export async function adminDeleteCollection(name: string): Promise<{ status: string; collection?: string; message?: string }> {
+  const resp = await fetch(`${TESSERACT_BASE}/v1/admin/collections/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  if (!resp.ok) throw new Error(`delete failed: ${resp.status}`);
+  return await resp.json();
+}
+

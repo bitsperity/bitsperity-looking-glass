@@ -15,6 +15,7 @@
   let batchTo = new Date().toISOString().slice(0, 10);
   let showBatchModal = false;
   let showSwitchModal = false;
+  let showDeleteModal = false;
   let targetCollection = '';
 
   function handleBatchStart() {
@@ -25,6 +26,15 @@
   function handleCollectionSwitch() {
     dispatch('collectionSwitch', { name: targetCollection });
     showSwitchModal = false;
+  }
+
+  function handleCollectionDelete() {
+    dispatch('collectionDelete', { name: targetCollection });
+    showDeleteModal = false;
+  }
+
+  function isActiveCollection(colName: string): boolean {
+    return colName === activeAlias;
   }
 </script>
 
@@ -161,20 +171,33 @@
         <div class="space-y-2">
           {#if collections?.collections}
             {#each collections.collections as col}
-              <button
-                class="w-full text-left bg-neutral-800/50 hover:bg-neutral-800 border border-neutral-700/50 rounded-lg p-3 transition-colors"
-                on:click={() => { targetCollection = col.name; showSwitchModal = true; }}
-              >
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-xs font-mono text-neutral-200">{col.name}</span>
-                  {#if col.is_active_alias_target !== undefined ? col.is_active_alias_target : (col.name === activeAlias)}
-                    <Badge variant="success" size="sm">Active</Badge>
+              <div class="bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3">
+                <div class="flex items-start justify-between gap-2">
+                  <button
+                    class="flex-1 text-left hover:bg-neutral-800/50 rounded p-1 -m-1 transition-colors"
+                    on:click={() => { if (!isActiveCollection(col.name)) { targetCollection = col.name; showSwitchModal = true; } }}
+                  >
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="text-xs font-mono text-neutral-200">{col.name}</span>
+                      {#if col.is_active_alias_target !== undefined ? col.is_active_alias_target : (col.name === activeAlias)}
+                        <Badge variant="success" size="sm">Active</Badge>
+                      {/if}
+                    </div>
+                    <div class="text-xs text-neutral-400">
+                      {col.points_count?.toLocaleString() ?? 0} vectors · {col.vector_size ?? 1024}D
+                    </div>
+                  </button>
+                  {#if !isActiveCollection(col.name)}
+                    <button
+                      class="flex-shrink-0 text-red-400 hover:text-red-300 text-sm px-2 py-1 rounded hover:bg-red-500/10 transition-colors"
+                      on:click={() => { targetCollection = col.name; showDeleteModal = true; }}
+                      title="Delete collection"
+                    >
+                      ×
+                    </button>
                   {/if}
                 </div>
-                <div class="text-xs text-neutral-400">
-                  {col.points_count?.toLocaleString() ?? 0} vectors · {col.vector_size ?? 1024}D
-                </div>
-              </button>
+              </div>
             {/each}
           {:else}
             <div class="text-xs text-neutral-500 p-4 text-center">No collections found</div>
@@ -236,6 +259,30 @@
         <Button variant="primary" size="sm" classes="flex-1 justify-center" on:click={handleCollectionSwitch}>
           Confirm
         </Button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Collection Delete Confirmation Modal -->
+{#if showDeleteModal}
+  <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]" on:click={() => { showDeleteModal = false; }}>
+    <div class="bg-neutral-900 border border-red-900/50 rounded-lg max-w-md w-full mx-4 p-6" on:click|stopPropagation>
+      <h3 class="text-lg font-semibold text-red-400 mb-2">Delete Collection</h3>
+      <p class="text-sm text-neutral-400 mb-4">
+        Permanently delete <span class="font-mono text-neutral-200">{targetCollection}</span>? 
+        This action cannot be undone. All vectors in this collection will be lost.
+      </p>
+      <div class="flex gap-2">
+        <Button variant="secondary" size="sm" classes="flex-1 justify-center" on:click={() => { showDeleteModal = false; }}>
+          Cancel
+        </Button>
+        <button
+          class="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded transition-colors"
+          on:click={handleCollectionDelete}
+        >
+          Delete
+        </button>
       </div>
     </div>
   </div>

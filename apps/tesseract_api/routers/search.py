@@ -251,6 +251,29 @@ async def list_collections():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list collections: {str(e)}")
 
+@router.delete("/admin/collections/{collection_name}")
+async def delete_collection(collection_name: str):
+    """Delete a collection (with safety checks)"""
+    try:
+        # Safety: Don't delete active collection
+        if collection_name == vector_store.collection_name:
+            raise HTTPException(status_code=400, detail=f"Cannot delete active collection '{collection_name}'. Switch to another collection first.")
+        
+        # Check if collection exists
+        try:
+            vector_store.get_collection(name=collection_name)
+        except Exception:
+            raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
+        
+        # Delete it
+        vector_store.delete_collection(name=collection_name)
+        
+        return {"status": "deleted", "collection": collection_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete collection: {str(e)}")
+
 # ==================== BACKGROUND TASKS ====================
 
 async def run_batch_embedding(from_date: str, to_date: str):
