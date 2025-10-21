@@ -37,7 +37,19 @@ def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
             published_at = datetime(*published_parsed[:6], tzinfo=timezone.utc)
         else:
             published_at = datetime.now(tz=timezone.utc)
-        nid = sha1_hex(f"{link}|{published_at.isoformat()}")
+        # ID based only on URL for stable cross-run matching with bodies
+        nid = sha1_hex(link)
+        
+        # naive mapping: watchlist symbols in title/text
+        tickers = []
+        try:
+            symbols = load_watchlist_symbols()
+            m = match_text_to_symbols(f"{title} {raw.get('summary', '')}", symbols)
+            if m:
+                tickers = m
+        except Exception:
+            pass
+        
         doc = NewsDoc(
             id=nid,
             source="google_rss",
@@ -45,17 +57,10 @@ def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
             text=raw.get("summary", ""),
             url=link,
             published_at=published_at,
-            tickers=None,
-            regions=None,
-            themes=None,
+            tickers=tickers,  # Always list, never None
+            regions=[],  # Always list, never None
+            themes=[],  # Always list, never None
         )
-        try:
-            symbols = load_watchlist_symbols()
-            m = match_text_to_symbols(f"{doc.title} {doc.text}", symbols)
-            if m:
-                doc.tickers = m
-        except Exception:
-            pass
         yield doc
 
 

@@ -12,7 +12,7 @@ from qdrant_client.models import PointStruct
 def main():
     print("Initializing Tesseract batch embedding...")
     
-    # 1. Initialize
+    # 1. Initialize (device from TESSERACT_DEVICE env var)
     embedder = Embedder()
     vector_store = VectorStore()
     
@@ -23,23 +23,28 @@ def main():
     except Exception as e:
         print(f"Collection already exists or error: {e}")
     
-    # 3. Fetch all news from Satbase
-    print("Fetching news from Satbase...")
+    # 3. Fetch all news from Satbase (only with body content)
+    print("Fetching news from Satbase (only articles with body)...")
     satbase_url = "http://localhost:8080/v1/news"
     
     with httpx.Client(timeout=300.0) as client:
         response = client.get(satbase_url, params={
             "from": "2020-01-01",
             "to": "2025-12-31",
-            "limit": 100000
+            "limit": 100000,
+            "include_body": True,
+            "has_body": True  # Only fetch news with content_text
         })
         news_items = response.json()["items"]
     
     print(f"Fetched {len(news_items)} articles from Satbase")
     
-    # 4. Generate embeddings
+    # 4. Generate embeddings (title + text + body content)
     print("Generating embeddings (GPU accelerated)...")
-    texts = [f"{item['title']}. {item['text']}" for item in news_items]
+    texts = [
+        f"{item['title']}. {item['text']}. {item.get('content_text', '')[:2000]}"
+        for item in news_items
+    ]
     embeddings = embedder.encode(texts, batch_size=128)
     
     print(f"Generated {len(embeddings)} embeddings")

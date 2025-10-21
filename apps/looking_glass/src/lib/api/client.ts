@@ -37,6 +37,17 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
   return (await resp.json()) as T;
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE'
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new ApiError(resp.status, txt);
+  }
+  return (await resp.json()) as T;
+}
+
 export async function apiPollJob(jobId: string, maxTries = 30, intervalMs = 1000): Promise<any> {
   for (let i = 0; i < maxTries; i++) {
     const resp = await fetch(`${API_BASE}/v1/ingest/jobs/${jobId}`);

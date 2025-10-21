@@ -20,13 +20,33 @@ def _normalize(rec: dict[str, Any]) -> NewsDoc | None:
     url = rec.get("url") or rec.get("DocumentIdentifier")
     if not url:
         return None
-    # GDELT liefert oft yyyymmddhhmmss in fields wie "DATE"/"seendate"
+    # GDELT liefert ISO-Format: "20251019T124500Z" oder "yyyymmddhhmmss"
     ts = rec.get("seendate") or rec.get("DATE") or rec.get("timestamp")
     try:
-        published_at = datetime.strptime(ts, "%Y%m%d%H%M%S") if ts else datetime.utcnow()
+        if ts:
+            # Try ISO format first (with T and Z): 20251019T124500Z
+            if 'T' in str(ts):
+                ts_clean = str(ts).replace('T', '').replace('Z', '')
+                published_at = datetime.strptime(ts_clean, "%Y%m%d%H%M%S")
+            else:
+                # Fallback: plain format YYYYMMDDHHMMSS
+                published_at = datetime.strptime(ts, "%Y%m%d%H%M%S")
+        else:
+            published_at = datetime.utcnow()
     except Exception:
         published_at = datetime.utcnow()
-    nid = sha1_hex(f"{url}|{published_at.isoformat()}")
+    # ID based only on URL for stable cross-run matching with bodies
+    nid = sha1_hex(url)
+    # naive mapping: watchlist symbols in title/text
+    tickers = []
+    try:
+        symbols = load_watchlist_symbols()
+        m = match_text_to_symbols(f"{rec.get('title', '')} {rec.get('excerpt', '')}", symbols)
+        if m:
+            tickers = m
+    except Exception:
+        pass
+    
     doc = NewsDoc(
         id=nid,
         source="gdelt",
@@ -34,24 +54,22 @@ def _normalize(rec: dict[str, Any]) -> NewsDoc | None:
         text=rec.get("excerpt") or rec.get("snippet") or rec.get("DocumentTone") or "",
         url=url,
         published_at=published_at,
-        tickers=None,
-        regions=None,
-        themes=None,
+        tickers=tickers,  # Always list, never None
+        regions=[],  # Always list, never None
+        themes=[],  # Always list, never None
     )
-    # naive mapping: watchlist symbols in title/text
-    try:
-        symbols = load_watchlist_symbols()
-        m = match_text_to_symbols(f"{doc.title} {doc.text}", symbols)
-        if m:
-            doc.tickers = m
-    except Exception:
-        pass
     return doc
 
 
 def fetch(params: dict[str, Any]) -> List[dict]:
     # Klammern und URL-encoding für zuverlässigere Server-Seite-Queries
     raw_q = params.get("query", "")
+    # GDELT requires words with dashes to be quoted: C-UAS -> "C-UAS"
+    # Replace dash-words with quoted versions
+    import re
+    if raw_q:
+        # Find all words with dashes that aren't already quoted
+        raw_q = re.sub(r'(?<!")(\b[\w]+-[\w-]+\b)(?!")', r'"\1"', raw_q)
     q = f"({raw_q})" if raw_q else ""
     start = params.get("startdatetime")
     end = params.get("enddatetime")
@@ -77,6 +95,7 @@ def fetch(params: dict[str, Any]) -> List[dict]:
                 BASE,
                 params={
                     "query": q,
+                    "mode": "artlist",
                     "startdatetime": cur.strftime("%Y%m%d%H%M%S"),
                     "enddatetime": nxt.strftime("%Y%m%d%H%M%S"),
                     "format": "json",

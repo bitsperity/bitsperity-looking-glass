@@ -9,10 +9,10 @@ from libs.satbase_core.storage.stage import scan_parquet_glob
 router = APIRouter()
 
 @router.get("/news")
-def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, tickers: str | None = None, limit: int = 100, offset: int = 0, include_body: bool = False):
+def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, tickers: str | None = None, limit: int = 100, offset: int = 0, include_body: bool = False, has_body: bool = False):
     s = load_settings()
     if not from_ or not to:
-        return {"items": [], "from": from_, "to": to, "limit": limit, "offset": offset, "total": 0, "include_body": include_body}
+        return {"items": [], "from": from_, "to": to, "limit": limit, "offset": offset, "total": 0, "include_body": include_body, "has_body": has_body}
     dfrom = date.fromisoformat(from_)
     dto = date.fromisoformat(to)
     lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", dfrom, dto)
@@ -66,8 +66,8 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
     # Then deduplicate by ID (keep first = newest)
     if df.height > 0 and "id" in df.columns:
         df = df.unique(subset=["id"], keep="first")
-    # Join optional body
-    if include_body:
+    # Join optional body or filter by body existence
+    if include_body or has_body:
         try:
             lf_bg = scan_parquet_glob(s.stage_dir, "news_body", "news_body", dfrom, dto)
             df_b = lf_bg.collect()
@@ -82,7 +82,15 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
             # Deduplicate bodies first (keep first = newest based on fetched_at)
             df_b = df_b.sort("fetched_at", descending=True)
             df_b = df_b.unique(subset=["id"], keep="first")
-            df = df.join(df_b, on="id", how="left")
+            
+            if has_body:
+                # Filter to only news with non-null content_text
+                df_b_filtered = df_b.filter(pl.col("content_text").is_not_null())
+                valid_ids = df_b_filtered.select("id").to_series().to_list()
+                df = df.filter(pl.col("id").is_in(valid_ids))
+            
+            if include_body:
+                df = df.join(df_b, on="id", how="left")
     
     # Final deduplication after join (critical for frontend keyed each)
     if df.height > 0 and "id" in df.columns:
@@ -109,7 +117,8 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         "offset": offset,
         "total": total,
         "has_more": end < total,
-        "include_body": include_body
+        "include_body": include_body,
+        "has_body": has_body
     }
 
 

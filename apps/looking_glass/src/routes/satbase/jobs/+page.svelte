@@ -8,7 +8,7 @@
   
   type Job = {
     job_id: string;
-    status: 'queued' | 'running' | 'done' | 'error' | 'not_found';
+    status: 'queued' | 'running' | 'done' | 'error' | 'not_found' | 'timeout' | 'cancelled';
     kind: string;
     payload?: any;
     result?: any;
@@ -30,6 +30,7 @@
   let newNewsQuery: string = '';
   let newNewsHours: number = 24;
   let actionLoading: boolean = false;
+  let cleanupLoading: boolean = false;
   
   // Expanded job details
   let expandedJobId: string | null = null;
@@ -60,6 +61,24 @@
       filteredJobs = jobs;
     } else {
       filteredJobs = jobs.filter(j => j.status === statusFilter);
+    }
+  }
+  
+  async function cleanupStaleJobs() {
+    cleanupLoading = true;
+    error = null;
+    
+    try {
+      const res = await apiPost<{ cleaned: number; jobs: string[]; message: string }>('/v1/ingest/jobs/cleanup', {});
+      await loadJobs();
+      if (res.cleaned > 0) {
+        error = `✓ ${res.message}`;
+        setTimeout(() => error = null, 3000);
+      }
+    } catch (e) {
+      error = `Failed to cleanup jobs: ${String(e)}`;
+    } finally {
+      cleanupLoading = false;
     }
   }
   
@@ -127,6 +146,8 @@
       case 'running': return 'warning';
       case 'done': return 'success';
       case 'error': return 'danger';
+      case 'timeout': return 'danger';
+      case 'cancelled': return 'secondary';
       default: return 'secondary';
     }
   }
@@ -137,6 +158,8 @@
       case 'running': return '🔄';
       case 'done': return '✓';
       case 'error': return '✗';
+      case 'timeout': return '⏱';
+      case 'cancelled': return '⊗';
       default: return '?';
     }
   }
@@ -160,6 +183,7 @@
   $: runningJobs = jobs.filter(j => j.status === 'running').length;
   $: doneJobs = jobs.filter(j => j.status === 'done').length;
   $: errorJobs = jobs.filter(j => j.status === 'error').length;
+  $: cleanedJobs = jobs.filter(j => j.status === 'timeout' || j.status === 'cancelled').length;
 </script>
 
 <div class="max-w-7xl mx-auto space-y-6 h-full overflow-y-auto p-6">
@@ -182,6 +206,9 @@
       {/if}
       {#if errorJobs > 0}
         <Badge variant="danger">{errorJobs} errors</Badge>
+      {/if}
+      {#if cleanedJobs > 0}
+        <Badge variant="secondary">🧹 {cleanedJobs} cleaned</Badge>
       {/if}
     </div>
   </div>
@@ -285,19 +312,26 @@
             <option value="running">Running</option>
             <option value="done">Done</option>
             <option value="error">Error</option>
+            <option value="timeout">Timeout</option>
+            <option value="cancelled">Cancelled</option>
           </select>
         </div>
       </div>
       
-      <Button variant="secondary" size="sm" on:click={loadJobs} loading={loading}>
-        {loading ? 'Refreshing...' : 'Refresh Now'}
-      </Button>
+      <div class="flex gap-2">
+        <Button variant="secondary" size="sm" on:click={cleanupStaleJobs} loading={cleanupLoading}>
+          {cleanupLoading ? 'Cleaning...' : 'Cleanup Stuck Jobs'}
+        </Button>
+        <Button variant="secondary" size="sm" on:click={loadJobs} loading={loading}>
+          {loading ? 'Refreshing...' : 'Refresh Now'}
+        </Button>
+      </div>
     </div>
   </Card>
   
-  <!-- Error Message -->
+  <!-- Error/Success Message -->
   {#if error}
-    <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm text-red-300">
+    <div class="{error.startsWith('✓') ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-red-500/10 border-red-500/20 text-red-300'} border rounded-lg p-3 text-sm">
       {error}
     </div>
   {/if}
@@ -317,7 +351,7 @@
         </div>
       {:else}
         {#each filteredJobs as job}
-          <div class="p-4 hover:bg-neutral-800/30 transition-colors">
+          <div class="p-4 hover:bg-neutral-800/30 transition-colors {job.status === 'timeout' || job.status === 'cancelled' ? 'bg-orange-900/10 border-l-4 border-orange-500/40' : ''}">
             <button 
               on:click={() => toggleJobDetails(job.job_id)}
               class="w-full text-left"
@@ -332,6 +366,11 @@
                         <Badge variant={getStatusVariant(job.status)} size="sm">
                           {job.status}
                         </Badge>
+                        {#if job.status === 'timeout' || job.status === 'cancelled'}
+                          <span class="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-300 rounded">
+                            🧹 Cleaned
+                          </span>
+                        {/if}
                         <span class="text-sm text-neutral-300 font-medium">{job.kind}</span>
                       </div>
                       {#if job.payload}

@@ -5,14 +5,21 @@ from libs.tesseract_core.storage.vector_store import VectorStore
 
 router = APIRouter()
 
-# Initialize once at startup
-embedder = Embedder()
+# Initialize once at startup (device from TESSERACT_DEVICE env var)
+embedder = None
 vector_store = VectorStore()
+
+def get_embedder():
+    global embedder
+    if embedder is None:
+        embedder = Embedder()  # Device from env
+    return embedder
 
 @router.post("/tesseract/search", response_model=SearchResponse)
 async def semantic_search(request: SearchRequest):
     # Generate query embedding
-    query_embedding = embedder.encode(request.query, normalize=True)[0]
+    emb = get_embedder()
+    query_embedding = emb.encode(request.query, normalize=True)[0]
     
     # Build Qdrant filter
     qdrant_filter = build_filter(request.filters) if request.filters else None

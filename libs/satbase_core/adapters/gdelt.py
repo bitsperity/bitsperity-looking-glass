@@ -17,7 +17,8 @@ def _normalize_record(rec: dict[str, Any]) -> NewsDoc:
     url = rec.get("url") or ""
     pub = rec.get("seendate") or rec.get("timestamp")
     published_at = datetime.strptime(pub, "%Y%m%d%H%M%S") if isinstance(pub, str) and len(pub) == 14 else datetime.utcnow()
-    nid = sha1_hex(f"{url}|{published_at.isoformat()}")
+    # ID based only on URL for stable cross-run matching with bodies
+    nid = sha1_hex(url)
     return NewsDoc(
         id=nid,
         source="gdelt",
@@ -25,9 +26,9 @@ def _normalize_record(rec: dict[str, Any]) -> NewsDoc:
         text=rec.get("excerpt") or rec.get("snippet") or "",
         url=url,
         published_at=published_at,
-        tickers=None,
-        regions=None,
-        themes=None,
+        tickers=[],  # Always list, never None
+        regions=[],  # Always list, never None
+        themes=[],  # Always list, never None
     )
 
 

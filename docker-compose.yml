@@ -47,6 +47,8 @@ services:
     network_mode: host
     env_file:
       - .env
+    environment:
+      - TESSERACT_DEVICE=${TESSERACT_DEVICE:-cpu}  # cpu or cuda
     volumes:
       - ./data:/app/data
       - ./libs:/app/libs:ro
@@ -55,11 +57,12 @@ services:
     depends_on:
       - qdrant
       - satbase-api
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # Uncomment for GPU support (requires nvidia-docker):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
