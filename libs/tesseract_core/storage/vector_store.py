@@ -3,28 +3,55 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 import os
 
 class VectorStore:
-    def __init__(self, host: str = None, port: int = 6333):
+    def __init__(self, host: str = None, port: int = 6333, collection_name: str | None = None):
         self.host = host or os.getenv("QDRANT_HOST", "localhost")
         self.port = port
         self.client = QdrantClient(host=self.host, port=self.port)
-        self.collection_name = "news_embeddings"
+        # Default logical alias; can be switched to different physical collections
+        self.collection_name = collection_name or "news_embeddings"
     
-    def create_collection(self, vector_size: int = 1024):
+    def create_collection(self, vector_size: int = 1024, name: str | None = None):
+        target = name or self.collection_name
         self.client.create_collection(
-            collection_name=self.collection_name,
+            collection_name=target,
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
         )
+
+    def delete_collection(self, name: str):
+        return self.client.delete_collection(collection_name=name)
+
+    def list_collections(self):
+        return self.client.get_collections()
+
+    def get_collection(self, name: str | None = None):
+        target = name or self.collection_name
+        return self.client.get_collection(collection_name=target)
+
+    def create_alias(self, alias: str, collection_name: str):
+        # Use low-level HTTP API for alias creation
+        return self.client._client.put(
+            f"/collections/{collection_name}/aliases/{alias}"
+        )
+
+    def delete_alias(self, alias: str):
+        # Use low-level HTTP API for alias deletion
+        return self.client._client.delete(f"/aliases/{alias}")
+
+    def use_collection(self, name: str):
+        self.collection_name = name
     
-    def upsert(self, points: list[PointStruct], wait: bool = True):
+    def upsert(self, points: list[PointStruct], wait: bool = True, name: str | None = None):
+        target = name or self.collection_name
         return self.client.upsert(
-            collection_name=self.collection_name,
+            collection_name=target,
             points=points,
             wait=wait
         )
     
-    def search(self, query_vector: list[float], limit: int = 20, query_filter=None):
+    def search(self, query_vector: list[float], limit: int = 20, query_filter=None, name: str | None = None):
+        target = name or self.collection_name
         return self.client.search(
-            collection_name=self.collection_name,
+            collection_name=target,
             query_vector=query_vector,
             query_filter=query_filter,
             limit=limit,

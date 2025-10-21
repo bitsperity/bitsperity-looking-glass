@@ -3,8 +3,9 @@
   import Card from '../shared/Card.svelte';
   import Badge from '../shared/Badge.svelte';
   import type { NewsItem } from '$lib/api/news';
+  import type { SearchResult as TesseractSearchResult } from '$lib/api/tesseract';
   
-  export let item: NewsItem;
+  export let item: NewsItem | TesseractSearchResult;
   
   const dispatch = createEventDispatcher();
   
