@@ -1,11 +1,15 @@
 gdelt_doc_v2:
   enabled: true
-  query: "semiconductor OR chip OR foundry"
+  # Balanced multi-sector query for diversified trading intelligence
+  # Tech: AI, semiconductors, cloud | Finance: Fed, rates, banking | Energy: oil, renewables
+  # Geopolitics: elections, tariffs, China | Markets: earnings, volatility, indices
+  query: "(AI OR semiconductor OR chip OR cloud OR cybersecurity) OR (\"Federal Reserve\" OR \"interest rate\" OR inflation OR banking OR JPMorgan OR \"Goldman Sachs\") OR (oil OR energy OR renewable OR EV OR Tesla) OR (earnings OR \"stock market\" OR nasdaq OR \"S&P 500\" OR volatility) OR (China OR tariff OR election OR geopolitics OR war) OR (bitcoin OR crypto OR gold OR commodity)"
   window_hours: 1
 
 news_google_rss:
   enabled: true
-  query: "semiconductor OR chip OR foundry"
+  # Focused RSS query - major market movers and macro events
+  query: "stock market OR Federal Reserve OR earnings OR oil OR bitcoin OR China OR inflation"
   hl: "en-US"
   gl: "US"
   ceid: "US:en"

@@ -19,7 +19,8 @@ def fetch(params: dict[str, Any]) -> list[BtcObs]:
     prices = data.get("prices", [])
     out: list[BtcObs] = []
     for ts_ms, price in prices:
-        ts = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc)
+        # Use naive UTC datetime for consistency across all adapters
+        ts = datetime.utcfromtimestamp(ts_ms / 1000.0)
         out.append(BtcObs(ts=ts, price_usd=float(price), source="coingecko"))
     return out
 

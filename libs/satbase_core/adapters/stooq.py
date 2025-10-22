@@ -10,16 +10,30 @@ from ..models.price import DailyBar
 import polars as pl
 from ..config.settings import load_settings
 from .http import get_text, default_headers
-from ..storage.stage import upsert_parquet_by_id
+from ..storage.stage import write_ticker_parquet, mark_ticker_invalid
 
 
 BASE = "https://stooq.com/q/d/l/"
 
 
 def _normalize_symbol(ticker: str, params: dict[str, Any]) -> str:
+    """
+    Normalize ticker for Stooq API.
+    
+    Priority:
+    1. ticker_map (explicit mapping)
+    2. If ticker has '.', use as-is (e.g. AFX.DE, SAP.DE)
+    3. Else: add default market_suffix (default: .us)
+    """
     mapping: dict[str, str] = params.get("ticker_map", {}) or {}
     if ticker in mapping:
         return mapping[ticker]
+    
+    # If ticker already has market suffix, use as-is
+    if "." in ticker:
+        return ticker.lower()
+    
+    # Add default suffix
     suffix: str = params.get("market_suffix", "us")
     return f"{ticker.lower()}.{suffix}"
 
@@ -59,31 +73,23 @@ def _parse_int(v: str | None) -> int | None:
 
 
 def _latest_date_for_ticker(base: Path, ticker: str) -> date | None:
-    # Suche die jüngste vorhandene Zeile für den Ticker in stooq/prices_daily
+    """Get latest date for ticker from ticker-specific parquet file"""
     try:
-        # Scanne nur dieses Jahr und das Vorjahr für Schnelligkeit
-        import datetime as _dt
-        now = _dt.date.today()
-        paths = [
-            str(base / "stooq" / f"{now.year:04d}" / "*" / "*" / "prices_daily.parquet"),
-            str(base / "stooq" / f"{now.year-1:04d}" / "*" / "*" / "prices_daily.parquet"),
-        ]
-        lf = pl.scan_parquet(paths)
-        df = (
-            lf.filter(pl.col("ticker") == ticker)
-              .select(["date"]) 
-              .max() 
-              .collect()
-        )
-        if df.height == 0 or df["date"][0] is None:
+        ticker_file = base / "stooq" / "prices_daily" / f"{ticker.upper()}.parquet"
+        if not ticker_file.exists():
             return None
-        return df["date"][0]
+        df = pl.read_parquet(ticker_file)
+        if df.height == 0:
+            return None
+        max_date = df["date"].max()
+        return max_date
     except Exception:
         return None
 
 def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
     tickers: list[str] = params.get("tickers", [])
     s = load_settings()
+    base = Path(s.stage_dir)
     result: dict[str, list[DailyBar]] = {}
     invalid_tickers: list[str] = []
     
@@ -99,12 +105,14 @@ def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
         
         # Check if Stooq returned "No data" (invalid ticker)
         if text.strip() == "No data":
+            # Mark ticker as invalid to prevent future fetch attempts
+            mark_ticker_invalid(base, "stooq", "prices_daily", t.upper())
             invalid_tickers.append(t.upper())
             continue
         
         bars = _parse_csv(t, text)
         # Delta: nur neue Tage über der bisherigen Max(date)
-        last_dt = _latest_date_for_ticker(Path(s.stage_dir), t.upper())
+        last_dt = _latest_date_for_ticker(base, t.upper())
         if last_dt is not None:
             bars = [b for b in bars if b.date > last_dt]
         result[t.upper()] = bars
@@ -123,29 +131,31 @@ def normalize(raw: dict) -> Iterable[DailyBar]:
 
 
 def sink(models: Iterable[DailyBar], partition_dt: date) -> dict:
+    """Write ticker data to ticker-specific parquet files"""
     rows = [m.model_dump() for m in models]
     if not rows:
         return {"count": 0, "skipped": True}
     
-    # Merge with existing data (append + dedupe by ticker+date)
     s = load_settings()
-    p_dir = Path(s.stage_dir) / "stooq" / f"{partition_dt.year:04d}" / f"{partition_dt.month:02d}" / f"{partition_dt.day:02d}"
-    p_dir.mkdir(parents=True, exist_ok=True)
-    p = p_dir / "prices_daily.parquet"
+    base = Path(s.stage_dir)
     
-    new_df = pl.DataFrame(rows)
-    if p.exists():
-        try:
-            existing = pl.read_parquet(p)
-            combined = pl.concat([existing, new_df], how="vertical_relaxed")
-            # Dedupe by ticker+date, keep last (newest data wins)
-            combined = combined.unique(subset=["ticker", "date"], keep="last")
-            combined.write_parquet(p)
-        except Exception:
-            # If merge fails, just write new data
-            new_df.write_parquet(p)
-    else:
-        new_df.write_parquet(p)
+    # Group rows by ticker
+    ticker_groups: dict[str, list[dict]] = {}
+    for row in rows:
+        ticker = row["ticker"]
+        if ticker not in ticker_groups:
+            ticker_groups[ticker] = []
+        ticker_groups[ticker].append(row)
     
-    return {"path": str(p), "count": len(rows)}
+    # Write each ticker to its own file
+    written_files = []
+    for ticker, ticker_rows in ticker_groups.items():
+        path = write_ticker_parquet(base, "stooq", "prices_daily", ticker, ticker_rows)
+        written_files.append(str(path))
+    
+    return {
+        "files": written_files,
+        "count": len(rows),
+        "tickers": list(ticker_groups.keys())
+    }
 

@@ -64,7 +64,12 @@ def normalize(docs: Iterable[NewsDoc]) -> Iterable[NewsBody]:
                 success=success,
                 failed=failed)
             
-            yield NewsBody(id=d.id, url=d.url, content_text=(text or None), content_html=html or None, fetched_at=datetime.utcnow(), published_at=d.published_at)
+            # Normalize datetimes to naive (remove timezone) to avoid Polars dtype conflicts
+            fetched = datetime.utcnow()
+            pub_dt = d.published_at
+            if isinstance(pub_dt, datetime) and pub_dt.tzinfo is not None:
+                pub_dt = pub_dt.replace(tzinfo=None)
+            yield NewsBody(id=d.id, url=d.url, content_text=(text or None), content_html=html or None, fetched_at=fetched, published_at=pub_dt)
             
         except Exception as e:
             failed += 1
@@ -80,7 +85,12 @@ def normalize(docs: Iterable[NewsDoc]) -> Iterable[NewsBody]:
                 success=success,
                 failed=failed)
             
-            yield NewsBody(id=d.id, url=d.url, content_text=None, content_html=None, fetched_at=datetime.utcnow(), published_at=d.published_at)
+            # Normalize datetimes to naive
+            fetched = datetime.utcnow()
+            pub_dt = d.published_at
+            if isinstance(pub_dt, datetime) and pub_dt.tzinfo is not None:
+                pub_dt = pub_dt.replace(tzinfo=None)
+            yield NewsBody(id=d.id, url=d.url, content_text=None, content_html=None, fetched_at=fetched, published_at=pub_dt)
     
     # Final summary
     if count > 0:

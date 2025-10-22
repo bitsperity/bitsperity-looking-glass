@@ -4,80 +4,110 @@ from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse
 from .ingest import enqueue_prices_daily
 from libs.satbase_core.config.settings import load_settings
-from libs.satbase_core.storage.stage import scan_parquet_glob
+from libs.satbase_core.storage.stage import scan_ticker_parquet
+from libs.satbase_core.ingest.registry import registry
 import yfinance as yf
 
 router = APIRouter()
+
+
+def _fetch_ticker_sync(ticker: str) -> bool:
+    """
+    Synchronously fetch ticker data from stooq.
+    Returns True if successful, False if failed/invalid.
+    """
+    try:
+        reg = registry()
+        fetch, normalize, sink = reg["stooq"]
+        
+        # Minimal params for single ticker fetch
+        params = {"tickers": [ticker.upper()]}
+        
+        # Fetch data
+        raw = fetch(params)
+        models = list(normalize(raw))
+        
+        if not models:
+            return False  # No data
+        
+        # Write to storage
+        info = sink(models, date.today())
+        return True
+    except ValueError as e:
+        # Invalid ticker (marked by stooq adapter)
+        return False
+    except Exception as e:
+        print(f"Fetch error for {ticker}: {e}")
+        return False
 
 @router.get("/prices/daily/{ticker}")
 def prices_daily(ticker: str, from_: str | None = Query(None, alias="from"), to: str | None = None, btc_view: bool = False):
     s = load_settings()
     
-    # If no date range specified, load all available data
-    use_date_filter = bool(from_ and to)
-    if use_date_filter:
+    # Load ticker-specific parquet file
+    lf = scan_ticker_parquet(s.stage_dir, "stooq", "prices_daily", ticker)
+    
+    # Check if ticker is marked as invalid
+    if lf is None:
+        return JSONResponse({"error": f"Invalid ticker: {ticker.upper()}"}, status_code=status.HTTP_404_NOT_FOUND)
+    
+    # Try to load from cache
+    try:
+        df = lf.collect()
+    except Exception:
+        df = pl.DataFrame()  # Empty if error
+    
+    # If no data: fetch synchronously (blocking)
+    if df.height == 0:
+        success = _fetch_ticker_sync(ticker)
+        
+        if not success:
+            # Invalid ticker or fetch failed
+            return JSONResponse({"error": f"Invalid ticker or fetch failed: {ticker.upper()}"}, status_code=status.HTTP_404_NOT_FOUND)
+        
+        # Reload from cache after fetch
+        lf = scan_ticker_parquet(s.stage_dir, "stooq", "prices_daily", ticker)
+        if lf is None:
+            return JSONResponse({"error": f"Invalid ticker: {ticker.upper()}"}, status_code=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            df = lf.collect()
+        except Exception:
+            return JSONResponse({"error": "Failed to load data after fetch"}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # Apply date filter if provided
+    if from_ and to:
         dfrom = date.fromisoformat(from_)
         dto = date.fromisoformat(to)
-    else:
-        # Load last 10 years of data (effectively "all")
-        dfrom = date(2015, 1, 1)
-        dto = date.today()
+        df = df.filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))
     
-    lf = scan_parquet_glob(s.stage_dir, "stooq", "prices_daily", dfrom, dto)
-    l_t = lf.filter(pl.col("ticker") == ticker.upper())
     if btc_view:
-        # Check if ticker has data
-        df_t = l_t.unique(subset=["ticker","date"]).collect()
-        if df_t.height == 0:
-            job_id = enqueue_prices_daily([ticker, "BTCUSD"])
-            return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
-        
-        # Check if BTCUSD has data for the date range
-        l_btc = (
-            lf.filter(pl.col("ticker") == "BTCUSD")
-              .select(["date", "close"])  # EOD-Schlusskurs
-              .rename({"close": "btc_close"})
-        )
-        df_btc = l_btc.collect()
-        if df_btc.height == 0:
+        # Load BTCUSD data
+        lf_btc = scan_ticker_parquet(s.stage_dir, "stooq", "prices_daily", "BTCUSD")
+        try:
+            df_btc = lf_btc.collect()
+            if df_btc.height == 0:
+                job_id = enqueue_prices_daily(["BTCUSD"])
+                return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
+        except Exception:
             job_id = enqueue_prices_daily(["BTCUSD"])
             return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
         
-        # Now join and convert
-        l_joined = l_t.join(l_btc, on="date", how="inner")
-        lf_filtered = l_joined
-        if use_date_filter:
-            lf_filtered = lf_filtered.filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))
-        df = (
-            lf_filtered
-            .with_columns([
-                (pl.col("open") / pl.col("btc_close")).alias("open"),
-                (pl.col("high") / pl.col("btc_close")).alias("high"),
-                (pl.col("low") / pl.col("btc_close")).alias("low"),
-                (pl.col("close") / pl.col("btc_close")).alias("close"),
-            ])
-            .drop(["btc_close"])  # Volume bleibt unverändert (Stückzahl)
-            .unique(subset=["ticker","date"])  # Dedupe mehrfacher Tages-Scans
-            .sort("date", descending=True)
-            .collect()
-        )
-        records = df.to_dicts()
-        return {"ticker": ticker.upper(), "from": from_, "to": to, "btc_view": True, "bars": records}
-    else:
-        lf_filtered = l_t
-        if use_date_filter:
-            lf_filtered = lf_filtered.filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))
-        df = (
-            lf_filtered
-            .unique(subset=["ticker","date"])
-            .sort("date", descending=True)
-            .collect()
-        )
-        records = df.to_dicts()
-        if len(records) == 0:
-            job_id = enqueue_prices_daily([ticker])
-            return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
-        return {"ticker": ticker.upper(), "from": from_, "to": to, "btc_view": False, "bars": records}
+        # Join and convert to BTC
+        df_btc = df_btc.select(["date", pl.col("close").alias("btc_close")])
+        df = df.join(df_btc, on="date", how="inner")
+        df = df.with_columns([
+            (pl.col("open") / pl.col("btc_close")).alias("open"),
+            (pl.col("high") / pl.col("btc_close")).alias("high"),
+            (pl.col("low") / pl.col("btc_close")).alias("low"),
+            (pl.col("close") / pl.col("btc_close")).alias("close"),
+        ]).drop("btc_close")
+    
+    # Final processing
+    df = df.unique(subset=["date"]).sort("date", descending=True)
+    records = df.to_dicts()
+    
+    return {"ticker": ticker.upper(), "from": from_, "to": to, "btc_view": btc_view, "bars": records}
 
 
 @router.get("/prices/daily")

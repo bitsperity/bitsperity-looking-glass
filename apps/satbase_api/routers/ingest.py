@@ -259,9 +259,45 @@ def _run_news_bodies(job_id: str, date_from: date, date_to: date) -> None:
         
         # Run body fetcher only for missing bodies
         fetch, normalize, sink = reg["news_body_fetcher"]
-        models = list(normalize(docs_without_body))
-        info = sink(models, date.today())
-        _JOBS[job_id].update({"status": "done", "result": info})
+        
+        # Group bodies by published_at date for proper partitioning + incremental save
+        from collections import defaultdict
+        bodies_by_date: dict[date, list] = defaultdict(list)
+        total_fetched = 0
+        
+        for body in normalize(docs_without_body):
+            # Parse published_at to date for partitioning
+            try:
+                if isinstance(body.published_at, str):
+                    from datetime import datetime
+                    # Remove timezone info to keep datetime naive
+                    pub_date = datetime.fromisoformat(body.published_at.replace("Z", "").replace("+00:00", "")).date()
+                else:
+                    pub_date = body.published_at.date() if hasattr(body.published_at, "date") else date.today()
+            except Exception:
+                pub_date = date.today()  # Fallback
+            
+            bodies_by_date[pub_date].append(body)
+            total_fetched += 1
+            
+            # Incremental save every 100 bodies to prevent data loss on crash
+            if total_fetched % 100 == 0:
+                for part_date, bodies in bodies_by_date.items():
+                    if bodies:
+                        sink(bodies, part_date)
+                bodies_by_date.clear()  # Clear after saving
+                log("news_bodies_checkpoint", fetched=total_fetched, saved=total_fetched)
+        
+        # Final save of remaining bodies
+        paths_written = []
+        for part_date, bodies in bodies_by_date.items():
+            if bodies:
+                info = sink(bodies, part_date)
+                if info.get("path"):
+                    paths_written.append(info["path"])
+        
+        result_info = {"paths": paths_written, "count": total_fetched}
+        _JOBS[job_id].update({"status": "done", "result": result_info})
         _persist_job(job_id)
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})

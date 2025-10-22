@@ -34,9 +34,11 @@ def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
         link = raw.get("link", "")
         published_parsed = raw.get("published_parsed")
         if published_parsed:
-            published_at = datetime(*published_parsed[:6], tzinfo=timezone.utc)
+            # Use naive datetime (no timezone) for consistency with other adapters
+            published_at = datetime(*published_parsed[:6])
         else:
-            published_at = datetime.now(tz=timezone.utc)
+            # Use UTC but without timezone info
+            published_at = datetime.utcnow()
         # ID based only on URL for stable cross-run matching with bodies
         nid = sha1_hex(link)
         
