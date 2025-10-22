@@ -31,3 +31,7 @@ beautifulsoup4>=4.12.2
 sentence-transformers>=2.3.0
 qdrant-client>=1.7.0
 torch>=2.0.0
+
+# ARIADNE System-3 (Knowledge Graph)
+neo4j>=5.15.0
+scipy>=1.11.0  # For correlation analysis
