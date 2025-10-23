@@ -57,6 +57,17 @@ export const quarantine = (id: string, reason?: string) => http<{ status: string
 export const unquarantine = (id: string) => http<{ status: string }>(`/v1/memory/thought/${id}/unquarantine`, { method: 'POST' });
 export const getHistory = (id: string) => http<{ status: string; versions: any[] }>(`/v1/memory/thought/${id}/history`);
 export const similar = (id: string, k = 10) => http<{ status: string; similar: any[] }>(`/v1/memory/similar/${id}?k=${k}`);
+// Relations extras
+export const relatedFacets = (id: string) => http<{ status: string; facets: Record<string, { value: string; count: number }[]> }>(`/v1/memory/thought/${id}/related/facets`);
+export const relatedGraph = (id: string, depth = 1) => http<{ status: string; nodes: any[]; edges: any[] }>(`/v1/memory/thought/${id}/related/graph?depth=${depth}`);
+export const globalGraph = (params: { limit?: number; type?: string; status?: string; tickers?: string } = {}) => {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set('limit', String(params.limit));
+  if (params.type) q.set('type', params.type);
+  if (params.status) q.set('status', params.status);
+  if (params.tickers) q.set('tickers', params.tickers);
+  return http<{ status: string; nodes: any[]; edges: any[] }>(`/v1/memory/graph?${q.toString()}`);
+};
 
 // Bulk
 export const bulkQuarantine = (ids: string[], reason?: string) => http<{ status: string; updated: number }>(`/v1/memory/bulk/quarantine`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, reason }) });
