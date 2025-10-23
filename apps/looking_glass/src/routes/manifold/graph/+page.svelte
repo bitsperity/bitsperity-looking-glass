@@ -5,6 +5,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { globalGraph } from '$lib/api/manifold';
+  import { search as searchThoughts } from '$lib/api/manifold';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import ThoughtPreviewModal from '$lib/components/manifold/ThoughtPreviewModal.svelte';
   
@@ -25,6 +26,11 @@
   let renderer: any = null;
   let selectedNode: any = null;
   let hoveredEdge: any = null;
+  
+  // Search & Mask
+  let searchQuery = '';
+  let searchResults: string[] = []; // IDs of matching thoughts
+  let searchActive = false;
 
   async function load() {
     loading = true; 
@@ -47,6 +53,87 @@
     } finally { 
       loading = false; 
     }
+  }
+
+  async function runSearch() {
+    if (!searchQuery.trim()) {
+      // Clear search - show all
+      searchActive = false;
+      searchResults = [];
+      applyMask();
+      return;
+    }
+
+    try {
+      const resp = await searchThoughts({ q: searchQuery, limit: 100 });
+      searchResults = (resp.results || []).map((r: any) => String(r.id));
+      searchActive = true;
+      applyMask();
+    } catch (e: any) {
+      console.error('Search failed:', e);
+    }
+  }
+
+  function clearSearch() {
+    searchQuery = '';
+    searchActive = false;
+    searchResults = [];
+    applyMask();
+  }
+
+  function applyMask() {
+    if (!renderer) return;
+    
+    const graph = renderer.getGraph();
+    
+    if (!searchActive || searchResults.length === 0) {
+      // No mask - show all nodes and edges
+      graph.forEachNode((node: string) => {
+        const nodeData = nodes.find((n) => String(n.id) === String(node));
+        graph.setNodeAttribute(node, 'color', colorForType(nodeData?.payload?.type, nodeData?.payload?.status));
+        graph.setNodeAttribute(node, 'hidden', false);
+      });
+      
+      graph.forEachEdge((edge: string) => {
+        const attrs = graph.getEdgeAttributes(edge);
+        graph.setEdgeAttribute(edge, 'color', colorForEdgeType(attrs.label));
+        graph.setEdgeAttribute(edge, 'hidden', false);
+      });
+    } else {
+      // Mask applied - hide non-matching nodes and edges
+      graph.forEachNode((node: string) => {
+        const isMatch = searchResults.includes(String(node));
+        const nodeData = nodes.find((n) => String(n.id) === String(node));
+        
+        if (isMatch) {
+          // Show with original color
+          graph.setNodeAttribute(node, 'color', colorForType(nodeData?.payload?.type, nodeData?.payload?.status));
+          graph.setNodeAttribute(node, 'hidden', false);
+        } else {
+          // Hide completely
+          graph.setNodeAttribute(node, 'hidden', true);
+        }
+      });
+      
+      graph.forEachEdge((edge: string) => {
+        const source = graph.source(edge);
+        const target = graph.target(edge);
+        const sourceMatch = searchResults.includes(String(source));
+        const targetMatch = searchResults.includes(String(target));
+        const attrs = graph.getEdgeAttributes(edge);
+        
+        if (sourceMatch && targetMatch) {
+          // Both ends match - show with color
+          graph.setEdgeAttribute(edge, 'color', colorForEdgeType(attrs.label));
+          graph.setEdgeAttribute(edge, 'hidden', false);
+        } else {
+          // At least one end doesn't match - hide completely
+          graph.setEdgeAttribute(edge, 'hidden', true);
+        }
+      });
+    }
+    
+    renderer.refresh();
   }
 
   onMount(async () => {
@@ -234,6 +321,45 @@
 <div class="p-6 space-y-4 h-full overflow-auto">
   <h1 class="text-2xl font-semibold">Manifold · Graph</h1>
   <ManifoldNav />
+
+  <!-- Search Bar -->
+  <div class="bg-gradient-to-r from-neutral-900 to-neutral-800 rounded-lg p-4 border border-neutral-700">
+    <div class="flex gap-2">
+      <div class="flex-1">
+        <input 
+          class="px-4 py-2 rounded bg-neutral-800 w-full text-sm border border-neutral-700 focus:border-indigo-500 focus:outline-none transition-colors" 
+          placeholder="Search thoughts to mask graph… (semantic search across all fields)" 
+          bind:value={searchQuery}
+          on:keydown={(e) => e.key === 'Enter' && runSearch()}
+        />
+      </div>
+      <button 
+        class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium transition-colors flex items-center gap-2"
+        on:click={runSearch}
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        Search
+      </button>
+      {#if searchActive}
+        <button 
+          class="px-4 py-2 rounded bg-neutral-700 hover:bg-neutral-600 text-sm font-medium transition-colors flex items-center gap-2"
+          on:click={clearSearch}
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          Clear
+        </button>
+      {/if}
+    </div>
+    {#if searchActive}
+      <div class="mt-2 text-xs text-indigo-400">
+        🎯 Showing {searchResults.length} matching thoughts · Rest is masked
+      </div>
+    {/if}
+  </div>
 
   <!-- Filter Controls -->
   <div class="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
