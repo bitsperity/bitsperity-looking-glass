@@ -5,6 +5,7 @@
   export let thought: any;
   export let onOpen: ((id: string) => void) | null = null;
   export let onDelete: ((id: string) => void) | null = null;
+  export let onPreview: ((id: string) => void) | null = null;
   export let showActions = true;
 </script>
 
@@ -34,6 +35,9 @@
         <button class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-sm" on:click={() => onOpen && onOpen(thought.id)}>Open</button>
       {:else}
         <a class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-sm" href={`/manifold/thoughts/${thought.id}`}>Open</a>
+      {/if}
+      {#if onPreview}
+        <button class="px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-sm" on:click={() => onPreview && onPreview(thought.id)}>Preview</button>
       {/if}
       {#if onDelete}
         <button class="px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-sm" on:click={() => onDelete && onDelete(thought.id)}>Delete</button>
