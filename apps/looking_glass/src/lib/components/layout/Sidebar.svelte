@@ -14,6 +14,9 @@
     <li>
       <a href="/manifold/dashboard" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='manifold' ? 'bg-neutral-800' : ''}">Manifold</a>
     </li>
+    <li>
+      <a href="/ariadne/dashboard" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='ariadne' ? 'bg-neutral-800' : ''}">Ariadne</a>
+    </li>
   </ul>
 </nav>
 
