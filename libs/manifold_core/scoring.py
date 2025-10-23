@@ -1,6 +1,6 @@
 # libs/manifold_core/scoring.py
 """Ranking & boosts for Manifold search."""
-from typing import Any
+from typing import Any, Dict
 from datetime import datetime, timezone
 import numpy as np
 
@@ -16,12 +16,30 @@ def compute_final_score(
     Final score = 0.6*base_sim + 0.2*recency + 0.1*type + 0.1*ticker
     Clamp [0,1].
     """
+    comps = compute_score_components(base_sim, created_at, thought_type, tickers, boosts)
+    return comps["final"]
+
+
+def compute_score_components(
+    base_sim: float,
+    created_at: str,
+    thought_type: str,
+    tickers: list[str],
+    boosts: dict[str, Any] | None = None,
+) -> Dict[str, float]:
+    """Return detailed scoring components for explainability."""
     recency = _recency_score(created_at)
     type_score = _type_score(thought_type, boosts)
     ticker_score = _ticker_score(tickers, boosts)
-    
     final = 0.6 * base_sim + 0.2 * recency + 0.1 * type_score + 0.1 * ticker_score
-    return max(0.0, min(1.0, final))
+    final = max(0.0, min(1.0, final))
+    return {
+        "base_sim": float(base_sim),
+        "recency": float(recency),
+        "type": float(type_score),
+        "ticker": float(ticker_score),
+        "final": float(final),
+    }
 
 
 def _recency_score(created_at_str: str) -> float:

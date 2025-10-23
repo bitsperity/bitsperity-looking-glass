@@ -130,6 +130,77 @@ def dedupe_thoughts(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
     }
 
 
+# --- Bulk endpoints ---
+
+@router.post("/bulk/quarantine")
+def bulk_quarantine(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
+    ids = body.get("ids", [])
+    reason = body.get("reason", "")
+    updated = 0
+    for thought_id in ids:
+        thought = store.get_by_id(thought_id)
+        if not thought:
+            continue
+        thought["quarantined_at"] = datetime.utcnow().isoformat() + "Z"
+        thought["quarantine_reason"] = reason
+        thought["status"] = "quarantined"
+        thought.setdefault("flags", {})["quarantined"] = True
+        store.upsert_point(thought_id, thought, vectors={})
+        updated += 1
+    return {"status": "ok", "updated": updated}
+
+
+@router.post("/bulk/unquarantine")
+def bulk_unquarantine(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
+    ids = body.get("ids", [])
+    updated = 0
+    for thought_id in ids:
+        thought = store.get_by_id(thought_id)
+        if not thought:
+            continue
+        thought["quarantined_at"] = None
+        thought["quarantine_reason"] = None
+        thought["status"] = "active"
+        thought.setdefault("flags", {})["quarantined"] = False
+        store.upsert_point(thought_id, thought, vectors={})
+        updated += 1
+    return {"status": "ok", "updated": updated}
+
+
+@router.post("/bulk/reembed")
+def bulk_reembed(body: dict, store: QdrantStore = Depends(get_qdrant_store), embedder: EmbeddingProvider = Depends(get_embedding_provider_dep)):
+    ids = body.get("ids", [])
+    vectors_to_update = body.get("vectors", ["text", "title"])
+    updated = 0
+    for thought_id in ids:
+        thought = store.get_by_id(thought_id)
+        if not thought:
+            continue
+        new_vectors = {}
+        if "text" in vectors_to_update:
+            new_vectors["text"] = embedder.embed(thought.get("content", ""))
+        if "title" in vectors_to_update:
+            new_vectors["title"] = embedder.embed(thought.get("title", ""))
+        thought["last_embedded_at"] = datetime.utcnow().isoformat() + "Z"
+        store.upsert_point(thought_id, thought, vectors=new_vectors)
+        updated += 1
+    return {"status": "ok", "updated": updated}
+
+
+@router.post("/bulk/promote")
+def bulk_promote(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
+    ids = body.get("ids", [])
+    marked = 0
+    for thought_id in ids:
+        thought = store.get_by_id(thought_id)
+        if not thought:
+            continue
+        thought.setdefault("flags", {})["promoted_to_kg"] = True
+        store.upsert_point(thought_id, thought, vectors={})
+        marked += 1
+    return {"status": "ok", "marked": marked}
+
+
 @router.post("/merge")
 def merge_thoughts(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
     """Merge two thoughts (placeholder)."""

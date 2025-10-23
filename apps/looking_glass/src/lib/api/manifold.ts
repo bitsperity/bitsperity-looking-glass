@@ -58,4 +58,10 @@ export const unquarantine = (id: string) => http<{ status: string }>(`/v1/memory
 export const getHistory = (id: string) => http<{ status: string; versions: any[] }>(`/v1/memory/thought/${id}/history`);
 export const similar = (id: string, k = 10) => http<{ status: string; similar: any[] }>(`/v1/memory/similar/${id}?k=${k}`);
 
+// Bulk
+export const bulkQuarantine = (ids: string[], reason?: string) => http<{ status: string; updated: number }>(`/v1/memory/bulk/quarantine`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, reason }) });
+export const bulkUnquarantine = (ids: string[]) => http<{ status: string; updated: number }>(`/v1/memory/bulk/unquarantine`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+export const bulkReembed = (ids: string[], vectors: ('text'|'title')[] = ['text','title']) => http<{ status: string; updated: number }>(`/v1/memory/bulk/reembed`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, vectors }) });
+export const bulkPromote = (ids: string[]) => http<{ status: string; marked: number }>(`/v1/memory/bulk/promote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+
 

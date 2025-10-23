@@ -5,7 +5,7 @@ from libs.manifold_core.models.requests import SearchRequest
 from libs.manifold_core.models.responses import SearchResponse, StatsResponse
 from libs.manifold_core.storage.qdrant_store import QdrantStore
 from libs.manifold_core.embeddings.provider import EmbeddingProvider
-from libs.manifold_core.scoring import compute_final_score, apply_mmr
+from libs.manifold_core.scoring import compute_final_score, apply_mmr, compute_score_components
 from apps.manifold_api.dependencies import get_qdrant_store, get_embedding_provider_dep
 from datetime import datetime
 from collections import defaultdict
@@ -37,21 +37,22 @@ def search_thoughts(
         offset=request.offset or 0,
     )
     
-    # Re-rank with boosts
+    # Re-rank with boosts + explainability components
     candidates = []
     for hit in raw_results:
         payload = hit.payload
         base_sim = hit.score
-        final_score = compute_final_score(
+        comps = compute_score_components(
             base_sim,
             payload.get("created_at", ""),
             payload.get("type", ""),
             payload.get("tickers", []),
-            request.boosts,
+            request.boosts.dict() if hasattr(request.boosts, 'dict') else request.boosts,
         )
         candidates.append({
             "id": hit.id,
-            "score": final_score,
+            "score": comps["final"],
+            "score_components": comps,
             "thought": payload,
         })
     
@@ -70,11 +71,16 @@ def search_thoughts(
     facets = {}
     if request.facets:
         facets = store.get_facets(request.facets, qdrant_filter)
+    # facet_suggest: top keys by frequency if no facets requested
+    facet_suggest = {}
+    if not request.facets:
+        facet_suggest = store.get_facets(["type", "status", "tickers", "sectors"], qdrant_filter)
     
     return SearchResponse(
         status="ok",
         count=len(candidates),
         facets=facets,
+        facet_suggest=facet_suggest,
         results=candidates,
     )
 

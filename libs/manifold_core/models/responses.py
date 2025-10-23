@@ -22,6 +22,7 @@ class SearchResultItem(BaseModel):
     score: float
     highlight: Optional[str] = None
     thought: Dict[str, Any]
+    score_components: Optional[Dict[str, float]] = None
 
 
 class SearchResponse(BaseModel):
@@ -29,6 +30,7 @@ class SearchResponse(BaseModel):
     count: int
     results: List[SearchResultItem]
     facets: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
+    facet_suggest: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
 
 
 class TimelineBucket(BaseModel):
