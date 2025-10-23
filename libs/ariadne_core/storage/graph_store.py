@@ -140,17 +140,17 @@ class GraphStore:
                 MATCH (n)
                 RETURN labels(n)[0] AS label, count(n) AS count
             """)
-            nodes_by_label = {record["label"]: record["count"] for record in node_result}
+            nodes_by_label = {record["label"]: record["count"] for record in node_result if record["label"]}
             
             # Edge counts by type
             edge_result = session.run("""
                 MATCH ()-[r]->()
                 RETURN type(r) AS rel_type, count(r) AS count
             """)
-            edges_by_type = {record["rel_type"]: record["count"] for record in edge_result}
+            edges_by_type = {record["rel_type"]: record["count"] for record in edge_result if record["rel_type"]}
             
-            total_nodes = sum(nodes_by_label.values())
-            total_edges = sum(edges_by_type.values())
+            total_nodes = sum(nodes_by_label.values()) if nodes_by_label else 0
+            total_edges = sum(edges_by_type.values()) if edges_by_type else 0
             
             return {
                 "nodes_by_label": nodes_by_label,

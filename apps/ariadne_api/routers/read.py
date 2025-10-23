@@ -81,11 +81,15 @@ async def get_context(
                 "RETURN c, r1, n1, r2, n2 LIMIT $limit"
             )
         else:
-            params["topic"] = topic.lower()  # Case-insensitive
+            params["topic"] = topic.lower()
             simple_query = (
                 "MATCH (n) "
-                "WHERE ANY(prop IN ['sector', 'industry', 'name', 'description', 'ticker', 'title', 'type'] "
-                "    WHERE prop IN keys(n) AND toLower(toString(n[prop])) CONTAINS $topic) "
+                "WHERE ANY(prop IN ['sector', 'industry', 'name', 'description', 'ticker', 'title', 'type', 'category'] "
+                "    WHERE prop IN keys(n) AND ("
+                "        toLower(toString(n[prop])) CONTAINS $topic "
+                "        OR toLower(replace(toString(n[prop]), '_', ' ')) CONTAINS replace($topic, '_', ' ') "
+                "        OR toLower(replace(toString(n[prop]), ' ', '_')) CONTAINS replace($topic, ' ', '_')"
+                "    )) "
                 "OPTIONAL MATCH (n)-[r1]-(n1)" + r1_time_cond + " "
                 "OPTIONAL MATCH (n1)-[r2]-(n2)" + (r2_time_cond or " WHERE $depth >= 2") + " "
                 "RETURN n, r1, n1, r2, n2 LIMIT $limit"
@@ -218,12 +222,12 @@ async def get_impact(
         except Exception:
             pass
     
-    # Find impacted entities via AFFECTS relationships
+    # Find impacted entities via AFFECTS and BENEFITS_FROM relationships
     impact_query = """
-        MATCH (e:Event)-[r:AFFECTS]->(target)
-        WHERE id(e) = $event_id
+        MATCH (e:Event)-[r:AFFECTS|BENEFITS_FROM]->(target)
+        WHERE elementId(e) = $event_element_id
         OPTIONAL MATCH (target)-[r2:AFFECTS|SUPPLIES_TO]-(indirect)
-        WITH target,
+        WITH target, r,
              COALESCE(r.impact, r.confidence, 0.5) AS base,
              count(DISTINCT indirect) AS indirect_count
         WITH target, base, indirect_count, (base + 0.1 * indirect_count) AS score
@@ -233,7 +237,7 @@ async def get_impact(
     """
     
     impact_results = store.execute_read(impact_query, {
-        "event_id": event_node.id,
+        "event_element_id": event_node.element_id,
         "k": k
     })
     

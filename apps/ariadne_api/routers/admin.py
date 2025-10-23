@@ -12,6 +12,53 @@ from typing import Any, Dict
 router = APIRouter()
 
 
+@router.post("/v1/kg/admin/reset")
+async def reset_graph(
+    confirm: bool = False,
+    store: GraphStore = Depends(get_graph_store)
+):
+    """
+    DANGER: Delete ALL data in the knowledge graph.
+    This is irreversible!
+    
+    Requires confirm=true query parameter.
+    """
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Reset requires confirm=true parameter. This will delete ALL data!"
+        )
+    
+    try:
+        # Get stats before deletion
+        before_stats = store.get_stats()
+        
+        # Delete everything
+        with store.driver.session() as session:
+            session.run("MATCH (n) DETACH DELETE n")
+        
+        # Get stats after
+        after_stats = store.get_stats()
+        
+        return {
+            "status": "success",
+            "message": "Knowledge graph completely reset",
+            "deleted": {
+                "nodes": before_stats["total_nodes"],
+                "edges": before_stats["total_edges"],
+            },
+            "remaining": {
+                "nodes": after_stats["total_nodes"],
+                "edges": after_stats["total_edges"],
+            }
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset graph: {str(e)}"
+        )
+
+
 @router.get("/v1/kg/admin/stats")
 async def get_stats(store: GraphStore = Depends(get_graph_store)):
     """Get detailed graph statistics"""
@@ -468,12 +515,14 @@ async def get_detailed_stats(
         """
         confidence_result = store.execute_read(confidence_query, {})
         
+        avg_conf = confidence_result[0]["avg_confidence"] if confidence_result and confidence_result[0]["avg_confidence"] is not None else None
+        
         return {
             "status": "ok",
-            "node_stats": [{"label": r["label"], "count": r["count"]} for r in node_stats],
-            "edge_stats": [{"rel_type": r["rel_type"], "count": r["count"]} for r in edge_stats],
-            "temporal_coverage_pct": round(temporal_coverage, 2),
-            "avg_confidence": round(confidence_result[0]["avg_confidence"], 3) if confidence_result else None,
+            "node_stats": [{"label": r["label"], "count": r["count"]} for r in node_stats if r["label"]],
+            "edge_stats": [{"rel_type": r["rel_type"], "count": r["count"]} for r in edge_stats if r["rel_type"]],
+            "temporal_coverage_pct": round(temporal_coverage, 2) if temporal_coverage else 0,
+            "avg_confidence": round(avg_conf, 3) if avg_conf is not None else None,
             "edges_with_confidence": confidence_result[0]["confidence_count"] if confidence_result else 0
         }
     

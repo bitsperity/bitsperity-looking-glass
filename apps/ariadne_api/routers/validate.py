@@ -256,10 +256,19 @@ async def get_pending_validations(
     """
     try:
         query = """
-            MATCH (h:Hypothesis)
-            WHERE h.status = 'active'
+            MATCH (h:Hypothesis)-[:PROPOSED_RELATION]->(source)
+            MATCH (h)-[:PROPOSED_RELATION]->(target)
+            WHERE h.status IN ['active', 'pending_validation']
             AND (COALESCE(h.evidence_count,0) + COALESCE(h.contradiction_count,0)) >= $min_annotations
-            RETURN h
+            AND source <> target
+            AND elementId(source) = h.source_entity_id
+            AND elementId(target) = h.target_entity_id
+            WITH h, 
+                 CASE WHEN labels(source)[0] = 'Company' THEN source.name ELSE labels(source)[0] END as source_name,
+                 CASE WHEN labels(source)[0] = 'Company' THEN source.ticker ELSE null END as source_ticker,
+                 CASE WHEN labels(target)[0] = 'Company' THEN target.name ELSE labels(target)[0] END as target_name,
+                 CASE WHEN labels(target)[0] = 'Company' THEN target.ticker ELSE null END as target_ticker
+            RETURN h, source_name, source_ticker, target_name, target_ticker
             ORDER BY (COALESCE(h.evidence_count,0) + COALESCE(h.contradiction_count,0)) DESC
             LIMIT 50
         """
@@ -275,6 +284,15 @@ async def get_pending_validations(
                 "confidence": h_data.get("confidence"),
                 "evidence_count": h_data.get("evidence_count", 0),
                 "contradiction_count": h_data.get("contradiction_count", 0),
+                "validation_threshold": h_data.get("validation_threshold", 3),
+                "status": h_data.get("status", "pending_validation"),
+                "relation_type": h_data.get("relation_type"),
+                "source_entity_id": h_data.get("source_entity_id"),
+                "target_entity_id": h_data.get("target_entity_id"),
+                "source_name": record.get("source_name"),
+                "source_ticker": record.get("source_ticker"),
+                "target_name": record.get("target_name"),
+                "target_ticker": record.get("target_ticker"),
                 "created_at": h_data.get("created_at"),
                 "created_by": h_data.get("created_by"),
                 "manifold_thought_id": h_data.get("manifold_thought_id")
