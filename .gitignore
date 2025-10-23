@@ -5,3 +5,17 @@ __pycache__/
 *.parquet
 x-mcp/
 yfinance-mcp/
+
+# Node
+node_modules/
+*.log
+.DS_Store
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Test results
+test-results/
+playwright-report/
