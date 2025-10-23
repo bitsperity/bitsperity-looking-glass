@@ -5,6 +5,7 @@
   import { bulkActions } from '$lib/services/manifoldService';
   import ThoughtCard from '$lib/components/manifold/ThoughtCard.svelte';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
+  import ThoughtPreviewModal from '$lib/components/manifold/ThoughtPreviewModal.svelte';
 
   let q = '';
   let results: any[] = [];
@@ -13,6 +14,7 @@
   let activeFilters: { key: string; value: string }[] = [];
   let selected: Record<string, boolean> = {};
   let miniBuckets: { date: string; count: number }[] = [];
+  let previewId: string | null = null;
   let loading = false;
   let error: string | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -168,7 +170,7 @@
               <div class="flex items-start gap-3">
                 <input type="checkbox" checked={!!selected[r.id]} on:change={(e)=>onRowSelectedChange(r.id, e)} />
                 <div class="flex-1">
-                  <ThoughtCard thought={r.thought} showActions={false} />
+                  <ThoughtCard thought={r.thought} showActions={true} onPreview={(id)=>{ previewId=id; }} />
                 </div>
               </div>
               <div class="mt-2 flex items-center justify-between text-xs">
@@ -192,6 +194,8 @@
       {/if}
     </section>
   </div>
+
+  <ThoughtPreviewModal thoughtId={previewId} onClose={() => { previewId = null; }} />
 </div>
 
 
