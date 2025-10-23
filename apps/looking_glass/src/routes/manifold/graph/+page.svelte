@@ -24,6 +24,7 @@
   let containerEl: HTMLDivElement;
   let renderer: any = null;
   let selectedNode: any = null;
+  let hoveredEdge: any = null;
 
   async function load() {
     loading = true; 
@@ -100,11 +101,15 @@
       for (const e of edges) {
         const id = `edge_${edgeId++}`;
         if (graph.hasNode(e.from) && graph.hasNode(e.to)) {
+          const edgeColor = colorForEdgeType(e.type);
+          const edgeSize = Math.max(1, Math.min(5, (e.weight || 1.0) * 3)); // Weight 0-1 → size 1-3
+          
           graph.addEdge(e.from, e.to, { 
-            label: e.type, 
-            size: 2, 
-            color: '#4b5563',
+            label: e.type || 'related', 
+            size: edgeSize, 
+            color: edgeColor,
             type: 'arrow',
+            relationWeight: e.weight || 1.0,
           });
         }
       }
@@ -131,10 +136,14 @@
       // Create new Sigma renderer
       renderer = new SigmaCtor(graph, containerEl, { 
         renderLabels: true,
+        renderEdgeLabels: true,
         enableEdgeEvents: true,
         labelSize: 14,
         labelWeight: 'bold',
         labelColor: { color: '#e5e5e5' }, // Hell-graue Labels für dunklen Hintergrund
+        edgeLabelSize: 11,
+        edgeLabelWeight: 'normal',
+        edgeLabelColor: { color: '#a3a3a3' },
         defaultNodeColor: '#9ca3af',
         defaultEdgeColor: '#4b5563',
         labelRenderedSizeThreshold: 8, // Labels nur ab bestimmter Node-Größe
@@ -151,6 +160,33 @@
       
       renderer.on('doubleClickNode', ({ node }) => { 
         previewId = String(node); 
+      });
+      
+      // Edge hover handlers
+      renderer.on('enterEdge', ({ edge }) => {
+        const edgeData = graph.getEdgeAttributes(edge);
+        const sourceId = graph.source(edge);
+        const targetId = graph.target(edge);
+        const sourceNode = nodes.find((x) => String(x.id) === String(sourceId));
+        const targetNode = nodes.find((x) => String(x.id) === String(targetId));
+        
+        hoveredEdge = {
+          id: edge,
+          type: edgeData.label || 'related',
+          weight: edgeData.relationWeight || 1.0,
+          from: {
+            id: sourceId,
+            title: sourceNode?.payload?.title || sourceId,
+          },
+          to: {
+            id: targetId,
+            title: targetNode?.payload?.title || targetId,
+          },
+        };
+      });
+      
+      renderer.on('leaveEdge', () => {
+        hoveredEdge = null;
       });
       
       console.log(`Graph rendered: ${graph.order} nodes, ${graph.size} edges`);
@@ -178,6 +214,20 @@
     if (status === 'quarantined') color = '#eab308';
     
     return color;
+  }
+
+  function colorForEdgeType(edgeType?: string): string {
+    const edgeColors: Record<string, string> = {
+      related: '#6b7280',      // neutral-500
+      supports: '#22c55e',     // green-500 (positive)
+      contradicts: '#ef4444',  // red-500 (negative)
+      followup: '#3b82f6',     // blue-500 (continuation)
+      duplicate: '#a855f7',    // purple-500 (same)
+      informs: '#14b8a6',      // teal-500
+      questions: '#f59e0b',    // amber-500
+    };
+    
+    return edgeColors[edgeType || 'related'] || '#6b7280';
   }
 </script>
 
@@ -282,6 +332,69 @@
 
       <!-- Info Panel -->
       <div class="md:col-span-1 space-y-3">
+        <!-- Edge Hover Info Card -->
+        {#if hoveredEdge}
+          <div class="bg-neutral-900 rounded-lg p-4 border border-amber-500 animate-pulse-subtle">
+            <div class="text-sm font-semibold text-amber-400 mb-3 flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Relation
+            </div>
+            <div class="space-y-2">
+              <!-- Relation Type -->
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-neutral-400">Type</span>
+                <div class="flex items-center gap-2">
+                  <div 
+                    class="w-6 h-1 rounded" 
+                    style="background-color: {colorForEdgeType(hoveredEdge.type)}"
+                  ></div>
+                  <span class="text-xs font-semibold text-neutral-200">{hoveredEdge.type}</span>
+                </div>
+              </div>
+              
+              <!-- Weight -->
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-neutral-400">Strength</span>
+                <div class="flex items-center gap-2">
+                  <div class="w-16 bg-neutral-800 rounded-full h-1.5 overflow-hidden">
+                    <div 
+                      class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all"
+                      style="width: {hoveredEdge.weight * 100}%"
+                    ></div>
+                  </div>
+                  <span class="text-xs font-mono text-neutral-200">{hoveredEdge.weight.toFixed(2)}</span>
+                </div>
+              </div>
+              
+              <!-- From → To -->
+              <div class="pt-2 border-t border-neutral-800">
+                <div class="text-[11px] text-neutral-500 mb-1">Connection</div>
+                <div class="space-y-1">
+                  <div class="flex items-start gap-2">
+                    <div class="text-xs text-neutral-500 mt-0.5">FROM</div>
+                    <div class="text-xs text-neutral-200 flex-1 truncate" title={hoveredEdge.from.title}>
+                      {hoveredEdge.from.title}
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-center">
+                    <svg class="w-3 h-3 text-neutral-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <div class="text-xs text-neutral-500 mt-0.5">TO</div>
+                    <div class="text-xs text-neutral-200 flex-1 truncate" title={hoveredEdge.to.title}>
+                      {hoveredEdge.to.title}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        {/if}
+
         <div class="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
           <div class="text-sm font-semibold text-neutral-300 mb-3">Node Info</div>
           {#if selectedNode}
@@ -354,10 +467,41 @@
         <div class="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
           <div class="text-sm font-semibold text-neutral-300 mb-2">Interactions</div>
           <div class="space-y-1 text-xs text-neutral-400">
-            <div>• <span class="font-medium">Click</span>: Select node</div>
-            <div>• <span class="font-medium">Double-click</span>: Quick preview</div>
+            <div>• <span class="font-medium">Click node</span>: Select node</div>
+            <div>• <span class="font-medium">Double-click node</span>: Quick preview</div>
+            <div>• <span class="font-medium">Hover edge</span>: Show relation details</div>
             <div>• <span class="font-medium">Drag</span>: Pan canvas</div>
             <div>• <span class="font-medium">Scroll</span>: Zoom in/out</div>
+          </div>
+        </div>
+
+        <!-- Edge Legend Card -->
+        <div class="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+          <div class="text-sm font-semibold text-neutral-300 mb-2">Relations</div>
+          <div class="space-y-1 text-xs">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-0.5 bg-neutral-500"></div>
+              <span class="text-neutral-400">related</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-0.5 bg-green-500"></div>
+              <span class="text-neutral-400">supports</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-0.5 bg-red-500"></div>
+              <span class="text-neutral-400">contradicts</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-0.5 bg-blue-500"></div>
+              <span class="text-neutral-400">followup</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-0.5 bg-purple-500"></div>
+              <span class="text-neutral-400">duplicate</span>
+            </div>
+          </div>
+          <div class="mt-2 text-[11px] text-neutral-500">
+            Thicker edges = stronger relation
           </div>
         </div>
       </div>
