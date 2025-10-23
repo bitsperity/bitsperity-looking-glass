@@ -28,6 +28,9 @@ def _recency_score(created_at_str: str) -> float:
     """Exponential decay from now; half-life ~30 days."""
     try:
         created = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+        # Ensure timezone-aware
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
     except:
         return 0.5
     now = datetime.now(timezone.utc)

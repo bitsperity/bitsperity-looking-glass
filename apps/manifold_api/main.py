@@ -4,6 +4,7 @@ import os
 import logging
 import torch
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from apps.manifold_api.routers.thoughts import router as thoughts_router
 from apps.manifold_api.routers.health import router as health_router
 from apps.manifold_api.routers import search, relations, promote, admin
@@ -16,6 +17,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Manifold API", version="0.1.0")
+
+# Enable CORS for frontend (dev mode - allow all origins)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")

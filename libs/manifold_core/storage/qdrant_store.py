@@ -98,16 +98,21 @@ class QdrantStore:
             )
         else:
             # Scroll without vector (filter-only)
-            _, points = self.client.scroll(
+            result = self.client.scroll(
                 self.collection_name,
                 scroll_filter=self._build_filter(payload_filter) if payload_filter else None,
                 limit=limit,
                 with_payload=True,
             )
+            # Handle tuple return (points, next_page_offset)
+            if isinstance(result, tuple):
+                points, _ = result
+            else:
+                points = result
             # Fake ScoredPoint structure
             from collections import namedtuple
             ScoredPoint = namedtuple("ScoredPoint", ["id", "score", "payload"])
-            return [ScoredPoint(p.id, 1.0, p.payload) for p in points]
+            return [ScoredPoint(p.id, 1.0, p.payload) for p in (points or [])]
 
     def scroll(self, payload_filter: Optional[Dict] = None, limit: int = 1000):
         """Scroll through all points matching filter (no vector search)."""
