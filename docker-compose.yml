@@ -112,3 +112,29 @@ services:
       - satbase-api
     restart: unless-stopped
 
+  manifold-api:
+    build: .
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - QDRANT_URL=http://localhost:6333
+      - MANIFOLD_QDRANT_COLLECTION=manifold_thoughts
+      - MANIFOLD_EMBED_MODEL=mixedbread-ai/mxbai-embed-large-v1
+      - MANIFOLD_EMBED_DEVICE=cuda  # cuda, cpu, or empty for auto-detect
+    volumes:
+      - ./apps:/app/apps
+      - ./libs:/app/libs
+      - ./data:/app/data
+    command: ["uvicorn", "apps.manifold_api.main:app", "--host", "0.0.0.0", "--port", "8083", "--reload"]
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
