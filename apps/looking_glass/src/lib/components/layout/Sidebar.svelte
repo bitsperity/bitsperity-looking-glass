@@ -11,6 +11,9 @@
     <li>
       <a href="/tesseract" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='tesseract' ? 'bg-neutral-800' : ''}">Tesseract</a>
     </li>
+    <li>
+      <a href="/manifold/dashboard" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='manifold' ? 'bg-neutral-800' : ''}">Manifold</a>
+    </li>
   </ul>
 </nav>
 
