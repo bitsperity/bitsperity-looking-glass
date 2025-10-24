@@ -365,9 +365,9 @@ def news_heatmap(
 
 @router.get("/news/trending/tickers")
 def trending_tickers(
-    hours: int = Query(24, description="Lookback window in hours"),
-    limit: int = Query(50, description="Max results to return"),
-    min_mentions: int = Query(1, description="Minimum mentions to include"),
+    hours: int = Query(24, ge=1, le=720, description="Lookback window in hours (1-720)"),
+    limit: int = Query(50, ge=1, le=100, description="Max results to return (1-100)"),
+    min_mentions: int = Query(1, ge=1, description="Minimum mentions to include (>=1)"),
     only_known_tickers: bool = Query(False, description="Filter to known price-universe tickers (reduce false positives)")
 ):
     """
@@ -440,36 +440,35 @@ def trending_tickers(
                 
                 # Limit results
                 ticker_counts = ticker_counts.head(limit)
-                
-    # Build response with sample headlines
-    result_tickers = []
-    price_universe = set()
-    if only_known_tickers:
-        s = load_settings()
-        stooq_dir = Path(s.stage_dir) / "stooq" / "prices_daily"
-        if stooq_dir.exists():
-            price_universe = {p.stem.upper() for p in stooq_dir.glob("*.parquet")}
 
-    for row in ticker_counts.to_dicts():
-        ticker = row["tickers"]
-        if only_known_tickers and ticker.upper() not in price_universe:
-            continue
-        mentions = row["mentions"]
-        
-        # Get sample headlines for this ticker
-        sample_articles = df_with_tickers.filter(pl.col("tickers").list.contains(ticker))
-        sample_headlines = sample_articles.select("title").head(3)["title"].to_list()
-        
-        # Count unique articles
-        article_count = len(sample_articles)
-        
-        result_tickers.append({
-            "ticker": ticker,
-            "mentions": mentions,
-            "articles": article_count,
-            "sample_headlines": sample_headlines
-        })
-                
+                # Build response with sample headlines
+                result_tickers = []
+                price_universe = set()
+                if only_known_tickers:
+                    stooq_dir = Path(s.stage_dir) / "stooq" / "prices_daily"
+                    if stooq_dir.exists():
+                        price_universe = {p.stem.upper() for p in stooq_dir.glob("*.parquet")}
+
+                for row in ticker_counts.to_dicts():
+                    ticker = row["tickers"]
+                    if only_known_tickers and ticker.upper() not in price_universe:
+                        continue
+                    mentions = row["mentions"]
+                    
+                    # Get sample headlines for this ticker
+                    sample_articles = df_with_tickers.filter(pl.col("tickers").list.contains(ticker))
+                    sample_headlines = sample_articles.select("title").head(3)["title"].to_list()
+                    
+                    # Count unique articles
+                    article_count = len(sample_articles)
+                    
+                    result_tickers.append({
+                        "ticker": ticker,
+                        "mentions": mentions,
+                        "articles": article_count,
+                        "sample_headlines": sample_headlines
+                    })
+
                 return {
                     "period": {"from": start.isoformat(), "to": now.isoformat()},
                     "tickers": result_tickers,
@@ -478,51 +477,79 @@ def trending_tickers(
                     "method": "pre_extracted"
                 }
     
-    # Strategy 2: Fallback - Extract tickers from titles using common patterns
+    # Strategy 2: Fallback - Extract ticker mentions
     import re
-    ticker_pattern = re.compile(r'\b([A-Z]{2,5})\b')  # 2-5 uppercase letters
-    
-    # Common words to exclude (not tickers)
-    exclude_words = {
-        'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 
-        'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW',
-        'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WAY', 'WHO', 'BOY',
-        'DID', 'CAR', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'DAD', 'MOM',
-        'USA', 'CEO', 'CFO', 'CTO', 'IPO', 'ETF', 'GDP', 'CPI', 'API', 'APP',
-        'EUR', 'USD', 'GBP', 'JPY', 'CNY', 'RSS', 'PDF', 'CSV', 'XML', 'SQL',
-        'NYC', 'LAX', 'SFO', 'JFK', 'FBI', 'CIA', 'NSA', 'FDA', 'SEC', 'IRS'
-    }
-    
     ticker_mentions = defaultdict(lambda: {'count': 0, 'headlines': []})
-    
-    for row in df.to_dicts():
-        title = row.get("title", "")
-        text = row.get("text", "")
-        combined = f"{title} {text}"
-        
-        # Find potential tickers
-        matches = ticker_pattern.findall(combined)
-        for match in matches:
-            if match not in exclude_words and len(match) <= 5:
-                ticker_mentions[match]['count'] += 1
-                if len(ticker_mentions[match]['headlines']) < 3:
-                    ticker_mentions[match]['headlines'].append(title)
+
+    # If only_known_tickers: match against price universe (case-insensitive), else use conservative UPPERCASE regex
+    price_universe = set()
+    price_universe_lower = set()
+    if only_known_tickers:
+        stooq_dir = Path(s.stage_dir) / "stooq" / "prices_daily"
+        if stooq_dir.exists():
+            price_universe = {p.stem for p in stooq_dir.glob("*.parquet")}
+            price_universe_lower = {t.lower() for t in price_universe}
+
+    if only_known_tickers and price_universe:
+        # Pre-build regex patterns for alphabetic tickers (word boundaries); non-alpha tickers use simple substring
+        alpha_patterns: dict[str, re.Pattern] = {}
+        for t in price_universe:
+            if t.isalpha() and 2 <= len(t) <= 6:
+                alpha_patterns[t] = re.compile(rf"\b{re.escape(t)}\b", re.IGNORECASE)
+
+        for row in df.to_dicts():
+            title = row.get("title") or ""
+            text = row.get("text") or ""
+            combined = f"{title} {text}"
+            combined_lower = combined.lower()
+
+            # Check alpha tickers via word-boundary regex
+            for t, pat in alpha_patterns.items():
+                if pat.search(combined):
+                    tm = ticker_mentions[t]
+                    tm['count'] += 1
+                    if len(tm['headlines']) < 3:
+                        tm['headlines'].append(title)
+
+            # Check remaining tickers (non-alpha or long) via case-insensitive substring
+            for t in price_universe:
+                if t in alpha_patterns:  # already handled
+                    continue
+                if t.lower() in combined_lower:
+                    tm = ticker_mentions[t]
+                    tm['count'] += 1
+                    if len(tm['headlines']) < 3:
+                        tm['headlines'].append(title)
+    else:
+        # Generic conservative UPPERCASE token regex (2-5 chars), exclude common stopwords
+        token_pattern = re.compile(r"\b([A-Z]{2,5})\b")
+        exclude_words = {
+            'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER',
+            'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW',
+            'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WAY', 'WHO', 'BOY',
+            'DID', 'CAR', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'DAD', 'MOM',
+            'USA', 'CEO', 'CFO', 'CTO', 'IPO', 'ETF', 'GDP', 'CPI', 'API', 'APP',
+            'EUR', 'USD', 'GBP', 'JPY', 'CNY', 'RSS', 'PDF', 'CSV', 'XML', 'SQL',
+            'NYC', 'LAX', 'SFO', 'JFK', 'FBI', 'CIA', 'NSA', 'FDA', 'SEC', 'IRS'
+        }
+        for row in df.to_dicts():
+            title = row.get("title") or ""
+            text = row.get("text") or ""
+            combined = f"{title} {text}"
+            for match in token_pattern.findall(combined):
+                if match not in exclude_words:
+                    tm = ticker_mentions[match]
+                    tm['count'] += 1
+                    if len(tm['headlines']) < 3:
+                        tm['headlines'].append(title)
     
     # Sort by count
     sorted_tickers = sorted(ticker_mentions.items(), key=lambda x: x[1]['count'], reverse=True)
 
-    # Optional filter: price universe
-    price_universe = set()
-    if only_known_tickers:
-        s = load_settings()
-        stooq_dir = Path(s.stage_dir) / "stooq" / "prices_daily"
-        if stooq_dir.exists():
-            price_universe = {p.stem.upper() for p in stooq_dir.glob("*.parquet")}
-    
     # Filter by min_mentions and limit
     result_tickers = []
     for ticker, data in sorted_tickers:
-        if only_known_tickers and ticker.upper() not in price_universe:
+        if only_known_tickers and price_universe and ticker.upper() not in {t.upper() for t in price_universe}:
             continue
         if data['count'] >= min_mentions:
             result_tickers.append({

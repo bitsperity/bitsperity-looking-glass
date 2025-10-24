@@ -5,12 +5,12 @@ import { logger } from './logger.js';
 
 // Import all tools
 import { listNewsTool, deleteNewsTool, newsHeatmapTool, trendingTickersTool } from './lib/tools/news.js';
-import { fredSearchTool, fredObservationsTool, fredCategoriesTool } from './lib/tools/macro.js';
+import { fredSearchTool, fredObservationsTool, fredCategoriesTool, fredRefreshCoreTool } from './lib/tools/macro.js';
 import { listPricesTool } from './lib/tools/prices.js';
 import { btcOracleTool, usdToBtcTool, btcToUsdTool } from './lib/tools/btc.js';
 import { enqueueNewsTool, enqueueNewsBodiesTool, enqueuePricesTool, enqueueMacroTool } from './lib/tools/ingest.js';
-import { listJobsTool, getJobTool } from './lib/tools/jobs.js';
-import { getWatchlistTool, addWatchlistTool, removeWatchlistTool } from './lib/tools/watchlist.js';
+import { listJobsTool, getJobTool, cleanupJobsTool, cancelJobTool } from './lib/tools/jobs.js';
+import { getWatchlistTool, addWatchlistTool, removeWatchlistTool, refreshWatchlistTool, watchlistStatusTool } from './lib/tools/watchlist.js';
 import { getTopicsTool, addTopicsTool } from './lib/tools/topics.js';
 import { healthCheckTool } from './lib/tools/health.js';
 import { getCoverageTool } from './lib/tools/status.js';
@@ -33,10 +33,11 @@ server.registerTool(deleteNewsTool.name, deleteNewsTool.config, deleteNewsTool.h
 server.registerTool(newsHeatmapTool.name, newsHeatmapTool.config, newsHeatmapTool.handler);
 server.registerTool(trendingTickersTool.name, trendingTickersTool.config, trendingTickersTool.handler);
 
-// Macro (3 tools)
+// Macro (4 tools)
 server.registerTool(fredSearchTool.name, fredSearchTool.config, fredSearchTool.handler);
 server.registerTool(fredObservationsTool.name, fredObservationsTool.config, fredObservationsTool.handler);
 server.registerTool(fredCategoriesTool.name, fredCategoriesTool.config, fredCategoriesTool.handler);
+server.registerTool(fredRefreshCoreTool.name, fredRefreshCoreTool.config, fredRefreshCoreTool.handler);
 
 // Prices (1 tool)
 server.registerTool(listPricesTool.name, listPricesTool.config, listPricesTool.handler);
@@ -52,14 +53,18 @@ server.registerTool(enqueueNewsBodiesTool.name, enqueueNewsBodiesTool.config, en
 server.registerTool(enqueuePricesTool.name, enqueuePricesTool.config, enqueuePricesTool.handler);
 server.registerTool(enqueueMacroTool.name, enqueueMacroTool.config, enqueueMacroTool.handler);
 
-// Jobs (2 tools)
+// Jobs (4 tools)
 server.registerTool(listJobsTool.name, listJobsTool.config, listJobsTool.handler);
 server.registerTool(getJobTool.name, getJobTool.config, getJobTool.handler);
+server.registerTool(cleanupJobsTool.name, cleanupJobsTool.config, cleanupJobsTool.handler);
+server.registerTool(cancelJobTool.name, cancelJobTool.config, cancelJobTool.handler);
 
-// Watchlist (3 tools)
+// Watchlist (5 tools)
 server.registerTool(getWatchlistTool.name, getWatchlistTool.config, getWatchlistTool.handler);
 server.registerTool(addWatchlistTool.name, addWatchlistTool.config, addWatchlistTool.handler);
 server.registerTool(removeWatchlistTool.name, removeWatchlistTool.config, removeWatchlistTool.handler);
+server.registerTool(refreshWatchlistTool.name, refreshWatchlistTool.config, refreshWatchlistTool.handler);
+server.registerTool(watchlistStatusTool.name, watchlistStatusTool.config, watchlistStatusTool.handler);
 
 // Topics (2 tools)
 server.registerTool(getTopicsTool.name, getTopicsTool.config, getTopicsTool.handler);
@@ -68,7 +73,7 @@ server.registerTool(addTopicsTool.name, addTopicsTool.config, addTopicsTool.hand
 // Health (1 tool)
 server.registerTool(healthCheckTool.name, healthCheckTool.config, healthCheckTool.handler);
 
-logger.info('24 tools registered successfully');
+logger.info('29 tools registered successfully');
 
 // Create stdio transport
 const transport = new StdioServerTransport();

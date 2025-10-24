@@ -124,3 +124,32 @@ export const fredCategoriesTool = {
     }
   }
 };
+
+export const fredRefreshCoreTool = {
+  name: 'fred-refresh-core',
+  config: {
+    title: 'Refresh FRED Core Indicators',
+    description: 'Trigger refresh for all 28 core FRED series.',
+    inputSchema: z.object({}).shape
+  },
+  handler: async () => {
+    logger.info({ tool: 'fred-refresh-core' }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        '/v1/macro/fred/refresh-core',
+        { method: 'POST' },
+        30000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'fred-refresh-core', duration, job_id: result.job_id }, 'Tool completed');
+
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    } catch (error: any) {
+      logger.error({ tool: 'fred-refresh-core', error }, 'Tool failed');
+      return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+};

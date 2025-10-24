@@ -43,6 +43,15 @@ services:
       - QDRANT__LOG_LEVEL=INFO
     restart: unless-stopped
 
+  satbase-scheduler:
+    build: ./apps/satbase_scheduler
+    network_mode: host
+    environment:
+      - SATBASE_API_URL=http://localhost:8080
+    depends_on:
+      - satbase-api
+    restart: unless-stopped
+
   tesseract-api:
     build: .
     network_mode: host

@@ -83,3 +83,61 @@ export const getJobTool = {
   }
 };
 
+export const cleanupJobsTool = {
+  name: 'jobs-cleanup',
+  config: {
+    title: 'Cleanup Stale Jobs',
+    description: 'Mark and clean jobs stuck in running state (after server restart).',
+    inputSchema: z.object({}).shape,
+  },
+  handler: async () => {
+    logger.info({ tool: 'jobs-cleanup' }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        '/v1/ingest/jobs/cleanup',
+        { method: 'POST' },
+        15000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'jobs-cleanup', duration, cleaned: result.cleaned }, 'Tool completed');
+
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    } catch (error: any) {
+      logger.error({ tool: 'jobs-cleanup', error }, 'Tool failed');
+      return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+};
+
+export const cancelJobTool = {
+  name: 'jobs-cancel',
+  config: {
+    title: 'Cancel Job',
+    description: 'Cancel/delete a running or stuck job.',
+    inputSchema: z.object({ job_id: z.string() }).shape,
+  },
+  handler: async (input: { job_id: string }) => {
+    logger.info({ tool: 'jobs-cancel', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        `/v1/ingest/jobs/${input.job_id}`,
+        { method: 'DELETE' },
+        10000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'jobs-cancel', duration, status: result.status }, 'Tool completed');
+
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+    } catch (error: any) {
+      logger.error({ tool: 'jobs-cancel', error }, 'Tool failed');
+      return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+};
+
