@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import health, news, macro, prices, btc, convert, ingest, watchlist
+from .routers import health, news, macro, prices, btc, convert, ingest, watchlist, status
 
 app = FastAPI(title="SATBASE API", version="0.1.0")
 
@@ -15,6 +15,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="")
+app.include_router(status.router, prefix="/v1")
 app.include_router(news.router, prefix="/v1")
 app.include_router(macro.router, prefix="/v1")
 app.include_router(prices.router, prefix="/v1")

@@ -1,15 +1,16 @@
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import polars as pl
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.stage import scan_parquet_glob
+from collections import defaultdict
 
 router = APIRouter()
 
 @router.get("/news")
-def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, tickers: str | None = None, limit: int = 100, offset: int = 0, include_body: bool = False, has_body: bool = False):
+def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, tickers: str | None = None, limit: int = 100, offset: int = 0, include_body: bool = False, has_body: bool = False, content_format: str | None = Query(None, description="Content format: 'text', 'html', or 'both' (default)")):
     s = load_settings()
     if not from_ or not to:
         return {"items": [], "from": from_, "to": to, "limit": limit, "offset": offset, "total": 0, "include_body": include_body, "has_body": has_body}
@@ -103,6 +104,17 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         if tick_set:
             items = [it for it in items if isinstance(it.get("tickers"), list) and any(t in tick_set for t in it.get("tickers", []))]
     
+    # Apply content_format filter to items (only if include_body was True)
+    if include_body and content_format:
+        for item in items:
+            if content_format == "text":
+                # Remove HTML, keep only text
+                item.pop("content_html", None)
+            elif content_format == "html":
+                # Remove text, keep only HTML
+                item.pop("content_text", None)
+            # else: "both" or None - keep both fields
+    
     # Pagination
     total = len(items)
     start = max(0, int(offset))
@@ -118,7 +130,8 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         "total": total,
         "has_more": end < total,
         "include_body": include_body,
-        "has_body": has_body
+        "has_body": has_body,
+        "content_format": content_format
     }
 
 
@@ -214,4 +227,300 @@ def delete_news(news_id: str):
             {"success": False, "error": str(e)},
             status_code=500
         )
+
+
+@router.get("/news/heatmap")
+def news_heatmap(
+    topics: str = Query(..., description="Comma-separated search terms (e.g., 'AI,Fed,Earnings')"),
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = None,
+    granularity: str = Query("month", description="'year' or 'month'"),
+    format: str = Query("flat", description="'flat' or 'matrix'")
+):
+    """
+    Generate heatmap of article counts by topic and time period.
+    
+    Topics are user-defined search terms that are matched against article titles and text.
+    Returns counts grouped by time period (year or month).
+    """
+    s = load_settings()
+    
+    # Parse topics
+    topic_list = [t.strip() for t in topics.split(',') if t.strip()]
+    if not topic_list:
+        return {"error": "No topics provided", "data": []}
+    
+    # Default date range: last 365 days
+    if not to:
+        to = date.today().isoformat()
+    if not from_:
+        from_ = (date.today() - timedelta(days=365)).isoformat()
+    
+    dfrom = date.fromisoformat(from_)
+    dto = date.fromisoformat(to)
+    
+    # Scan news from both sources
+    try:
+        lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", dfrom, dto)
+        df_g = lf_g.collect()
+        # Normalize published_at to string to avoid timezone conflicts
+        if "published_at" in df_g.columns:
+            df_g = df_g.with_columns(pl.col("published_at").cast(pl.Utf8))
+    except Exception:
+        df_g = pl.DataFrame(schema={"id": pl.Utf8, "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
+    
+    try:
+        lf_r = scan_parquet_glob(s.stage_dir, "news_rss", "news_docs", dfrom, dto)
+        df_r = lf_r.collect()
+        # Normalize published_at to string to avoid timezone conflicts
+        if "published_at" in df_r.columns:
+            df_r = df_r.with_columns(pl.col("published_at").cast(pl.Utf8))
+    except Exception:
+        df_r = pl.DataFrame(schema={"id": pl.Utf8, "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
+    
+    # Combine
+    df = pl.concat([df_g, df_r], how="vertical_relaxed")
+    
+    if df.height == 0:
+        return {
+            "from": from_,
+            "to": to,
+            "granularity": granularity,
+            "data": [],
+            "topics": topic_list,
+            "periods": []
+        }
+    
+    # Ensure published_at is string
+    if "published_at" in df.columns:
+        df = df.with_columns(pl.col("published_at").cast(pl.Utf8))
+    
+    # Extract period from published_at
+    if granularity == "year":
+        df = df.with_columns(
+            pl.col("published_at").str.slice(0, 4).alias("period")
+        )
+    else:  # month
+        df = df.with_columns(
+            pl.col("published_at").str.slice(0, 7).alias("period")
+        )
+    
+    # Count matches per (period, topic)
+    counts = defaultdict(lambda: defaultdict(int))
+    periods_set = set()
+    
+    for row in df.to_dicts():
+        period = row.get("period")
+        if not period:
+            continue
+        
+        periods_set.add(period)
+        title_lower = (row.get("title") or "").lower()
+        text_lower = (row.get("text") or "").lower()
+        combined = f"{title_lower} {text_lower}"
+        
+        for topic in topic_list:
+            if topic.lower() in combined:
+                counts[period][topic] += 1
+    
+    # Sort periods
+    periods = sorted(list(periods_set))
+    
+    # Build response
+    if format == "matrix":
+        # Matrix format: [[counts for topic1], [counts for topic2], ...]
+        matrix = []
+        for period in periods:
+            row = [counts[period][topic] for topic in topic_list]
+            matrix.append(row)
+        
+        return {
+            "from": from_,
+            "to": to,
+            "granularity": granularity,
+            "topics": topic_list,
+            "periods": periods,
+            "matrix": matrix
+        }
+    else:
+        # Flat format: [{period, topic, count}, ...]
+        data = []
+        for period in periods:
+            for topic in topic_list:
+                data.append({
+                    "period": period,
+                    "topic": topic,
+                    "count": counts[period][topic]
+                })
+        
+        return {
+            "from": from_,
+            "to": to,
+            "granularity": granularity,
+            "data": data,
+            "topics": topic_list,
+            "periods": periods
+        }
+
+
+@router.get("/news/trending/tickers")
+def trending_tickers(
+    hours: int = Query(24, description="Lookback window in hours"),
+    limit: int = Query(50, description="Max results to return"),
+    min_mentions: int = Query(1, description="Minimum mentions to include")
+):
+    """
+    Get trending tickers from recent news.
+    
+    Returns tickers ranked by mention count with sample headlines.
+    
+    Note: If tickers column is empty (no watchlist-based extraction at crawl time),
+    this will scan titles/text for ticker-like patterns.
+    """
+    s = load_settings()
+    
+    # Calculate date range
+    now = datetime.utcnow()
+    start = now - timedelta(hours=hours)
+    
+    from_date = start.date()
+    to_date = now.date()
+    
+    # Scan news
+    try:
+        lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", from_date, to_date)
+        df_g = lf_g.collect()
+        # Normalize published_at to string to avoid timezone conflicts
+        if "published_at" in df_g.columns:
+            df_g = df_g.with_columns(pl.col("published_at").cast(pl.Utf8))
+    except Exception:
+        df_g = pl.DataFrame(schema={"tickers": pl.List(pl.Utf8), "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
+    
+    try:
+        lf_r = scan_parquet_glob(s.stage_dir, "news_rss", "news_docs", from_date, to_date)
+        df_r = lf_r.collect()
+        # Normalize published_at to string to avoid timezone conflicts
+        if "published_at" in df_r.columns:
+            df_r = df_r.with_columns(pl.col("published_at").cast(pl.Utf8))
+    except Exception:
+        df_r = pl.DataFrame(schema={"tickers": pl.List(pl.Utf8), "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
+    
+    # Combine
+    df = pl.concat([df_g, df_r], how="vertical_relaxed")
+    
+    if df.height == 0:
+        return {
+            "period": {"from": start.isoformat(), "to": now.isoformat()},
+            "tickers": [],
+            "total_tickers": 0,
+            "total_articles": 0,
+            "note": "No articles found in date range"
+        }
+    
+    total_articles = len(df)
+    
+    # Strategy 1: Use pre-extracted tickers if available
+    if "tickers" in df.columns:
+        df_with_tickers = df.filter(pl.col("tickers").list.len() > 0)
+        
+        if len(df_with_tickers) > 0:
+            # Explode and count
+            df_exploded = df_with_tickers.select(["tickers", "title"]).explode("tickers")
+            df_exploded = df_exploded.filter(pl.col("tickers").is_not_null())
+            
+            if len(df_exploded) > 0:
+                # Count mentions per ticker
+                ticker_counts = df_exploded.group_by("tickers").agg([
+                    pl.count().alias("mentions")
+                ]).sort("mentions", descending=True)
+                
+                # Filter by min_mentions
+                ticker_counts = ticker_counts.filter(pl.col("mentions") >= min_mentions)
+                
+                # Limit results
+                ticker_counts = ticker_counts.head(limit)
+                
+                # Build response with sample headlines
+                result_tickers = []
+                for row in ticker_counts.to_dicts():
+                    ticker = row["tickers"]
+                    mentions = row["mentions"]
+                    
+                    # Get sample headlines for this ticker
+                    sample_articles = df_with_tickers.filter(pl.col("tickers").list.contains(ticker))
+                    sample_headlines = sample_articles.select("title").head(3)["title"].to_list()
+                    
+                    # Count unique articles
+                    article_count = len(sample_articles)
+                    
+                    result_tickers.append({
+                        "ticker": ticker,
+                        "mentions": mentions,
+                        "articles": article_count,
+                        "sample_headlines": sample_headlines
+                    })
+                
+                return {
+                    "period": {"from": start.isoformat(), "to": now.isoformat()},
+                    "tickers": result_tickers,
+                    "total_tickers": len(result_tickers),
+                    "total_articles": total_articles,
+                    "method": "pre_extracted"
+                }
+    
+    # Strategy 2: Fallback - Extract tickers from titles using common patterns
+    import re
+    ticker_pattern = re.compile(r'\b([A-Z]{2,5})\b')  # 2-5 uppercase letters
+    
+    # Common words to exclude (not tickers)
+    exclude_words = {
+        'THE', 'AND', 'FOR', 'ARE', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 
+        'WAS', 'ONE', 'OUR', 'OUT', 'DAY', 'GET', 'HAS', 'HIM', 'HIS', 'HOW',
+        'ITS', 'MAY', 'NEW', 'NOW', 'OLD', 'SEE', 'TWO', 'WAY', 'WHO', 'BOY',
+        'DID', 'CAR', 'LET', 'PUT', 'SAY', 'SHE', 'TOO', 'USE', 'DAD', 'MOM',
+        'USA', 'CEO', 'CFO', 'CTO', 'IPO', 'ETF', 'GDP', 'CPI', 'API', 'APP',
+        'EUR', 'USD', 'GBP', 'JPY', 'CNY', 'RSS', 'PDF', 'CSV', 'XML', 'SQL',
+        'NYC', 'LAX', 'SFO', 'JFK', 'FBI', 'CIA', 'NSA', 'FDA', 'SEC', 'IRS'
+    }
+    
+    ticker_mentions = defaultdict(lambda: {'count': 0, 'headlines': []})
+    
+    for row in df.to_dicts():
+        title = row.get("title", "")
+        text = row.get("text", "")
+        combined = f"{title} {text}"
+        
+        # Find potential tickers
+        matches = ticker_pattern.findall(combined)
+        for match in matches:
+            if match not in exclude_words and len(match) <= 5:
+                ticker_mentions[match]['count'] += 1
+                if len(ticker_mentions[match]['headlines']) < 3:
+                    ticker_mentions[match]['headlines'].append(title)
+    
+    # Sort by count
+    sorted_tickers = sorted(ticker_mentions.items(), key=lambda x: x[1]['count'], reverse=True)
+    
+    # Filter by min_mentions and limit
+    result_tickers = []
+    for ticker, data in sorted_tickers:
+        if data['count'] >= min_mentions:
+            result_tickers.append({
+                "ticker": ticker,
+                "mentions": data['count'],
+                "articles": data['count'],  # Approximate for pattern-based
+                "sample_headlines": data['headlines'][:3]
+            })
+        
+        if len(result_tickers) >= limit:
+            break
+    
+    return {
+        "period": {"from": start.isoformat(), "to": now.isoformat()},
+        "tickers": result_tickers,
+        "total_tickers": len(result_tickers),
+        "total_articles": total_articles,
+        "method": "pattern_extraction",
+        "note": "Tickers extracted from titles using pattern matching. May include false positives."
+    }
 
