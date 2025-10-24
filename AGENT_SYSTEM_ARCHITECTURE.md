@@ -170,6 +170,47 @@ def calculate_impact(event_id, max_depth=3):
 
 ## 5. Cross-Layer Integration and Data Flow
 
+### 5.1 Complete Workflow Example: Product Launch Event
+
+```mermaid
+sequenceDiagram
+  participant SB as Satbase
+  participant TE as Tesseract
+  participant M as Manifold
+  participant A as Ariadne
+  participant D as Decision Layer
+  participant Market as Alpaca/Market
+
+  Note over SB: 1. News Collection (batch)
+  SB->>TE: Provide news corpus (since last run)
+  TE->>TE: Incremental embedding (dedupe/cache)
+  TE->>M: Semantic Top-N for queries (on-demand)
+
+  Note over M: 2. Observation & Reasoning
+  M->>M: ObservationAgent creates thoughts (60min)
+  M->>M: ReasoningAgent analyzes (hourly)
+
+  Note over M: 3. Hypothesis Generation (EOD)
+  M->>A: Promote hypotheses
+
+  Note over A: 4. Validation & Graph Build
+  A->>A: ValidationAgent (hourly queue)
+  A->>A: GraphBuilder upserts nodes/edges (temporal)
+
+  Note over A: 5. Impact Analysis
+  A->>A: On-demand traversal (depth<=3)
+  A->>D: Impact signals
+
+  Note over D: 6. Portfolio Decision
+  D->>D: Risk checks, optimize (EOD)
+  D->>Market: Orders via Alpaca
+  Market-->>D: Fills
+
+  Note over D: 7. Monitoring & Feedback
+  D->>M: Reflection updates
+  D->>A: Adjust edge weights
+```
+
 ### 5.2 Daily Operational Schedule (kostenbewusst, repo-konform)
 
 **00:00 - Market Closed**

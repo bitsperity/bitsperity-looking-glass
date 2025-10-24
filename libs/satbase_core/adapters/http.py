@@ -45,5 +45,10 @@ def get_text(url: str, headers: dict[str, str] | None = None, timeout: float | N
         resp = client.get(url, headers=headers)
         if resp.status_code >= 400:
             raise HTTPStatusError(resp.status_code, resp.text[:200])
-        return resp.text or ""
+        text = resp.text or ""
+        # Remove surrogate characters that can't be encoded in UTF-8
+        # This fixes: 'utf-8' codec can't encode characters: surrogates not allowed
+        if text:
+            text = text.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='ignore')
+        return text
 

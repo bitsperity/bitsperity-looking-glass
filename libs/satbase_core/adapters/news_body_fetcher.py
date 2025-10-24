@@ -18,6 +18,22 @@ except Exception:
     BeautifulSoup = None  # optional
 
 
+def clean_surrogates(text: str | None) -> str | None:
+    """Remove surrogate characters that can't be encoded in UTF-8.
+    
+    This fixes: 'utf-8' codec can't encode characters: surrogates not allowed
+    """
+    if not text:
+        return text
+    try:
+        # Try to encode/decode to remove surrogates
+        return text.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='ignore')
+    except Exception:
+        # If that fails, use a more aggressive approach
+        return ''.join(c for c in text if ord(c) < 0xD800 or ord(c) > 0xDFFF)
+
+
+
 def fetch(params: dict[str, Any]) -> List[dict]:
     # No external fetch; this adapter expects NewsDoc models passed into normalize
     return []
@@ -40,6 +56,9 @@ def normalize(docs: Iterable[NewsDoc]) -> Iterable[NewsBody]:
                 yield NewsBody(id=d.id, url=d.url, content_text=None, content_html=None, fetched_at=datetime.utcnow(), published_at=d.published_at)
                 continue
             
+            # Clean surrogates from HTML
+            html = clean_surrogates(html)
+            
             # Extract plain text from HTML
             text = None
             text_len = 0
@@ -49,9 +68,11 @@ def normalize(docs: Iterable[NewsDoc]) -> Iterable[NewsBody]:
                 for tag in soup(["script", "style", "noscript"]):
                     tag.extract()
                 text = soup.get_text(" ", strip=True)
+                # Clean surrogates from extracted text as well
+                text = clean_surrogates(text)
                 text_len = len(text) if text else 0
             
-            html_len = len(html)
+            html_len = len(html) if html else 0
             success += 1
             
             # Log success with sizes
