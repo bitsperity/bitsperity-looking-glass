@@ -138,3 +138,16 @@ services:
               count: 1
               capabilities: [gpu]
 
+  tesseract-mcp:
+    build: ./mcps/tesseract
+    network_mode: host
+    environment:
+      - PORT=9001
+      - TESSERACT_API_URL=http://localhost:8081
+      - LOG_LEVEL=info
+      - SERVER_NAME=tesseract-mcp
+      - NODE_ENV=production
+    depends_on:
+      - tesseract-api
+    restart: unless-stopped
+
