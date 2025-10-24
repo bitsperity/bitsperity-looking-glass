@@ -15,8 +15,8 @@ export const startBatchEmbeddingTool = {
   config: {
     title: 'Start Batch Embedding',
     description: 'Start background batch embedding of news articles from Satbase into Qdrant (can take several minutes)',
-    inputSchema: embedBatchInputSchema,
-    outputSchema: embedBatchOutputSchema,
+    inputSchema: embedBatchInputSchema.shape,
+    outputSchema: embedBatchOutputSchema.shape,
   },
   handler: async (input: EmbedBatchInput) => {
     logger.info({ tool: 'start-batch-embedding', input }, 'Tool invoked');
@@ -58,8 +58,8 @@ export const getEmbeddingStatusTool = {
   config: {
     title: 'Get Embedding Status',
     description: 'Get current batch embedding status, progress, and collection metadata',
-    inputSchema: z.object({}),
-    outputSchema: embedStatusOutputSchema,
+    inputSchema: {},
+    outputSchema: embedStatusOutputSchema.shape,
   },
   handler: async () => {
     logger.info({ tool: 'get-embedding-status' }, 'Tool invoked');

@@ -12,8 +12,8 @@ export const similarTool = {
   config: {
     title: 'Find Similar Articles',
     description: 'Find similar news articles to a given article using vector similarity',
-    inputSchema: similarInputSchema,
-    outputSchema: similarOutputSchema,
+    inputSchema: similarInputSchema.shape,
+    outputSchema: similarOutputSchema.shape,
   },
   handler: async (input: SimilarInput) => {
     logger.info({ tool: 'find-similar-articles', input }, 'Tool invoked');

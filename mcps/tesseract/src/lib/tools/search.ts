@@ -12,8 +12,8 @@ export const searchTool = {
   config: {
     title: 'Semantic News Search',
     description: 'Search Satbase news corpus semantically using multilingual embeddings (intfloat/multilingual-e5-large)',
-    inputSchema: searchInputSchema,
-    outputSchema: searchOutputSchema,
+    inputSchema: searchInputSchema.shape,
+    outputSchema: searchOutputSchema.shape,
   },
   handler: async (input: SearchInput) => {
     logger.info({ tool: 'semantic-search', input }, 'Tool invoked');

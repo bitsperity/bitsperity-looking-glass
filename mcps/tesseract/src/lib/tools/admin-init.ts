@@ -11,8 +11,8 @@ export const initCollectionTool = {
   config: {
     title: 'Initialize Collection',
     description: 'Create a new versioned Qdrant collection and set up alias for zero-downtime updates',
-    inputSchema: z.object({}),
-    outputSchema: initCollectionOutputSchema,
+    inputSchema: {},
+    outputSchema: initCollectionOutputSchema.shape,
   },
   handler: async () => {
     logger.info({ tool: 'init-collection' }, 'Tool invoked');

@@ -28,14 +28,29 @@ class VectorStore:
         return self.client.get_collection(collection_name=target)
 
     def create_alias(self, alias: str, collection_name: str):
-        # Use low-level HTTP API for alias creation
-        return self.client._client.put(
-            f"/collections/{collection_name}/aliases/{alias}"
+        """Create or update an alias to point to a collection"""
+        return self.client.update_collection_aliases(
+            change_aliases_operations=[
+                {
+                    "create_alias": {
+                        "collection_name": collection_name,
+                        "alias_name": alias
+                    }
+                }
+            ]
         )
 
     def delete_alias(self, alias: str):
-        # Use low-level HTTP API for alias deletion
-        return self.client._client.delete(f"/aliases/{alias}")
+        """Delete an alias"""
+        return self.client.update_collection_aliases(
+            change_aliases_operations=[
+                {
+                    "delete_alias": {
+                        "alias_name": alias
+                    }
+                }
+            ]
+        )
 
     def use_collection(self, name: str):
         self.collection_name = name

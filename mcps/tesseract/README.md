@@ -16,17 +16,30 @@ npm install
 
 ## Development
 
+### HTTP Server (for testing)
 ```bash
 npm run dev
 ```
 
 The server will start on port 9001 with hot-reloading via `tsx --watch`.
 
+### Stdio Transport (for MCP clients like Cursor)
+```bash
+npm run dev:stdio
+```
+
 ## Production
 
+### HTTP Server
 ```bash
 npm run build
 npm start
+```
+
+### Stdio Transport
+```bash
+npm run build
+npm run start:stdio
 ```
 
 ## Testing
@@ -61,11 +74,38 @@ docker-compose up tesseract-mcp
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `9001` | Server port |
+| `PORT` | `9001` | Server port (HTTP mode only) |
 | `TESSERACT_API_URL` | `http://localhost:8081` | Tesseract backend URL |
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
 | `SERVER_NAME` | `tesseract-mcp` | MCP server name |
 | `NODE_ENV` | `development` | Environment (development, production) |
+
+## Integration with Cursor IDE
+
+To use this MCP server in Cursor, add it to your `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "tesseract-mcp": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/alpaca-bot/mcps/tesseract/dist/index-stdio.js"
+      ],
+      "env": {
+        "TESSERACT_API_URL": "http://localhost:8081",
+        "LOG_LEVEL": "info",
+        "SERVER_NAME": "tesseract-mcp"
+      }
+    }
+  }
+}
+```
+
+**Important**: 
+- Replace `/absolute/path/to/alpaca-bot` with your actual project path
+- Ensure the Tesseract backend is running on `localhost:8081`
+- Restart Cursor after updating `mcp.json`
 
 ## Tools Catalog
 

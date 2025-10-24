@@ -19,8 +19,8 @@ export const listCollectionsTool = {
   config: {
     title: 'List Collections',
     description: 'List all Qdrant collections with metadata (points count, vector size, active alias)',
-    inputSchema: z.object({}),
-    outputSchema: collectionsListOutputSchema,
+    inputSchema: {},
+    outputSchema: collectionsListOutputSchema.shape,
   },
   handler: async () => {
     logger.info({ tool: 'list-collections' }, 'Tool invoked');
@@ -65,8 +65,8 @@ export const switchCollectionTool = {
   config: {
     title: 'Switch Collection',
     description: 'Switch the active collection alias to a different collection (zero-downtime)',
-    inputSchema: collectionSwitchInputSchema,
-    outputSchema: collectionSwitchOutputSchema,
+    inputSchema: collectionSwitchInputSchema.shape,
+    outputSchema: collectionSwitchOutputSchema.shape,
   },
   handler: async (input: CollectionSwitchInput) => {
     logger.info({ tool: 'switch-collection', input }, 'Tool invoked');
@@ -107,8 +107,8 @@ export const deleteCollectionTool = {
   config: {
     title: 'Delete Collection',
     description: 'Delete a Qdrant collection (with safety checks - cannot delete active collection)',
-    inputSchema: collectionDeleteInputSchema,
-    outputSchema: collectionDeleteOutputSchema,
+    inputSchema: collectionDeleteInputSchema.shape,
+    outputSchema: collectionDeleteOutputSchema.shape,
   },
   handler: async (input: CollectionDeleteInput) => {
     logger.info({ tool: 'delete-collection', input }, 'Tool invoked');
