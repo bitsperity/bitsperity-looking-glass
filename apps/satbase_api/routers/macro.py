@@ -220,3 +220,26 @@ def fred_categories(category: str | None = Query(None, description="Optional: fi
         "categories": categories,
         "total_categories": len(categories)
     }
+
+
+CORE_FRED_SERIES = [
+    'GDP', 'GDPC1', 'UNRATE', 'CPIAUCSL', 'FEDFUNDS',
+    'DGS10', 'DGS2', 'T10Y2Y', 'DEXUSEU', 'DCOILWTICO',
+    'M2SL', 'VIXCLS', 'PCEPI', 'CPILFESL', 'PAYEMS',
+    'ICSA', 'GDPPOT', 'M1SL', 'WALCL', 'RSXFS',
+    'UMCSENT', 'PCE', 'INDPRO', 'MANEMP', 'HOUST',
+    'MORTGAGE30US', 'DTWEXBGS', 'GASREGW'
+]
+
+
+@router.post("/macro/fred/refresh-core", status_code=status.HTTP_202_ACCEPTED)
+def refresh_fred_core():
+    """Refresh all 28 core FRED indicators."""
+    job_id = enqueue_macro_fred(CORE_FRED_SERIES)
+    return JSONResponse({
+        "status": "accepted",
+        "job_id": job_id,
+        "series_count": len(CORE_FRED_SERIES),
+        "series": CORE_FRED_SERIES,
+        "retry_after": 2
+    }, status_code=status.HTTP_202_ACCEPTED)

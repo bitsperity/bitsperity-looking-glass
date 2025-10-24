@@ -367,7 +367,8 @@ def news_heatmap(
 def trending_tickers(
     hours: int = Query(24, description="Lookback window in hours"),
     limit: int = Query(50, description="Max results to return"),
-    min_mentions: int = Query(1, description="Minimum mentions to include")
+    min_mentions: int = Query(1, description="Minimum mentions to include"),
+    only_known_tickers: bool = Query(False, description="Filter to known price-universe tickers (reduce false positives)")
 ):
     """
     Get trending tickers from recent news.
@@ -440,25 +441,34 @@ def trending_tickers(
                 # Limit results
                 ticker_counts = ticker_counts.head(limit)
                 
-                # Build response with sample headlines
-                result_tickers = []
-                for row in ticker_counts.to_dicts():
-                    ticker = row["tickers"]
-                    mentions = row["mentions"]
-                    
-                    # Get sample headlines for this ticker
-                    sample_articles = df_with_tickers.filter(pl.col("tickers").list.contains(ticker))
-                    sample_headlines = sample_articles.select("title").head(3)["title"].to_list()
-                    
-                    # Count unique articles
-                    article_count = len(sample_articles)
-                    
-                    result_tickers.append({
-                        "ticker": ticker,
-                        "mentions": mentions,
-                        "articles": article_count,
-                        "sample_headlines": sample_headlines
-                    })
+    # Build response with sample headlines
+    result_tickers = []
+    price_universe = set()
+    if only_known_tickers:
+        s = load_settings()
+        stooq_dir = Path(s.stage_dir) / "stooq" / "prices_daily"
+        if stooq_dir.exists():
+            price_universe = {p.stem.upper() for p in stooq_dir.glob("*.parquet")}
+
+    for row in ticker_counts.to_dicts():
+        ticker = row["tickers"]
+        if only_known_tickers and ticker.upper() not in price_universe:
+            continue
+        mentions = row["mentions"]
+        
+        # Get sample headlines for this ticker
+        sample_articles = df_with_tickers.filter(pl.col("tickers").list.contains(ticker))
+        sample_headlines = sample_articles.select("title").head(3)["title"].to_list()
+        
+        # Count unique articles
+        article_count = len(sample_articles)
+        
+        result_tickers.append({
+            "ticker": ticker,
+            "mentions": mentions,
+            "articles": article_count,
+            "sample_headlines": sample_headlines
+        })
                 
                 return {
                     "period": {"from": start.isoformat(), "to": now.isoformat()},
@@ -500,10 +510,20 @@ def trending_tickers(
     
     # Sort by count
     sorted_tickers = sorted(ticker_mentions.items(), key=lambda x: x[1]['count'], reverse=True)
+
+    # Optional filter: price universe
+    price_universe = set()
+    if only_known_tickers:
+        s = load_settings()
+        stooq_dir = Path(s.stage_dir) / "stooq" / "prices_daily"
+        if stooq_dir.exists():
+            price_universe = {p.stem.upper() for p in stooq_dir.glob("*.parquet")}
     
     # Filter by min_mentions and limit
     result_tickers = []
     for ticker, data in sorted_tickers:
+        if only_known_tickers and ticker.upper() not in price_universe:
+            continue
         if data['count'] >= min_mentions:
             result_tickers.append({
                 "ticker": ticker,
