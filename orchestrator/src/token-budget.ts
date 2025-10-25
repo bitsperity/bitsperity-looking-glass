@@ -46,12 +46,37 @@ export class TokenBudgetManager {
 
       return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
     } else if (model.startsWith('claude-')) {
-      // Anthropic pricing
-      // claude-3-5-haiku-latest: $0.80 input / $4 output per 1M
-      // claude-3-5-sonnet-latest: $3 input / $15 output per 1M
-      const rates = model.includes('haiku')
-        ? { input: 0.80, output: 4 }
-        : { input: 3, output: 15 };
+      // Anthropic pricing - handle all versions
+      let rates = { input: 0.80, output: 4 }; // Default to Haiku 3.5 (cheapest)
+
+      // Claude 4.5 models (Oct 2025)
+      if (model.includes('haiku-4-5')) {
+        rates = { input: 1, output: 5 };
+      } else if (model.includes('sonnet-4-5')) {
+        rates = { input: 3, output: 15 };
+      } else if (model.includes('opus-4-1')) {
+        rates = { input: 15, output: 75 };
+      }
+      // Claude 3.7 models
+      else if (model.includes('3-7-sonnet')) {
+        rates = { input: 3, output: 15 };
+      }
+      // Claude 3.5 models (default)
+      else if (model.includes('3-5-haiku')) {
+        rates = { input: 0.80, output: 4 };
+      } else if (model.includes('3-5-sonnet')) {
+        rates = { input: 3, output: 15 };
+      } else if (model.includes('3-5-opus')) {
+        rates = { input: 15, output: 75 };
+      }
+      // Claude 3 models
+      else if (model.includes('3-haiku')) {
+        rates = { input: 0.25, output: 1.25 };
+      } else if (model.includes('3-sonnet')) {
+        rates = { input: 3, output: 15 };
+      } else if (model.includes('3-opus')) {
+        rates = { input: 15, output: 75 };
+      }
 
       return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
     } else {
