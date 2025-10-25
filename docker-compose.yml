@@ -147,3 +147,31 @@ services:
               count: 1
               capabilities: [gpu]
 
+  orchestrator:
+    build: ./orchestrator
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=debug
+      - LLM_PROVIDER=openai
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - NODE_ENV=production
+    volumes:
+      - ./orchestrator/logs:/app/logs
+      - ./orchestrator/config:/app/config:ro
+      - ./orchestrator/agent-rules:/app/agent-rules:ro
+    depends_on:
+      - satbase-api
+      - tesseract-api
+      - manifold-api
+      - ariadne-api
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+

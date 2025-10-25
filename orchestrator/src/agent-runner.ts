@@ -1,5 +1,6 @@
 import { generateText } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
+import { openai } from '@ai-sdk/openai';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -10,6 +11,28 @@ import { TokenBudgetManager } from './token-budget.js';
 import type { AgentConfig, TurnConfig, ChatMessage, AgentRun } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Model selector - use gpt-4o-mini for testing (cheap!)
+function selectModel(modelName: string) {
+  const provider = process.env.LLM_PROVIDER || 'openai';
+  
+  if (provider === 'openai' || modelName.includes('gpt')) {
+    // Use OpenAI for cost efficiency during testing
+    // gpt-4o-mini: $0.15/$0.60 per 1M tokens (vs Haiku $1/$5, Sonnet $3/$15)
+    const modelMap: Record<string, string> = {
+      'claude-haiku-4-5': 'gpt-4o-mini',      // Swap for testing
+      'claude-sonnet-4-5': 'gpt-4o',          // More capable for complex reasoning
+      'gpt-4o-mini': 'gpt-4o-mini',
+      'gpt-4o': 'gpt-4o'
+    };
+    
+    const mappedModel = modelMap[modelName] || 'gpt-4o-mini';
+    logger.info({ originalModel: modelName, mappedModel, provider: 'openai' }, 'Model mapped');
+    return openai(mappedModel, { apiKey: process.env.OPENAI_API_KEY });
+  } else {
+    return anthropic(modelName);
+  }
+}
 
 async function buildTurnPrompt(
   turn: TurnConfig,
@@ -90,7 +113,8 @@ export async function runAgent(
       const turnPrompt = await buildTurnPrompt(turn, rulesContent, chatHistory, agentName);
 
       // Select model
-      const model = turn.model || config.model;
+      const modelName = turn.model || config.model;
+      const model = selectModel(modelName);
 
       // Check budget
       if (!budget.canSpend(agentName, turn.max_tokens)) {
@@ -102,11 +126,16 @@ export async function runAgent(
       const tools =
         turn.mcps && turn.mcps.length > 0 ? await mcpPool.getTools(turn.mcps) : {};
 
+      logger.debug(
+        { agent: agentName, turn: turn.id, toolCount: Object.keys(tools).length },
+        'Tools loaded'
+      );
+
       // LLM call
       let result;
       try {
         result = await generateText({
-          model: anthropic(model),
+          model,
           maxTokens: turn.max_tokens,
           prompt: turnPrompt,
           tools: Object.keys(tools).length > 0 ? tools : undefined,
