@@ -28,7 +28,6 @@
     timeout_minutes: 10,
     budget_daily_tokens: 5000,
     system_prompt: '',
-    rules: '',
     turns: [] as any[]
   };
   
@@ -44,6 +43,7 @@
       rulesContent = `# Rules laden aus: ${agent.config.rules_file}\n\n(Rules werden aus File geladen - hier kannst du sie direkt bearbeiten)`;
     }
     
+    // Rules are now per-turn, configured via database
     formData = {
       name: agent.name || '',
       enabled: agent.config?.enabled ?? true,
@@ -52,7 +52,6 @@
       timeout_minutes: agent.config?.timeout_minutes || 10,
       budget_daily_tokens: agent.config?.budget_daily_tokens || 5000,
       system_prompt: agent.config?.system_prompt || '',
-      rules: rulesContent,
       turns: (agent.config?.turns || []).map((turn: any) => ({
         ...turn,
         mcps: turn.mcps || [],
@@ -74,7 +73,6 @@
       timeout_minutes: 10,
       budget_daily_tokens: 5000,
       system_prompt: '',
-      rules: '',
       turns: []
     };
     scheduleType = 'manual';
@@ -617,27 +615,6 @@ Lade die Watchlist und prüfe welche Tickers heute relevant sind..."
                   <p class="text-xs text-neutral-500 mt-2">Budget-Limit pro Tag</p>
                 </div>
               </div>
-            </div>
-
-            <div class="bg-neutral-900/30 border border-neutral-700/50 rounded-xl p-6">
-              <label class="block text-sm font-semibold text-neutral-300 mb-3">Agent Rules (Markdown)</label>
-              <textarea
-                bind:value={formData.rules}
-                rows={12}
-                placeholder="# Agent Rules
-
-Definiere hier die Regeln und Richtlinien für den Agent in Markdown-Format.
-
-## Aufgaben
-- Task 1
-- Task 2
-
-## Constraints
-- Constraint 1
-- Constraint 2"
-                class="w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg text-white text-sm font-mono focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
-              />
-              <p class="text-xs text-neutral-500 mt-2">💡 Markdown-formatierte Regeln, die zusätzlich zum System Prompt geladen werden</p>
             </div>
           </div>
         {/if}

@@ -72,7 +72,7 @@ agents:
     enabled: true
     schedule: manual
     model: haiku-3.5
-    timeout_minutes: 5
+    timeout_minutes: 10
     budget_daily_tokens: 3000
     system_prompt: >
       You are a market discovery agent analyzing financial instruments and
@@ -103,6 +103,8 @@ agents:
         prompt: >
           Load your watchlist. This is the first step - understand which tickers
           you should focus on today.
+        rules:
+          - rule_1761426314366_it7ts9rse
       - id: 2
         name: gather_data
         max_tokens: 2000
@@ -113,10 +115,6 @@ agents:
           the last 48 hours.
 
           Look for trends, volume spikes, and unusual activity.
-    rules: |-
-      # Rules laden aus: ./agent-rules/discovery.md
-
-      (Rules werden aus File geladen - hier kannst du sie direkt bearbeiten)
   analyst_tech:
     enabled: false
     schedule: 0 1 * * *

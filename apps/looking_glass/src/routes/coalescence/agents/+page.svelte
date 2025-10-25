@@ -98,12 +98,6 @@
         })
       };
       
-      // Add rules as text if provided, otherwise use rules_file if available
-      if (formData.rules && formData.rules.trim()) {
-        agentConfig.rules = formData.rules;
-      } else if (formData.rules_file) {
-        agentConfig.rules_file = formData.rules_file;
-      }
       
       parsedConfig.agents[formData.name] = agentConfig;
       

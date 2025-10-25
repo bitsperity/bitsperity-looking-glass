@@ -33,35 +33,26 @@ function calculateCost(inputTokens: number, outputTokens: number, model: string)
   return 0;
 }
 
-// Load rules for a turn: supports both new rules array and legacy rules_file
-async function loadTurnRules(turn: TurnConfig, agentConfig: AgentConfig, configDir?: string): Promise<string> {
+// Load rules for a turn from database
+function loadTurnRulesFromDB(ruleIds: string[], db: OrchestrationDB): string {
   const rules: string[] = [];
   
-  // Use per-turn rules if specified, otherwise use agent-level rules
-  const ruleIds = turn.rules || agentConfig.rules || [];
-  
-  // Load content for each rule ID
-  for (const ruleId of ruleIds) {
-    // Try to load rule content (in production, would come from database)
-    // For now, assume ruleId is a file path or simple identifier
-    if (ruleId.startsWith('./') || ruleId.startsWith('/')) {
-      try {
-        const ruleContent = await fs.readFile(ruleId, 'utf-8');
-        rules.push(ruleContent);
-      } catch (error) {
-        logger.warn({ ruleId }, 'Failed to load rule file');
-      }
-    }
+  // Use per-turn rules if specified
+  if (!ruleIds || ruleIds.length === 0) {
+    return '';
   }
-
-  // Support legacy rules_file for backward compatibility
-  if (rules.length === 0 && agentConfig.rules_file) {
+  
+  // Load content for each rule ID from database
+  for (const ruleId of ruleIds) {
     try {
-      const rulesPath = path.resolve(configDir || '.', agentConfig.rules_file);
-      const rulesContent = await fs.readFile(rulesPath, 'utf-8');
-      rules.push(rulesContent);
+      const rule = db.getRule(ruleId);
+      if (rule && rule.content) {
+        rules.push(rule.content);
+      } else {
+        logger.warn({ ruleId }, 'Rule not found in database');
+      }
     } catch (error) {
-      logger.warn({ rulesFile: agentConfig.rules_file }, 'Failed to load rules file');
+      logger.warn({ ruleId, error }, 'Failed to load rule from database');
     }
   }
 
@@ -314,14 +305,16 @@ export async function runAgent(
   db: OrchestrationDB,
   tokenBudget?: TokenBudgetManager
 ): Promise<{ runId: string; status: string; totalTokens: number; cost: number }> {
+  
   const runId = randomUUID();
-  const startTime = Date.now();
-  const configWithAgent = config as any;
+  const configWithAgent = { ...config };
 
-  // Initialize Anthropic client
-  const client = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY
-  });
+  // Initialize variables OUTSIDE try/catch so they're accessible in both blocks
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalToolCalls = 0;
+  let turnsCompleted = 0;
+  const startTime = Date.now();
 
   try {
     // Initialize run
@@ -337,10 +330,10 @@ export async function runAgent(
 
     logger.info({ runId, agent: configWithAgent.agent }, 'Starting agent run');
 
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalToolCalls = 0;
-    let turnsCompleted = 0;
+    // Initialize Anthropic client
+    const client = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY
+    });
 
     // Run turns sequentially
     for (let turnIdx = 0; turnIdx < config.turns.length; turnIdx++) {
@@ -366,7 +359,7 @@ export async function runAgent(
         db.insertMessage(turnId, runId, 'system', configWithAgent.system_prompt || 'No system prompt defined', 0, 0, 'system');
         
         // Load and log rules for this turn (supports multiple rules per turn)
-        const turnRules = await loadTurnRules(turn, configWithAgent);
+        const turnRules = loadTurnRulesFromDB(turn.rules || configWithAgent.rules || [], db);
         if (turnRules) {
           db.insertMessage(turnId, runId, 'system', turnRules, 0, 0, 'rules');
         }
@@ -499,7 +492,7 @@ export async function runAgent(
     logger.info(
       {
         runId,
-        agent: config.agent || configWithAgent.name,
+        agent: config.agent || configWithAgent.agent,
         model: config.model,
         duration,
         inputTokens: totalInputTokens,
