@@ -51,16 +51,16 @@ budget:
 mcps:
   satbase:
     command: "node"
-    args: ["./mcps/satbase/dist/index-stdio.js"]
+    args: ["../mcps/satbase/dist/index-stdio.js"]
   tesseract:
     command: "node"
-    args: ["./mcps/tesseract/dist/index-stdio.js"]
+    args: ["../mcps/tesseract/dist/index-stdio.js"]
   manifold:
     command: "node"
-    args: ["./mcps/manifold/dist/index-stdio.js"]
+    args: ["../mcps/manifold/dist/index-stdio.js"]
   ariadne:
     command: "node"
-    args: ["./mcps/ariadne/dist/index-stdio.js"]
+    args: ["../mcps/ariadne/dist/index-stdio.js"]
 
 agents:
   discovery:
