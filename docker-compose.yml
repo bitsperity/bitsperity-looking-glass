@@ -155,6 +155,10 @@ services:
       - ./orchestrator/logs:/app/logs
       - ./orchestrator/config:/app/config
       - ./orchestrator/agent-rules:/app/agent-rules
+      - ./mcps/satbase:/mcps/satbase:ro
+      - ./mcps/tesseract:/mcps/tesseract:ro
+      - ./mcps/manifold:/mcps/manifold:ro
+      - ./mcps/ariadne:/mcps/ariadne:ro
     depends_on:
       - satbase-api
       - tesseract-api

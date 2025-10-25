@@ -13,7 +13,7 @@ export interface ApiConfig {
   onAgentReload?: () => Promise<void>;
 }
 
-export function createApiServer(db: OrchestrationDB, port: number, config?: Partial<ApiConfig>): Express {
+export function createApiServer(db: OrchestrationDB, port: number, config?: Partial<ApiConfig>): Promise<Express> {
   const app = express();
   const configDir = config?.configDir || path.join(process.cwd(), 'config');
 
@@ -217,7 +217,28 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   });
 
   // Start server
-  return app.listen(port, () => {
-    logger.info({ port }, 'API server started');
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, () => {
+      logger.info({ port }, 'API server started');
+      resolve(server);
+    });
+
+    server.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        logger.warn({ port }, 'Port already in use, using different port');
+        // Try port + 1
+        const altServer = app.listen(port + 1, () => {
+          logger.info({ port: port + 1 }, 'API server started on alternate port');
+          resolve(altServer);
+        });
+        altServer.on('error', (altError) => {
+          logger.error({ error: altError }, 'Failed to start API server');
+          reject(altError);
+        });
+      } else {
+        logger.error({ error }, 'Failed to start API server');
+        reject(error);
+      }
+    });
   });
 }

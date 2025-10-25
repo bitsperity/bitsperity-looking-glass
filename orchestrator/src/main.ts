@@ -123,7 +123,7 @@ async function main() {
     // Start API server with config
     const apiPort = parseInt(process.env.API_PORT || '3100');
     const configDir = path.join(__dirname, '..', 'config');
-    createApiServer(db, apiPort, {
+    await createApiServer(db, apiPort, {
       configDir,
       onAgentReload: reloadAgentsCallback
     });
