@@ -161,8 +161,8 @@
               {#if turn.duration?.ms}
                 <span class="meta-badge">⏱️ {formatTime(turn.duration.ms)}</span>
               {/if}
-              {#if turn.tokens?.total}
-                <span class="meta-badge">📊 {formatTokens(turn.tokens.total)}</span>
+              {#if turn.tokens}
+                <span class="meta-badge">📊 {formatTokens(turn.tokens.input)}/{formatTokens(turn.tokens.output)}</span>
               {/if}
               {#if turn.cost !== undefined && turn.cost !== null}
                 <span class="meta-badge">💵 ${turn.cost.toFixed(4)}</span>

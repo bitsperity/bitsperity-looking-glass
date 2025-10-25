@@ -14,23 +14,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Convert cost to USD based on model pricing
 function calculateCost(inputTokens: number, outputTokens: number, model: string): number {
-  // Haiku 3.5 pricing: $0.80 per 1M input, $2.40 per 1M output
-  if (model.includes('haiku-3.5')) {
-    return (inputTokens * 0.00080 + outputTokens * 0.0024) / 1000;
+  // Model pricing in USD per 1M tokens
+  // Handle both short names (haiku-3.5) and full IDs (claude-3-5-haiku-20241022)
+  
+  if (model.includes('haiku') || model.includes('3-5-haiku') || model.includes('3.5-haiku')) {
+    // Haiku 3.5: $0.80 per 1M input, $2.40 per 1M output
+    return (inputTokens * 0.80 + outputTokens * 2.40) / 1_000_000;
   }
-  // Haiku 4.5 pricing
-  if (model.includes('haiku-4.5')) {
-    return (inputTokens * 0.00080 + outputTokens * 0.0024) / 1000;
+  
+  if (model.includes('haiku-4') || model.includes('3-5-haiku-4')) {
+    // Haiku 4.5: Same pricing as 3.5
+    return (inputTokens * 0.80 + outputTokens * 2.40) / 1_000_000;
   }
-  // Sonnet 4.5 pricing: $3.00 per 1M input, $15.00 per 1M output
-  if (model.includes('sonnet-4.5')) {
-    return (inputTokens * 0.003 + outputTokens * 0.015) / 1000;
+  
+  if (model.includes('sonnet') && (model.includes('4.5') || model.includes('4-5'))) {
+    // Sonnet 4.5: $3.00 per 1M input, $15.00 per 1M output
+    return (inputTokens * 3.00 + outputTokens * 15.00) / 1_000_000;
   }
-  // Opus 4.1 pricing: $15.00 per 1M input, $75.00 per 1M output
-  if (model.includes('opus-4.1')) {
-    return (inputTokens * 0.015 + outputTokens * 0.075) / 1000;
+  
+  if (model.includes('opus') && (model.includes('4.1') || model.includes('4-1'))) {
+    // Opus 4.1: $15.00 per 1M input, $75.00 per 1M output
+    return (inputTokens * 15.00 + outputTokens * 75.00) / 1_000_000;
   }
-  return 0;
+  
+  // Default: Haiku pricing as fallback
+  logger.warn({ model }, 'Unknown model for cost calculation, using Haiku pricing as fallback');
+  return (inputTokens * 0.80 + outputTokens * 2.40) / 1_000_000;
 }
 
 // Load rules for a turn from database
