@@ -1,18 +1,29 @@
 <script lang="ts">
   import { page } from '$app/stores';
 
-  $: current = $page.url.pathname.split('/').pop() || 'dashboard';
+  let current: string = 'dashboard';
+  
+  // Reactively update current based on page pathname
+  $: {
+    // Extract the section from the full pathname
+    // /coalescence -> 'dashboard'
+    // /coalescence/runs -> 'runs'
+    // /coalescence/runs/[id] -> 'runs'
+    // /coalescence/agents -> 'agents'
+    const pathParts = $page.url.pathname.split('/').filter(p => p);
+    current = pathParts[1] || 'dashboard';
+  }
   
   const navItems = [
-    { href: '/coalescence', label: 'Dashboard', icon: '📊', key: ['coalescence', ''] },
-    { href: '/coalescence/runs', label: 'Runs', icon: '🏃', key: ['runs'] },
-    { href: '/coalescence/agents', label: 'Agents', icon: '⚙️', key: ['agents'] },
-    { href: '/coalescence/rules', label: 'Rules', icon: '📋', key: ['rules'] },
-    { href: '/coalescence/costs', label: 'Costs', icon: '💰', key: ['costs'] }
+    { href: '/coalescence', label: 'Dashboard', icon: '📊', key: 'dashboard' },
+    { href: '/coalescence/runs', label: 'Runs', icon: '🏃', key: 'runs' },
+    { href: '/coalescence/agents', label: 'Agents', icon: '⚙️', key: 'agents' },
+    { href: '/coalescence/rules', label: 'Rules', icon: '📋', key: 'rules' },
+    { href: '/coalescence/costs', label: 'Costs', icon: '💰', key: 'costs' }
   ];
   
-  function isActive(keys: string[]): boolean {
-    return keys.includes(current);
+  function isActive(key: string): boolean {
+    return key === current;
   }
 </script>
 
