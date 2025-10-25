@@ -147,7 +147,7 @@ services:
       - LLM_PROVIDER=openai
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - NODE_ENV=production
+      - NODE_ENV=development
       - VITE_COALESCENCE_BASE=http://127.0.0.1:3100
     volumes:
       - ./orchestrator/src:/app/src

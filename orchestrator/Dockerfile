@@ -18,8 +18,7 @@ COPY agent-rules ./agent-rules
 # Create logs directories
 RUN mkdir -p logs/runs logs/chats
 
-# Set environment
-ENV NODE_ENV=production
+# Set environment (can be overridden by docker-compose)
 ENV LOG_LEVEL=info
 
 # Health check

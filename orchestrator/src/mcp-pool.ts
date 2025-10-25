@@ -173,21 +173,58 @@ export class MCPPool {
   }
 
   async callTool(toolName: string, args: any): Promise<any> {
-    const [mcpName, toolMethod] = toolName.split('.');
+    // Convert tool names from LLM format (satbase_get_watchlist or manifold_mf_create_thought)
+    // to MCP format (satbase.get-watchlist or manifold.mf-create-thought)
+    
+    // Find first underscore to split MCP name from tool method
+    const firstUnderscoreIdx = toolName.indexOf('_');
+    if (firstUnderscoreIdx === -1) {
+      throw new Error(`Invalid tool name format: ${toolName} (expected format: mcp_tool_name)`);
+    }
+
+    const mcpName = toolName.substring(0, firstUnderscoreIdx);
+    const toolMethodWithUnderscores = toolName.substring(firstUnderscoreIdx + 1);
+    
+    // Convert underscores to dashes in tool method name
+    // (e.g., 'get_watchlist' -> 'get-watchlist', 'mf_create_thought' -> 'mf-create-thought')
+    const toolMethod = toolMethodWithUnderscores.replace(/_/g, '-');
 
     const client = this.clients.get(mcpName);
     if (!client) {
       throw new Error(`MCP not found: ${mcpName}`);
     }
 
-    logger.debug({ tool: toolName, args }, 'Calling tool');
+    logger.debug({ 
+      originalName: toolName, 
+      mcpName, 
+      toolMethod,
+      argsType: typeof args,
+      argsValue: args ? JSON.stringify(args).substring(0, 200) : 'undefined',
+      args 
+    }, 'Calling tool');
 
-    const result = await client.callTool({
-      name: toolMethod,
-      arguments: args
-    });
+    try {
+      const result = await client.callTool({
+        name: toolMethod,
+        arguments: args
+      });
 
-    return result;
+      logger.debug({ tool: toolName, resultType: typeof result, hasContent: !!result }, 'Tool call completed');
+
+      return result;
+    } catch (error) {
+      const errorStr = error instanceof Error ? error.message : JSON.stringify(error);
+      logger.error({
+        tool: toolName,
+        mcpName,
+        toolMethod,
+        argsType: typeof args,
+        argsValue: args ? JSON.stringify(args).substring(0, 100) : 'undefined',
+        errorMessage: errorStr,
+        errorCode: (error as any)?.code
+      }, 'Tool call error');
+      throw error;
+    }
   }
 
   async shutdown(): Promise<void> {

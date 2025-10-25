@@ -273,11 +273,21 @@ export async function runAgent(
       if (result.toolCalls && result.toolCalls.length > 0) {
         for (const toolCall of result.toolCalls) {
           try {
-            logger.debug({ agent: agentName, tool: toolCall.toolName }, 'Calling tool');
+            logger.debug({ 
+              agent: agentName, 
+              tool: toolCall.toolName,
+              argsType: typeof toolCall.args,
+              argsValue: toolCall.args ? JSON.stringify(toolCall.args).substring(0, 200) : 'undefined'
+            }, 'Calling tool');
             
             await orchestrationLogger.logToolCall(runId, turn.id, toolCall.toolName, toolCall.args);
             
-            const toolResult = await mcpPool.callTool(toolCall.toolName, toolCall.args);
+            logger.debug({ 
+              tool: toolCall.toolName,
+              beforeCallArgsType: typeof toolCall.args
+            }, 'About to call mcpPool.callTool');
+            
+            const toolResult = await mcpPool.callTool(toolCall.toolName, toolCall.args || {});
 
             await orchestrationLogger.logToolResult(runId, turn.id, toolCall.toolName, toolResult);
 
@@ -288,7 +298,14 @@ export async function runAgent(
 
             logger.debug({ agent: agentName, tool: toolCall.toolName }, 'Tool call succeeded');
           } catch (error) {
-            logger.error({ agent: agentName, tool: toolCall.toolName, error }, 'Tool call failed');
+            logger.error({ 
+              agent: agentName, 
+              tool: toolCall.toolName, 
+              errorMessage: error instanceof Error ? error.message : String(error),
+              errorType: error instanceof Error ? error.constructor.name : typeof error,
+              errorCode: (error as any)?.code,
+              error 
+            }, 'Tool call failed');
             chatHistory.push({
               role: 'user',
               content: `Tool ${toolCall.toolName} failed: ${error instanceof Error ? error.message : 'Unknown error'}`
