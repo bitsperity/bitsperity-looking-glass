@@ -7,6 +7,7 @@
     { href: '/coalescence', label: 'Dashboard', icon: '📊', key: ['coalescence', ''] },
     { href: '/coalescence/runs', label: 'Runs', icon: '🏃', key: ['runs'] },
     { href: '/coalescence/agents', label: 'Agents', icon: '⚙️', key: ['agents'] },
+    { href: '/coalescence/rules', label: 'Rules', icon: '📋', key: ['rules'] },
     { href: '/coalescence/costs', label: 'Costs', icon: '💰', key: ['costs'] }
   ];
   
