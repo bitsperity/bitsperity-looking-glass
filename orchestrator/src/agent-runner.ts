@@ -397,32 +397,28 @@ export async function runAgent(
         db.insertMessage(turnId, runId, 'assistant', turnResponse, turnOutputTokens, turnInputTokens, 'assistant');
 
         const turnCost = calculateCost(turnInputTokens, turnOutputTokens, model);
+
+        db.updateTurnDetails(turnId, 'completed', turnInputTokens, turnOutputTokens);
+
         totalInputTokens += turnInputTokens;
         totalOutputTokens += turnOutputTokens;
         totalToolCalls += turnToolCalls;
         turnsCompleted++;
 
-        // Complete turn
-        db.completeTurnDetails(
-          runId,
-          turnNumber,
-          turnInputTokens,
-          turnOutputTokens,
-          turnCost,
-          turnToolCalls,
-          'success'
-        );
-
         logger.info(
-          {
-            turnNumber,
-            inputTokens: turnInputTokens,
-            outputTokens: turnOutputTokens,
-            cost: turnCost,
-            toolCalls: turnToolCalls
-          },
+          { turnNumber, turnInputTokens, turnOutputTokens, turnCost, status: 'completed' },
           'Turn completed successfully'
         );
+
+        // Add delay between turns to respect rate limits (50K tokens/min)
+        // 70 second delay ensures we stay under the limit with buffer time
+        if (turnIdx < config.turns.length - 1) {
+          logger.info(
+            { delay: '70 seconds', reason: 'Anthropic rate limit: 50K tokens/minute' },
+            'Waiting before next turn'
+          );
+          await new Promise(resolve => setTimeout(resolve, 70000));
+        }
 
         // Update run progress in real-time (tokens/costs) so running runs show live data
         db.updateRunProgress(
