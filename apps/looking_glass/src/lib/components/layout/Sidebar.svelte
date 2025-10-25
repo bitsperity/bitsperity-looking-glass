@@ -6,6 +6,9 @@
   <div class="text-lg font-semibold mb-6">LookingGlass</div>
   <ul class="space-y-2">
     <li>
+      <a href="/coalescence" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='coalescence' ? 'bg-neutral-800' : ''}">Coalescence</a>
+    </li>
+    <li>
       <a href="/satbase" class="block px-3 py-2 rounded hover:bg-neutral-800 {current==='satbase' ? 'bg-neutral-800' : ''}">Satbase</a>
     </li>
     <li>
