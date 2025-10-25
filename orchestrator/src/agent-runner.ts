@@ -156,6 +156,32 @@ export async function runAgent(
       // LLM call
       let result;
       try {
+        // DEBUG: Check tools before sending to LLM
+        if (Object.keys(tools).length > 0) {
+          const firstToolName = Object.keys(tools)[0];
+          const firstTool = tools[firstToolName];
+          logger.info({
+            agent: agentName,
+            turn: turn.id,
+            firstToolName,
+            firstToolKeys: Object.keys(firstTool),
+            hasParameters: 'parameters' in firstTool,
+            parametersType: firstTool.parameters?.type,
+            parametersKeys: Object.keys(firstTool.parameters || {})
+          }, 'TOOLS_BEFORE_LLM_CALL');
+        }
+        
+        logger.info(
+          {
+            agent: agentName,
+            turn: turn.id,
+            modelName,
+            toolCount: Object.keys(tools).length,
+            promptLength: turnPrompt.length
+          },
+          'About to call LLM'
+        );
+        
         result = await generateText({
           model,
           maxTokens: turn.max_tokens,
@@ -164,21 +190,42 @@ export async function runAgent(
           temperature: 0.7,
           maxSteps: 3
         });
+        
+        logger.info(
+          {
+            agent: agentName,
+            turn: turn.id,
+            hasUsage: !!result.usage,
+            inputTokens: result.usage?.inputTokens,
+            outputTokens: result.usage?.outputTokens,
+            textLength: result.text.length
+          },
+          'LLM call succeeded'
+        );
       } catch (error) {
-        const errorInfo = {
+        const errorInfo: any = {
           agent: agentName,
           turn: turn.id,
           modelName,
+          toolCount: Object.keys(tools).length,
           provider: modelName.startsWith('claude-') ? 'anthropic' : 'openai'
         };
+        
         if (error instanceof Error) {
-          errorInfo['errorName'] = error.name;
-          errorInfo['errorMessage'] = error.message;
-          errorInfo['errorStack'] = error.stack;
+          errorInfo.errorName = error.name;
+          errorInfo.errorMessage = error.message;
+          errorInfo.errorStack = error.stack?.split('\n').slice(0, 5);
+        } else if (error && typeof error === 'object') {
+          errorInfo.errorObject = JSON.stringify(error, null, 2).substring(0, 500);
         } else {
-          errorInfo['errorObj'] = error;
+          errorInfo.errorValue = String(error).substring(0, 200);
         }
-        logger.error(errorInfo, 'LLM call failed');
+        
+        logger.error(errorInfo, 'LLM call FAILED - CRITICAL ERROR');
+        
+        // Also log to database for persistence
+        await orchestrationLogger.logMessage(runId, turn.id, 'system', `ERROR: LLM call failed: ${errorInfo.errorMessage}`);
+        
         throw error;
       }
 
@@ -262,7 +309,7 @@ export async function runAgent(
   const durationSeconds = (Date.now() - startTime) / 1000;
 
   // Log run end
-  const status = chatHistory.length > 1 ? 'completed' : 'failed';
+  const status = chatHistory.length > 0 ? 'completed' : 'failed';
   await orchestrationLogger.logRunEnd(runId, agentName, status, {
     input: totalInputTokens,
     output: totalOutputTokens

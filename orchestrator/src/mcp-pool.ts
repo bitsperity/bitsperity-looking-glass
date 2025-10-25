@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { spawn } from 'child_process';
 import { logger } from './logger.js';
+import { z } from 'zod';
 
 interface MCPConfig {
   [mcpName: string]: {
@@ -140,7 +141,7 @@ export class MCPPool {
         
         tools[sanitizedToolName] = {
           description: tool.description?.substring(0, 1024) || `${mcpName}: ${tool.name}`,
-          parameters: schema, // JSON Schema (not Zod) - send as parameters
+          inputSchema: z.object({}), // Empty Zod object - converts to {type: 'object', properties: {}, required: []}
           execute: async (args: any) => {
             logger.debug({ mcp: mcpName, tool: originalToolName, args }, 'Executing MCP tool');
             
