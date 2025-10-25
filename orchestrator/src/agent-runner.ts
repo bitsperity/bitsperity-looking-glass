@@ -119,13 +119,13 @@ export async function runAgent(
       }
 
       // Get tools for this turn
-      const tools =
-        turn.mcps && turn.mcps.length > 0 ? await mcpPool.getTools(turn.mcps) : {};
+      // const tools =
+      //   turn.mcps && turn.mcps.length > 0 ? await mcpPool.getTools(turn.mcps) : {};
 
-      logger.debug(
-        { agent: agentName, turn: turn.id, toolCount: Object.keys(tools).length },
-        'Tools loaded'
-      );
+      // logger.debug(
+      //   { agent: agentName, turn: turn.id, toolCount: Object.keys(tools).length },
+      //   'Tools loaded'
+      // );
 
       // LLM call
       let result;
