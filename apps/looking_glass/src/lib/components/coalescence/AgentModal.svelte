@@ -130,36 +130,32 @@
   
   function removeTurn(index: number) {
     formData.turns = formData.turns.filter((_, i) => i !== index);
-    // Force reactivity
-    formData = formData;
   }
   
-  function toggleMCP(turn: any, mcp: string) {
+  function toggleMCP(turnIndex: number, mcp: string) {
+    const turn = formData.turns[turnIndex];
+    if (!turn) return;
+    
     const mcps = turn.mcps || [];
     const newMcps = mcps.includes(mcp) 
       ? mcps.filter((m: string) => m !== mcp) 
       : [...mcps, mcp];
     
-    // Create new turn object to trigger reactivity
-    const turnIndex = formData.turns.indexOf(turn);
-    if (turnIndex !== -1) {
-      formData.turns[turnIndex] = { ...turn, mcps: newMcps };
-      formData.turns = [...formData.turns];
-    }
+    formData.turns[turnIndex] = { ...turn, mcps: newMcps };
+    formData.turns = [...formData.turns];
   }
 
-  function toggleRule(turn: any, ruleId: string) {
+  function toggleRule(turnIndex: number, ruleId: string) {
+    const turn = formData.turns[turnIndex];
+    if (!turn) return;
+    
     const rules = turn.rules || [];
     const newRules = rules.includes(ruleId) 
       ? rules.filter((r: string) => r !== ruleId) 
       : [...rules, ruleId];
     
-    // Create new turn object to trigger reactivity
-    const turnIndex = formData.turns.indexOf(turn);
-    if (turnIndex !== -1) {
-      formData.turns[turnIndex] = { ...turn, rules: newRules };
-      formData.turns = [...formData.turns];
-    }
+    formData.turns[turnIndex] = { ...turn, rules: newRules };
+    formData.turns = [...formData.turns];
   }
 </script>
 
@@ -485,7 +481,7 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       <div class="flex flex-wrap gap-2">
                         {#each availableMCPs as mcp}
                           <button
-                            on:click={() => toggleMCP(turn, mcp)}
+                            on:click={() => toggleMCP(i, mcp)}
                             class="px-4 py-2 rounded-lg font-medium text-sm transition-all {turn.mcps?.includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
                           >
                             {turn.mcps?.includes(mcp) ? '✓' : '+'} {mcp}
@@ -506,7 +502,7 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                         {#each availableRules as rule (rule.id)}
                           <button
                             type="button"
-                            on:click={() => toggleRule(turn, rule.id)}
+                            on:click={() => toggleRule(i, rule.id)}
                             class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {turn.rules?.includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
                           >
                             {turn.rules?.includes(rule.id) ? '✓' : '+'} {rule.name}
