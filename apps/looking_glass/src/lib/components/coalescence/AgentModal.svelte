@@ -133,29 +133,39 @@
   }
   
   function toggleMCP(turnIndex: number, mcp: string) {
-    const turn = formData.turns[turnIndex];
-    if (!turn) return;
+    console.log('🔥 toggleMCP CALLED!', { turnIndex, mcp, currentMcps: formData.turns[turnIndex]?.mcps });
     
-    const mcps = turn.mcps || [];
-    const newMcps = mcps.includes(mcp) 
-      ? mcps.filter((m: string) => m !== mcp) 
-      : [...mcps, mcp];
+    // Clone the entire turns array with the updated turn
+    formData.turns = formData.turns.map((turn, idx) => {
+      if (idx !== turnIndex) return turn;
+      
+      const mcps = turn.mcps || [];
+      const newMcps = mcps.includes(mcp) 
+        ? mcps.filter((m: string) => m !== mcp) 
+        : [...mcps, mcp];
+      
+      console.log('🔥 Updated MCPs:', { old: mcps, new: newMcps });
+      return { ...turn, mcps: newMcps };
+    });
     
-    formData.turns[turnIndex] = { ...turn, mcps: newMcps };
-    formData.turns = [...formData.turns];
+    console.log('🔥 formData.turns after update:');
+    formData.turns.forEach((t, idx) => {
+      console.log(`  Turn ${idx}: ${t.name}, MCPs:`, t.mcps);
+    });
   }
 
   function toggleRule(turnIndex: number, ruleId: string) {
-    const turn = formData.turns[turnIndex];
-    if (!turn) return;
-    
-    const rules = turn.rules || [];
-    const newRules = rules.includes(ruleId) 
-      ? rules.filter((r: string) => r !== ruleId) 
-      : [...rules, ruleId];
-    
-    formData.turns[turnIndex] = { ...turn, rules: newRules };
-    formData.turns = [...formData.turns];
+    // Clone the entire turns array with the updated turn
+    formData.turns = formData.turns.map((turn, idx) => {
+      if (idx !== turnIndex) return turn;
+      
+      const rules = turn.rules || [];
+      const newRules = rules.includes(ruleId) 
+        ? rules.filter((r: string) => r !== ruleId) 
+        : [...rules, ruleId];
+      
+      return { ...turn, rules: newRules };
+    });
   }
 </script>
 
