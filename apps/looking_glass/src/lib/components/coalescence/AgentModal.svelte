@@ -3,6 +3,7 @@
   
   export let agent: any = null;
   export let isOpen = false;
+  export let availableRules: any[] = [];  // List of available rules
   
   const dispatch = createEventDispatcher();
   
@@ -49,7 +50,8 @@
       rules: rulesContent,
       turns: (agent.config?.turns || []).map((turn: any) => ({
         ...turn,
-        mcps: turn.mcps || []
+        mcps: turn.mcps || [],
+        rules: turn.rules || [] // Assuming rules are part of the turn config
       }))
     };
     parseSchedule(formData.schedule);
@@ -120,7 +122,8 @@
         model: formData.model,
         max_tokens: 1500,
         mcps: [],
-        prompt: ''
+        prompt: '',
+        rules: [] // Initialize rules for new turns
       }
     ];
   }
@@ -135,6 +138,16 @@
       turn.mcps = turn.mcps.filter((m: string) => m !== mcp);
     } else {
       turn.mcps = [...turn.mcps, mcp];
+    }
+    formData.turns = formData.turns; // Trigger reactivity
+  }
+
+  function toggleRule(turn: any, rule: string) {
+    if (!turn.rules) turn.rules = [];
+    if (turn.rules.includes(rule)) {
+      turn.rules = turn.rules.filter((r: string) => r !== rule);
+    } else {
+      turn.rules = [...turn.rules, rule];
     }
     formData.turns = formData.turns; // Trigger reactivity
   }
@@ -472,6 +485,26 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       {#if turn.mcps?.length > 0}
                         <div class="mt-2 text-xs text-neutral-500">
                           Aktiv: {turn.mcps.join(', ')}
+                        </div>
+                      {/if}
+                    </div>
+
+                    <!-- Rules Selection -->
+                    <div class="mb-4">
+                      <label class="block text-xs font-semibold text-neutral-400 mb-2">Regeln (für diesen Turn)</label>
+                      <div class="flex flex-wrap gap-2">
+                        {#each availableRules as rule}
+                          <button
+                            on:click={() => toggleRule(turn, rule.name)}
+                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all {turn.rules?.includes(rule.name) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
+                          >
+                            {turn.rules?.includes(rule.name) ? '✓' : '+'} {rule.name}
+                          </button>
+                        {/each}
+                      </div>
+                      {#if turn.rules?.length > 0}
+                        <div class="mt-2 text-xs text-neutral-500">
+                          Aktiv: {turn.rules.join(', ')}
                         </div>
                       {/if}
                     </div>

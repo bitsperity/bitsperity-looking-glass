@@ -5,6 +5,7 @@
 
   let agents: any[] = [];
   let agentStats: any[] = [];
+  let availableRules: any[] = [];  // Add available rules
   let loading = true;
   let error: string | null = null;
   let successMessage = '';
@@ -20,15 +21,17 @@
       loading = true;
       error = null;
       
-      // Load config and stats in parallel
-      const [config, stats] = await Promise.all([
+      // Load config, stats, and rules in parallel
+      const [config, stats, rules] = await Promise.all([
         coalescenceClient.getConfigAgents(),
-        coalescenceClient.getAgents()
+        coalescenceClient.getAgents(),
+        coalescenceClient.getAllRules()
       ]);
       
       yamlContent = config.content;
       parsedConfig = config.parsed;
       agentStats = stats.agents || [];
+      availableRules = rules || [];  // Store available rules
       
       // Parse agents from YAML
       if (parsedConfig?.agents) {
@@ -84,6 +87,11 @@
           // Only include model if it's different from agent-level model
           if (turn.model && turn.model !== formData.model) {
             turnConfig.model = turn.model;
+          }
+
+          // Include rules if specified for this turn
+          if (turn.rules && turn.rules.length > 0) {
+            turnConfig.rules = turn.rules;
           }
           
           return turnConfig;
@@ -347,5 +355,6 @@
   agent={selectedAgent}
   on:close={() => showModal = false}
   on:save={saveAgent}
+  availableRules={availableRules}
 />
 
