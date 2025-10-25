@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { coalescenceClient, type Rule } from '$lib/coalescence-client';
-  import CoalescenceNav from '$lib/components/coalescence/CoalescenceNav.svelte';
 
   interface FormData {
     id?: string;
@@ -105,8 +104,6 @@
 </script>
 
 <div class="rules-container">
-  <CoalescenceNav currentTab="rules" />
-
   <div class="rules-content">
     <!-- Header -->
     <div class="header">
@@ -300,7 +297,8 @@
 <style>
   .rules-container {
     display: flex;
-    height: 100vh;
+    flex-direction: column;
+    height: 100%;
     background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
     color: #e2e8f0;
   }

@@ -21,6 +21,53 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   app.use(cors());
   app.use(express.json());
 
+  // ============= HELPER FUNCTIONS FOR RULES PERSISTENCE =============
+
+  async function loadRulesFromDisk(): Promise<void> {
+    try {
+      const rulesPath = path.join(configDir, 'rules.yaml');
+      if (fs.existsSync(rulesPath)) {
+        const rulesYaml = await fs.readFile(rulesPath, 'utf-8');
+        const rulesData = yaml.parse(rulesYaml);
+        if (rulesData?.rules && Array.isArray(rulesData.rules)) {
+          for (const rule of rulesData.rules) {
+            try {
+              db.getRule(rule.id) || db.createRule(rule.id, rule.name, rule.content, rule.description);
+            } catch (e) {
+              // Rule might already exist
+            }
+          }
+          logger.info({ count: rulesData.rules.length }, 'Rules loaded from disk');
+        }
+      }
+    } catch (error) {
+      logger.warn({ error }, 'Failed to load rules from disk');
+    }
+  }
+
+  async function saveRulesToDisk(): Promise<void> {
+    try {
+      const rules = db.getAllRules();
+      const rulesYaml = yaml.stringify({
+        rules: rules.map(r => ({
+          id: r.id,
+          name: r.name,
+          content: r.content,
+          description: r.description,
+          created_at: r.created_at,
+          updated_at: r.updated_at
+        }))
+      });
+      const rulesPath = path.join(configDir, 'rules.yaml');
+      await fs.writeFile(rulesPath, rulesYaml, 'utf-8');
+    } catch (error) {
+      logger.error({ error }, 'Failed to save rules to disk');
+    }
+  }
+
+  // Load rules from disk on startup
+  loadRulesFromDisk().catch(e => logger.error({ error: e }, 'Failed to initialize rules'));
+
   // Health check
   app.get('/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -564,7 +611,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   });
 
   // POST /api/rules - Create new rule
-  app.post('/api/rules', (req: Request, res: Response) => {
+  app.post('/api/rules', async (req: Request, res: Response) => {
     try {
       const { name, content, description } = req.body;
 
@@ -580,6 +627,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
 
       const id = `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       db.createRule(id, name, content, description);
+      await saveRulesToDisk();
 
       const rule = db.getRule(id);
       res.status(201).json({ rule, timestamp: new Date().toISOString() });
@@ -590,7 +638,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   });
 
   // PUT /api/rules/:id - Update rule
-  app.put('/api/rules/:id', (req: Request, res: Response) => {
+  app.put('/api/rules/:id', async (req: Request, res: Response) => {
     try {
       const { name, content, description } = req.body;
 
@@ -600,6 +648,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       db.updateRule(req.params.id, name, content, description);
+      await saveRulesToDisk();
 
       const updated = db.getRule(req.params.id);
       res.json({ rule: updated, timestamp: new Date().toISOString() });
@@ -610,7 +659,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   });
 
   // DELETE /api/rules/:id - Delete rule
-  app.delete('/api/rules/:id', (req: Request, res: Response) => {
+  app.delete('/api/rules/:id', async (req: Request, res: Response) => {
     try {
       const rule = db.getRule(req.params.id);
       if (!rule) {
@@ -618,6 +667,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       db.deleteRule(req.params.id);
+      await saveRulesToDisk();
       res.json({ message: 'Rule deleted', timestamp: new Date().toISOString() });
     } catch (error) {
       logger.error({ error }, 'Failed to delete rule');
