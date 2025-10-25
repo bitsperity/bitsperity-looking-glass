@@ -56,3 +56,6 @@ export interface AgentRun {
     cost_usd: number;
   };
 }
+
+// Re-export from database module
+export type { RunRecord, CostRecord, AgentStats } from './db/database.js';
