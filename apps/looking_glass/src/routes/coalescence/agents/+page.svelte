@@ -90,6 +90,7 @@
           }
 
           // Include rules if specified for this turn
+          if (turn.rules) {
             turnConfig.rules = turn.rules;
           }
           
