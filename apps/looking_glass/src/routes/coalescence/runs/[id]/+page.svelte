@@ -537,6 +537,34 @@
     backdrop-filter: blur(10px);
   }
 
+  /* Color-coded messages based on role */
+  .assistant-message .message-content {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0.04) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+  }
+
+  .assistant-message .message-role {
+    color: #6ee7b7;
+  }
+
+  .user-message .message-content {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+  }
+
+  .user-message .message-role {
+    color: #93c5fd;
+  }
+
+  .system-message .message-content {
+    background: linear-gradient(135deg, rgba(107, 114, 128, 0.08) 0%, rgba(107, 114, 128, 0.04) 100%);
+    border: 1px solid rgba(107, 114, 128, 0.2);
+  }
+
+  .system-message .message-role {
+    color: #d1d5db;
+  }
+
   .message-header {
     display: flex;
     justify-content: space-between;
@@ -716,54 +744,38 @@
   }
 
   .message-trigger {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.5rem;
-    padding: 0.6rem 0.8rem;
+    background: linear-gradient(135deg, rgba(107, 114, 128, 0.08) 0%, rgba(107, 114, 128, 0.04) 100%);
+    border: 1px solid rgba(107, 114, 128, 0.2);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
     color: white;
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 0.6rem;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+    font-weight: 600;
     transition: all 0.2s ease;
     text-align: left;
-    font-weight: 500;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.5rem;
-    padding: 0.6rem 0.8rem;
-    color: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    font-size: 0.8rem;
-    transition: all 0.2s ease;
-    text-align: left;
-    font-weight: 500;
   }
 
   .message-trigger:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: linear-gradient(135deg, rgba(107, 114, 128, 0.12) 0%, rgba(107, 114, 128, 0.06) 100%);
+    border-color: rgba(107, 114, 128, 0.3);
   }
 
   .message-label {
-    font-weight: 600;
-    color: white;
-    flex: 1;
+    color: #d1d5db;
+    font-weight: 700;
   }
 
   .message-content.collapsible {
-    padding: 0.6rem 0.8rem;
     background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0.4rem;
+    border: 1px solid rgba(107, 114, 128, 0.15);
     border-top: none;
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
-    overflow: hidden;
+    border-radius: 0 0 0.75rem 0.75rem;
+    padding: 1rem;
+    margin-top: 0;
   }
 
   /* States */
