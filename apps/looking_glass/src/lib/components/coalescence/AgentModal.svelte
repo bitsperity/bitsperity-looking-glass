@@ -130,6 +130,8 @@
   
   function removeTurn(index: number) {
     formData.turns = formData.turns.filter((_, i) => i !== index);
+    // Force reactivity
+    formData = formData;
   }
   
   function toggleMCP(turn: any, mcp: string) {
@@ -139,7 +141,8 @@
     } else {
       turn.mcps = [...turn.mcps, mcp];
     }
-    formData.turns = formData.turns; // Trigger reactivity
+    // Force reactivity
+    formData.turns = [...formData.turns];
   }
 
   function toggleRule(turn: any, ruleId: string) {
@@ -149,7 +152,8 @@
     } else {
       turn.rules = [...turn.rules, ruleId];
     }
-    formData.turns = formData.turns; // Trigger reactivity
+    // Force reactivity
+    formData.turns = [...formData.turns];
   }
 </script>
 
