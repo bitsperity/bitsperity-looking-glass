@@ -33,7 +33,7 @@
   };
   
   // Tooltip state
-  let hoveredRuleId: string | null = null;
+  let hoveredRule: { turnIndex: number; ruleId: string } | null = null;
   
   function initializeFormData() {
     if (!agent || !isOpen) return;
@@ -514,8 +514,8 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                           <div class="relative group">
                             <label 
                               class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all {(formData.turns[i]?.rules || []).includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-neutral-700'}"
-                              on:mouseenter={() => hoveredRuleId = rule.id}
-                              on:mouseleave={() => hoveredRuleId = null}
+                              on:mouseenter={() => hoveredRule = { turnIndex: i, ruleId: rule.id }}
+                              on:mouseleave={() => hoveredRule = null}
                             >
                               <input
                                 type="checkbox"
@@ -536,7 +536,7 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                             </label>
                             
                             <!-- Tooltip with Rule Content - Elegant Coalescence Style -->
-                            {#if hoveredRuleId === rule.id && rule.content}
+                            {#if hoveredRule?.turnIndex === i && hoveredRule?.ruleId === rule.id && rule.content}
                               <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-3 bg-gradient-to-br from-neutral-900 to-neutral-950 border border-neutral-700/80 rounded-xl shadow-2xl z-50 pointer-events-none">
                                 <div class="text-neutral-300 font-semibold mb-3 text-sm flex items-center gap-2">
                                   <span>📋</span>
