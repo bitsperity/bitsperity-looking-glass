@@ -527,6 +527,7 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                                     formData.turns[i].rules = rules.filter(r => r !== rule.id);
                                   }
                                   formData.turns = [...formData.turns];
+                                  formData = { ...formData };
                                 }}
                                 class="w-4 h-4 cursor-pointer"
                               />
