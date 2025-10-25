@@ -73,7 +73,8 @@ async function processTurn(
   toolExecutor: ToolExecutor,
   db: OrchestrationDB,
   model: string,
-  maxSteps: number
+  maxSteps: number,
+  turnRules: string = ''
 ): Promise<{ inputTokens: number; outputTokens: number; responseText: string; toolCalls: number }> {
   const messages: Anthropic.MessageParam[] = [];
   let totalInputTokens = 0;
@@ -107,11 +108,16 @@ async function processTurn(
         );
       }
 
-      // Build request
+      // Build request with integrated rules into system prompt
+      let systemPrompt = (config as any).system_prompt || '';
+      if (turnRules) {
+        systemPrompt = systemPrompt + '\n\n---\n\n' + turnRules;
+      }
+      
       const requestParams: Anthropic.Messages.MessageCreateParamsNonStreaming = {
         model: model,
         max_tokens: turn.max_tokens || (config as any).max_tokens_per_turn || 4000,
-        system: (config as any).system_prompt || '',
+        system: systemPrompt,
         messages: messages as Anthropic.MessageParam[],
         tools: claudeTools
       };
@@ -378,7 +384,8 @@ export async function runAgent(
           toolExecutor,
           db,
           model,
-          maxSteps
+          maxSteps,
+          turnRules  // Pass rules to be integrated into system prompt
         );
 
         turnInputTokens = result.inputTokens;
