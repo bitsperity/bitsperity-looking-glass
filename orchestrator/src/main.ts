@@ -12,7 +12,8 @@ import type { AgentsConfig } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-dotenvConfig();
+// Load .env from project root (not orchestrator directory)
+dotenvConfig({ path: path.join(__dirname, '..', '..', '.env') });
 
 async function main() {
   logger.info('Starting Orchestrator...');

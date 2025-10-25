@@ -47,17 +47,17 @@ export class TokenBudgetManager {
       return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
     } else if (model.startsWith('claude-')) {
       // Anthropic pricing
-      // claude-haiku-4-5: $1 input / $5 output per 1M
-      // claude-sonnet-4-5: $3 input / $15 output per 1M
+      // claude-3-5-haiku-latest: $0.80 input / $4 output per 1M
+      // claude-3-5-sonnet-latest: $3 input / $15 output per 1M
       const rates = model.includes('haiku')
-        ? { input: 1, output: 5 }
+        ? { input: 0.80, output: 4 }
         : { input: 3, output: 15 };
 
       return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
     } else {
       // Unknown model - use default Anthropic Haiku pricing
       logger.warn({ model }, 'Unknown model for cost calculation, using Haiku pricing');
-      return (inputTokens * 1 + outputTokens * 5) / 1_000_000;
+      return (inputTokens * 0.80 + outputTokens * 4) / 1_000_000;
     }
   }
 

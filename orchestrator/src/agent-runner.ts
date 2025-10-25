@@ -134,11 +134,24 @@ export async function runAgent(
           model,
           maxTokens: turn.max_tokens,
           prompt: turnPrompt,
-          tools: Object.keys(tools).length > 0 ? tools : undefined,
+          // tools: Object.keys(tools).length > 0 ? tools : undefined,
           temperature: 0.7
         });
       } catch (error) {
-        logger.error({ agent: agentName, turn: turn.id, error }, 'LLM call failed');
+        const errorInfo = {
+          agent: agentName,
+          turn: turn.id,
+          modelName,
+          provider: modelName.startsWith('claude-') ? 'anthropic' : 'openai'
+        };
+        if (error instanceof Error) {
+          errorInfo['errorName'] = error.name;
+          errorInfo['errorMessage'] = error.message;
+          errorInfo['errorStack'] = error.stack;
+        } else {
+          errorInfo['error'] = String(error);
+        }
+        logger.error(errorInfo, 'LLM call failed');
         throw error;
       }
 

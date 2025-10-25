@@ -70,10 +70,21 @@ export class MCPPool {
 
       const toolList = await client.listTools();
       for (const tool of toolList.tools) {
-        const fullToolName = `${mcpName}.${tool.name}`;
-        tools[fullToolName] = {
-          description: tool.description,
-          parameters: tool.inputSchema
+        // Sanitize tool name: Anthropic only allows [a-zA-Z0-9_-]
+        // Replace dots with underscores: satbase.list-news -> satbase_list-news
+        const sanitizedToolName = `${mcpName}_${tool.name}`.replace(/\./g, '_');
+        
+        // Ensure inputSchema is properly formatted
+        // MCP tools have inputSchema as part of their spec, convert to Zod-like format
+        const inputSchema = tool.inputSchema || { type: 'object', properties: {} };
+        
+        tools[sanitizedToolName] = {
+          description: tool.description || '',
+          parameters: {
+            type: 'object',
+            properties: inputSchema.properties || {},
+            required: inputSchema.required || []
+          }
         };
       }
     }
