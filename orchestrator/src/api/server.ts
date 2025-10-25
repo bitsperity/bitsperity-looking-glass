@@ -65,27 +65,40 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     }
   });
 
-  // GET /api/chat/:runId - Stream chat JSONL
+  // GET /api/chat/:runId - Get full chat history from database
   app.get('/api/chat/:runId', (req: Request, res: Response) => {
     try {
-      const chatFile = db.getChatFile(req.params.runId);
-      if (!chatFile || !fs.existsSync(chatFile)) {
+      const chat = db.getChatForRun(req.params.runId);
+      if (!chat) {
         return res.status(404).json({ error: 'Chat not found' });
       }
 
-      res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Transfer-Encoding', 'chunked');
-
-      const stream = fs.createReadStream(chatFile, { encoding: 'utf-8' });
-      stream.on('error', (err) => {
-        logger.error({ error: err, runId: req.params.runId }, 'Error streaming chat');
-        res.status(500).json({ error: 'Error streaming chat' });
-      });
-
-      stream.pipe(res);
+      res.json(chat);
     } catch (error) {
       logger.error({ error }, 'Failed to fetch chat');
       res.status(500).json({ error: 'Failed to fetch chat' });
+    }
+  });
+
+  // GET /api/logs/agents - Get all agent stats
+  app.get('/api/logs/agents', (req: Request, res: Response) => {
+    try {
+      const stats = db.getAllAgentStats();
+      res.json({ agents: stats, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch agent logs');
+      res.status(500).json({ error: 'Failed to fetch agent logs' });
+    }
+  });
+
+  // GET /api/logs/runs/:agent - Get runs for specific agent
+  app.get('/api/logs/runs/:agent', (req: Request, res: Response) => {
+    try {
+      const runs = db.getAgentRuns(req.params.agent, 50);
+      res.json({ runs, count: runs.length, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch agent runs');
+      res.status(500).json({ error: 'Failed to fetch agent runs' });
     }
   });
 

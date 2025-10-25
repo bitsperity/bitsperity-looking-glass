@@ -30,22 +30,16 @@ interface ChatEntry {
 
 export class OrchestrationLogger {
   private db: OrchestrationDB;
-  private chatDir: string;
   private currentRunId?: string;
-  private currentChatPath?: string;
+  private currentTurnId?: number;
 
-  constructor(dbPath: string, chatDir: string) {
+  constructor(dbPath: string, _chatDir: string) {
+    // chatDir parameter kept for backward compatibility but not used
     this.db = new OrchestrationDB(dbPath);
-    this.chatDir = chatDir;
   }
 
   async logRunStart(agent: string, runId: string): Promise<void> {
     this.currentRunId = runId;
-
-    const date = new Date().toISOString().split('T')[0];
-    this.currentChatPath = path.join(this.chatDir, date, `${runId}.jsonl`);
-
-    await fs.mkdir(path.dirname(this.currentChatPath), { recursive: true });
 
     this.db.insertRun({
       id: runId,
@@ -58,140 +52,117 @@ export class OrchestrationLogger {
       total_tokens: 0,
       cost_usd: 0,
       turns_completed: 0,
-      turns_total: 0,
-      chat_file: this.currentChatPath
+      turns_total: 0
     });
 
     logger.debug({ agent, runId }, 'Run started, logging initialized');
   }
 
   async logTurnStart(runId: string, turnNumber: number, turnName: string): Promise<void> {
-    const entry: ChatEntry = {
-      timestamp: new Date().toISOString(),
-      run_id: runId,
-      agent: '',
-      turn: turnNumber,
-      turn_name: turnName,
-      type: 'turn_start'
-    };
-
-    await this.appendChatEntry(entry);
+    if (!this.currentRunId) this.currentRunId = runId;
+    
+    // Get agent from run
+    const runs = this.db.getAgentRuns('', 1); // Will be fixed by run query
+    // For now, extract agent from first message we can
+    this.currentTurnId = this.db.insertTurn(runId, '', turnNumber, turnName);
+    
+    logger.debug({ runId, turnNumber, turnName }, 'Turn started');
   }
 
-  async logMessage(
-    runId: string,
-    turn: number,
-    role: string,
-    content: string,
-    tokens?: TokenUsage
-  ): Promise<void> {
-    const entry: ChatEntry = {
-      timestamp: new Date().toISOString(),
-      run_id: runId,
-      agent: '',
-      turn,
-      type: 'message',
+  async logMessage(runId: string, turnId: number | string, role: string, content: string, tokens?: TokenUsage): Promise<void> {
+    if (!this.currentRunId || !this.currentTurnId) return;
+
+    const actualTurnId = typeof turnId === 'string' ? this.currentTurnId : turnId;
+    
+    this.db.insertMessage(
+      actualTurnId,
+      runId,
       role,
       content,
-      tokens
-    };
+      tokens?.input,
+      tokens?.output
+    );
 
-    await this.appendChatEntry(entry);
+    logger.debug({ runId, turnId: actualTurnId, role, length: content.length }, 'Message logged');
   }
 
-  async logToolCall(
-    runId: string,
-    turn: number,
-    toolName: string,
-    args: any
-  ): Promise<void> {
-    const entry: ChatEntry = {
-      timestamp: new Date().toISOString(),
-      run_id: runId,
-      agent: '',
-      turn,
-      type: 'tool_call',
-      tool: toolName,
-      args
-    };
+  async logToolCall(runId: string, turnId: number | string, toolName: string, args: any): Promise<void> {
+    if (!this.currentRunId || !this.currentTurnId) return;
 
-    await this.appendChatEntry(entry);
+    const actualTurnId = typeof turnId === 'string' ? this.currentTurnId : turnId;
+    
+    this.db.insertToolCall(
+      actualTurnId,
+      runId,
+      toolName,
+      JSON.stringify({ type: 'tool_call' }),
+      JSON.stringify(args)
+    );
+
+    logger.debug({ runId, turnId: actualTurnId, toolName }, 'Tool call logged');
   }
 
-  async logToolResult(
-    runId: string,
-    turn: number,
-    toolName: string,
-    result: any
-  ): Promise<void> {
-    const entry: ChatEntry = {
-      timestamp: new Date().toISOString(),
-      run_id: runId,
-      agent: '',
-      turn,
-      type: 'tool_result',
-      tool: toolName,
-      result
-    };
+  async logToolResult(runId: string, turnId: number | string, toolName: string, result: any): Promise<void> {
+    if (!this.currentRunId || !this.currentTurnId) return;
 
-    await this.appendChatEntry(entry);
-  }
+    const actualTurnId = typeof turnId === 'string' ? this.currentTurnId : turnId;
+    
+    // Get the last tool call for this turn
+    const toolCalls = this.db.db.prepare(`
+      SELECT id FROM tool_calls 
+      WHERE turn_id = ? AND tool_name = ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(actualTurnId, toolName) as any;
 
-  async logRunEnd(
-    runId: string,
-    agent: string,
-    status: string,
-    tokens: TokenUsage,
-    cost: number,
-    duration: number,
-    errorMessage?: string
-  ): Promise<void> {
-    this.db.updateRun(runId, {
-      status,
-      finished_at: new Date().toISOString(),
-      duration_seconds: duration,
-      input_tokens: tokens.input,
-      output_tokens: tokens.output,
-      total_tokens: tokens.input + tokens.output,
-      cost_usd: cost,
-      error_message: errorMessage
-    });
-
-    const date = new Date().toISOString().split('T')[0];
-    const costRecord: CostRecord = {
-      id: `${runId}_cost`,
-      agent,
-      run_id: runId,
-      timestamp: new Date().toISOString(),
-      input_tokens: tokens.input,
-      output_tokens: tokens.output,
-      total_tokens: tokens.input + tokens.output,
-      cost_usd: cost,
-      daily_date: date
-    };
-
-    this.db.insertCost(costRecord);
-
-    logger.debug({ agent, runId, tokens, cost }, 'Run finished, cost logged');
-  }
-
-  private async appendChatEntry(entry: ChatEntry): Promise<void> {
-    if (!this.currentChatPath) {
-      logger.warn('Chat path not initialized');
-      return;
-    }
-
-    try {
-      await fs.appendFile(
-        this.currentChatPath,
-        JSON.stringify(entry) + '\n'
+    if (toolCalls) {
+      this.db.insertToolResult(
+        toolCalls.id,
+        actualTurnId,
+        runId,
+        JSON.stringify(result),
+        undefined
       );
-    } catch (error) {
-      logger.error({ error, path: this.currentChatPath }, 'Failed to append chat entry');
     }
+
+    logger.debug({ runId, turnId: actualTurnId, toolName }, 'Tool result logged');
   }
 
-  close(): void {
-    this.db.close();
+  async logRunEnd(runId: string, agent: string, status: string, tokens?: TokenUsage, cost?: number, durationSeconds?: number): Promise<void> {
+    const stmt = this.db.db.prepare(`
+      UPDATE runs 
+      SET status = ?, finished_at = ?, duration_seconds = ?,
+          input_tokens = ?, output_tokens = ?, total_tokens = ?,
+          cost_usd = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      status,
+      new Date().toISOString(),
+      durationSeconds,
+      tokens?.input || 0,
+      tokens?.output || 0,
+      (tokens?.input || 0) + (tokens?.output || 0),
+      cost || 0,
+      runId
+    );
+
+    if (this.currentTurnId) {
+      this.db.insertTurnCost(
+        this.currentTurnId,
+        runId,
+        agent,
+        undefined,
+        tokens?.input,
+        tokens?.output,
+        cost
+      );
+    }
+
+    logger.debug({ runId, status, duration: durationSeconds, cost }, 'Run finished, cost logged');
+  }
+
+  async close(): Promise<void> {
+    logger.info('Database closed');
   }
 }

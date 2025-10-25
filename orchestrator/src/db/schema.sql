@@ -13,13 +13,94 @@ CREATE TABLE IF NOT EXISTS runs (
   model_used TEXT,
   turns_completed INTEGER DEFAULT 0,
   turns_total INTEGER DEFAULT 0,
-  error_message TEXT,
-  chat_file TEXT
+  error_message TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_agent ON runs(agent);
 CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+
+CREATE TABLE IF NOT EXISTS turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  turn_number INTEGER NOT NULL,
+  turn_name TEXT,
+  model TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE,
+  UNIQUE(run_id, turn_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_turns_run_id ON turns(run_id);
+CREATE INDEX IF NOT EXISTS idx_turns_agent ON turns(agent);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  turn_id INTEGER NOT NULL,
+  run_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tokens_input INTEGER,
+  tokens_output INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (turn_id) REFERENCES turns(id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(turn_id);
+CREATE INDEX IF NOT EXISTS idx_messages_run_id ON messages(run_id);
+CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
+
+CREATE TABLE IF NOT EXISTS tool_calls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  turn_id INTEGER NOT NULL,
+  run_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  input_schema TEXT,
+  args TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (turn_id) REFERENCES turns(id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_calls_turn_id ON tool_calls(turn_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_run_id ON tool_calls(run_id);
+
+CREATE TABLE IF NOT EXISTS tool_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tool_call_id INTEGER NOT NULL,
+  turn_id INTEGER NOT NULL,
+  run_id TEXT NOT NULL,
+  result TEXT,
+  error TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tool_call_id) REFERENCES tool_calls(id) ON DELETE CASCADE,
+  FOREIGN KEY (turn_id) REFERENCES turns(id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_results_tool_call_id ON tool_results(tool_call_id);
+CREATE INDEX IF NOT EXISTS idx_tool_results_turn_id ON tool_results(turn_id);
+CREATE INDEX IF NOT EXISTS idx_tool_results_run_id ON tool_results(run_id);
+
+CREATE TABLE IF NOT EXISTS turn_costs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  turn_id INTEGER NOT NULL,
+  run_id TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  model TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (turn_id) REFERENCES turns(id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_turn_costs_turn_id ON turn_costs(turn_id);
+CREATE INDEX IF NOT EXISTS idx_turn_costs_run_id ON turn_costs(run_id);
+CREATE INDEX IF NOT EXISTS idx_turn_costs_agent ON turn_costs(agent);
 
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY,

@@ -91,14 +91,14 @@ export class OrchestrationDB {
         id, agent, status, created_at, started_at, finished_at, 
         duration_seconds, input_tokens, output_tokens, total_tokens, 
         cost_usd, model_used, turns_completed, turns_total, 
-        error_message, chat_file
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        error_message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       run.id,
       run.agent,
       run.status || 'pending',
-      run.created_at || new Date().toISOString(),
+      run.created_at,
       run.started_at,
       run.finished_at,
       run.duration_seconds,
@@ -109,9 +109,124 @@ export class OrchestrationDB {
       run.model_used,
       run.turns_completed || 0,
       run.turns_total || 0,
-      run.error_message,
-      run.chat_file
+      run.error_message
     );
+  }
+
+  insertTurn(runId: string, agent: string, turnNumber: number, turnName: string, model?: string): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO turns (run_id, agent, turn_number, turn_name, model)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(runId, agent, turnNumber, turnName, model);
+    return result.lastInsertRowid as number;
+  }
+
+  insertMessage(turnId: number, runId: string, role: string, content: string, tokensInput?: number, tokensOutput?: number): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO messages (turn_id, run_id, role, content, tokens_input, tokens_output)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(turnId, runId, role, content, tokensInput, tokensOutput);
+    return result.lastInsertRowid as number;
+  }
+
+  insertToolCall(turnId: number, runId: string, toolName: string, inputSchema?: string, args?: string): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO tool_calls (turn_id, run_id, tool_name, input_schema, args)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(turnId, runId, toolName, inputSchema, args);
+    return result.lastInsertRowid as number;
+  }
+
+  insertToolResult(toolCallId: number, turnId: number, runId: string, result?: string, error?: string): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO tool_results (tool_call_id, turn_id, run_id, result, error)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const result_stmt = stmt.run(toolCallId, turnId, runId, result, error);
+    return result_stmt.lastInsertRowid as number;
+  }
+
+  insertTurnCost(turnId: number, runId: string, agent: string, model?: string, inputTokens?: number, outputTokens?: number, costUsd?: number): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO turn_costs (turn_id, run_id, agent, model, input_tokens, output_tokens, cost_usd)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(turnId, runId, agent, model, inputTokens || 0, outputTokens || 0, costUsd || 0);
+    return result.lastInsertRowid as number;
+  }
+
+  // Query methods for API
+  getAgentRuns(agent: string, limit: number = 50): any[] {
+    const stmt = this.db.prepare(`
+      SELECT id, agent, status, created_at, started_at, finished_at, 
+             duration_seconds, input_tokens, output_tokens, total_tokens, 
+             cost_usd, model_used, turns_completed, turns_total, error_message
+      FROM runs 
+      WHERE agent = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(agent, limit) as any[];
+  }
+
+  getChatForRun(runId: string): any {
+    const run = this.db.prepare('SELECT * FROM runs WHERE id = ?').get(runId) as any;
+    if (!run) return null;
+
+    const turns = this.db.prepare(`
+      SELECT id, run_id, agent, turn_number, turn_name, model, created_at
+      FROM turns
+      WHERE run_id = ?
+      ORDER BY turn_number ASC
+    `).all(runId) as any[];
+
+    const chat = {
+      run: run,
+      turns: turns.map(turn => {
+        const messages = this.db.prepare(`
+          SELECT id, turn_id, role, content, tokens_input, tokens_output, created_at
+          FROM messages
+          WHERE turn_id = ?
+          ORDER BY created_at ASC
+        `).all(turn.id) as any[];
+
+        const toolCalls = this.db.prepare(`
+          SELECT tc.id, tc.tool_name, tc.args, tc.created_at,
+                 tr.result, tr.error, tr.created_at as result_created_at
+          FROM tool_calls tc
+          LEFT JOIN tool_results tr ON tc.id = tr.tool_call_id
+          WHERE tc.turn_id = ?
+          ORDER BY tc.created_at ASC
+        `).all(turn.id) as any[];
+
+        const costs = this.db.prepare(`
+          SELECT model, input_tokens, output_tokens, cost_usd
+          FROM turn_costs
+          WHERE turn_id = ?
+        `).get(turn.id) as any;
+
+        return {
+          ...turn,
+          messages,
+          toolCalls,
+          costs
+        };
+      })
+    };
+
+    return chat;
+  }
+
+  getAllAgentStats(): any[] {
+    return this.db.prepare(`
+      SELECT name, enabled, model, schedule, total_runs, total_tokens, 
+             total_cost_usd, last_run_id, last_run_at
+      FROM agents
+      ORDER BY last_run_at DESC NULLS LAST
+    `).all() as any[];
   }
 
   updateRun(runId: string, updates: Partial<RunRecord>): void {
