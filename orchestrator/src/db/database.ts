@@ -662,6 +662,90 @@ export class OrchestrationDB {
     return row?.chat_file || null;
   }
 
+  // ============= RULES MANAGEMENT =============
+
+  createRule(id: string, name: string, content: string, description?: string): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO rules (id, name, content, description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+    `);
+    stmt.run(id, name, content, description || null);
+  }
+
+  updateRule(id: string, name?: string, content?: string, description?: string): void {
+    let query = 'UPDATE rules SET updated_at = datetime(\'now\')';
+    const params: any[] = [];
+
+    if (name !== undefined) {
+      query += ', name = ?';
+      params.push(name);
+    }
+
+    if (content !== undefined) {
+      query += ', content = ?';
+      params.push(content);
+    }
+
+    if (description !== undefined) {
+      query += ', description = ?';
+      params.push(description);
+    }
+
+    query += ' WHERE id = ?';
+    params.push(id);
+
+    const stmt = this.db.prepare(query);
+    stmt.run(...params);
+  }
+
+  deleteRule(id: string): void {
+    const stmt = this.db.prepare('DELETE FROM rules WHERE id = ?');
+    stmt.run(id);
+  }
+
+  getRule(id: string): any {
+    const stmt = this.db.prepare('SELECT * FROM rules WHERE id = ?');
+    return stmt.get(id);
+  }
+
+  getRuleByName(name: string): any {
+    const stmt = this.db.prepare('SELECT * FROM rules WHERE name = ?');
+    return stmt.get(name);
+  }
+
+  getAllRules(): any[] {
+    const stmt = this.db.prepare('SELECT * FROM rules ORDER BY name');
+    return stmt.all();
+  }
+
+  getTurnRules(turnId: number): any[] {
+    const stmt = this.db.prepare(`
+      SELECT r.* FROM rules r
+      INNER JOIN turn_rules tr ON r.id = tr.rule_id
+      WHERE tr.turn_id = ?
+      ORDER BY tr.order_index ASC
+    `);
+    return stmt.all(turnId);
+  }
+
+  setTurnRules(turnId: number, ruleIds: string[]): void {
+    // Clear existing rules for this turn
+    const deleteStmt = this.db.prepare('DELETE FROM turn_rules WHERE turn_id = ?');
+    deleteStmt.run(turnId);
+
+    // Insert new rules with order
+    if (ruleIds.length > 0) {
+      const insertStmt = this.db.prepare(`
+        INSERT INTO turn_rules (turn_id, rule_id, order_index, created_at)
+        VALUES (?, ?, ?, datetime('now'))
+      `);
+
+      ruleIds.forEach((ruleId, index) => {
+        insertStmt.run(turnId, ruleId, index);
+      });
+    }
+  }
+
   close(): void {
     this.db.close();
     logger.info('Database closed');

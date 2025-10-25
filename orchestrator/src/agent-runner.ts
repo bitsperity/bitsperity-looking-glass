@@ -33,6 +33,44 @@ function calculateCost(inputTokens: number, outputTokens: number, model: string)
   return 0;
 }
 
+// Load rules for a turn: supports both new rules array and legacy rules_file
+async function loadTurnRules(turn: TurnConfig, agentConfig: AgentConfig, configDir?: string): Promise<string> {
+  const rules: string[] = [];
+  
+  // Use per-turn rules if specified, otherwise use agent-level rules
+  const ruleIds = turn.rules || agentConfig.rules || [];
+  
+  // Load content for each rule ID
+  for (const ruleId of ruleIds) {
+    // Try to load rule content (in production, would come from database)
+    // For now, assume ruleId is a file path or simple identifier
+    if (ruleId.startsWith('./') || ruleId.startsWith('/')) {
+      try {
+        const ruleContent = await fs.readFile(ruleId, 'utf-8');
+        rules.push(ruleContent);
+      } catch (error) {
+        logger.warn({ ruleId }, 'Failed to load rule file');
+      }
+    }
+  }
+
+  // Support legacy rules_file for backward compatibility
+  if (rules.length === 0 && agentConfig.rules_file) {
+    try {
+      const rulesPath = path.resolve(configDir || '.', agentConfig.rules_file);
+      const rulesContent = await fs.readFile(rulesPath, 'utf-8');
+      rules.push(rulesContent);
+    } catch (error) {
+      logger.warn({ rulesFile: agentConfig.rules_file }, 'Failed to load rules file');
+    }
+  }
+
+  // Concatenate all rules with separators
+  return rules.length > 0 
+    ? rules.map((rule, idx) => `[Rule ${idx + 1}]\n${rule}`).join('\n\n')
+    : '';
+}
+
 // Process a single agentic turn with Claude and Tool Calling
 async function processTurn(
   client: Anthropic,
@@ -327,9 +365,10 @@ export async function runAgent(
         // Log system prompt for this turn (collapsed by default)
         db.insertMessage(turnId, runId, 'system', configWithAgent.system_prompt || 'No system prompt defined', 0, 0, 'system');
         
-        // Log rules if they exist (collapsed by default)
-        if (configWithAgent.rules) {
-          db.insertMessage(turnId, runId, 'system', configWithAgent.rules, 0, 0, 'rules');
+        // Load and log rules for this turn (supports multiple rules per turn)
+        const turnRules = await loadTurnRules(turn, configWithAgent);
+        if (turnRules) {
+          db.insertMessage(turnId, runId, 'system', turnRules, 0, 0, 'rules');
         }
 
         // Log user prompt BEFORE processing (turn prompt)

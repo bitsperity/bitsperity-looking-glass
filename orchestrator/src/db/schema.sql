@@ -165,3 +165,28 @@ CREATE TABLE IF NOT EXISTS turn_details (
 
 CREATE INDEX IF NOT EXISTS idx_turn_details_run_id ON turn_details(run_id);
 CREATE INDEX IF NOT EXISTS idx_turn_details_status ON turn_details(status);
+
+CREATE TABLE IF NOT EXISTS rules (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  content TEXT NOT NULL,
+  description TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_rules_name ON rules(name);
+
+CREATE TABLE IF NOT EXISTS turn_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  turn_id INTEGER NOT NULL,
+  rule_id TEXT NOT NULL,
+  order_index INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (turn_id) REFERENCES turns(id) ON DELETE CASCADE,
+  FOREIGN KEY (rule_id) REFERENCES rules(id) ON DELETE CASCADE,
+  UNIQUE(turn_id, rule_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_turn_rules_turn_id ON turn_rules(turn_id);
+CREATE INDEX IF NOT EXISTS idx_turn_rules_rule_id ON turn_rules(rule_id);

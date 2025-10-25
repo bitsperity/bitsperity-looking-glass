@@ -5,6 +5,7 @@ export interface TurnConfig {
   max_tokens: number;
   max_steps?: number;  // Max agentic loop iterations for this turn
   mcps?: string[];  // e.g., ["satbase", "manifold"]
+  rules?: string[];  // Array of rule IDs to apply to this turn (NEW)
   prompt?: string;  // Inline prompt
   prompt_file?: string;  // External prompt file path
 }
@@ -17,7 +18,8 @@ export interface AgentConfig {
   system_prompt?: string;  // System prompt with step-control guidance
   max_tokens_per_turn?: number;  // Default max tokens per turn (4000)
   max_steps?: number;  // Default max agentic loop iterations (5)
-  rules_file?: string;  // Optional agent rules
+  rules?: string[];  // Array of default rule IDs for all turns (NEW)
+  rules_file?: string;  // Optional agent rules (DEPRECATED: kept for backward compatibility)
   budget_daily_tokens: number;
   timeout_minutes: number;
   batch?: number;  // For parallel execution

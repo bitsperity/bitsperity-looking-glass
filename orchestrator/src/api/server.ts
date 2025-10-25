@@ -536,6 +536,134 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     }
   });
 
+  // ============= RULES API ENDPOINTS =============
+
+  // GET /api/rules - List all rules
+  app.get('/api/rules', (req: Request, res: Response) => {
+    try {
+      const rules = db.getAllRules();
+      res.json({ rules, count: rules.length, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch rules');
+      res.status(500).json({ error: 'Failed to fetch rules' });
+    }
+  });
+
+  // GET /api/rules/:id - Get single rule
+  app.get('/api/rules/:id', (req: Request, res: Response) => {
+    try {
+      const rule = db.getRule(req.params.id);
+      if (!rule) {
+        return res.status(404).json({ error: 'Rule not found' });
+      }
+      res.json({ rule, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch rule');
+      res.status(500).json({ error: 'Failed to fetch rule' });
+    }
+  });
+
+  // POST /api/rules - Create new rule
+  app.post('/api/rules', (req: Request, res: Response) => {
+    try {
+      const { name, content, description } = req.body;
+
+      if (!name || !content) {
+        return res.status(400).json({ error: 'name and content are required' });
+      }
+
+      // Check if rule already exists
+      const existing = db.getRuleByName(name);
+      if (existing) {
+        return res.status(409).json({ error: 'Rule with this name already exists' });
+      }
+
+      const id = `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      db.createRule(id, name, content, description);
+
+      const rule = db.getRule(id);
+      res.status(201).json({ rule, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to create rule');
+      res.status(500).json({ error: 'Failed to create rule' });
+    }
+  });
+
+  // PUT /api/rules/:id - Update rule
+  app.put('/api/rules/:id', (req: Request, res: Response) => {
+    try {
+      const { name, content, description } = req.body;
+
+      const rule = db.getRule(req.params.id);
+      if (!rule) {
+        return res.status(404).json({ error: 'Rule not found' });
+      }
+
+      db.updateRule(req.params.id, name, content, description);
+
+      const updated = db.getRule(req.params.id);
+      res.json({ rule: updated, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to update rule');
+      res.status(500).json({ error: 'Failed to update rule' });
+    }
+  });
+
+  // DELETE /api/rules/:id - Delete rule
+  app.delete('/api/rules/:id', (req: Request, res: Response) => {
+    try {
+      const rule = db.getRule(req.params.id);
+      if (!rule) {
+        return res.status(404).json({ error: 'Rule not found' });
+      }
+
+      db.deleteRule(req.params.id);
+      res.json({ message: 'Rule deleted', timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to delete rule');
+      res.status(500).json({ error: 'Failed to delete rule' });
+    }
+  });
+
+  // POST /api/turns/:turnId/rules - Set rules for a turn
+  app.post('/api/turns/:turnId/rules', (req: Request, res: Response) => {
+    try {
+      const { ruleIds } = req.body;
+
+      if (!Array.isArray(ruleIds)) {
+        return res.status(400).json({ error: 'ruleIds must be an array' });
+      }
+
+      const turnId = parseInt(req.params.turnId);
+      if (isNaN(turnId)) {
+        return res.status(400).json({ error: 'Invalid turn ID' });
+      }
+
+      db.setTurnRules(turnId, ruleIds);
+      const rules = db.getTurnRules(turnId);
+      res.json({ rules, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to set turn rules');
+      res.status(500).json({ error: 'Failed to set turn rules' });
+    }
+  });
+
+  // GET /api/turns/:turnId/rules - Get rules for a turn
+  app.get('/api/turns/:turnId/rules', (req: Request, res: Response) => {
+    try {
+      const turnId = parseInt(req.params.turnId);
+      if (isNaN(turnId)) {
+        return res.status(400).json({ error: 'Invalid turn ID' });
+      }
+
+      const rules = db.getTurnRules(turnId);
+      res.json({ rules, count: rules.length, timestamp: new Date().toISOString() });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch turn rules');
+      res.status(500).json({ error: 'Failed to fetch turn rules' });
+    }
+  });
+
   // Start server
   return new Promise((resolve, reject) => {
     const server = app.listen(port, () => {
