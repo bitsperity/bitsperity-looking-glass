@@ -35,26 +35,29 @@ export class TokenBudgetManager {
   }
 
   calculateCost(inputTokens: number, outputTokens: number, model: string): number {
-    const provider = process.env.LLM_PROVIDER || 'openai';
-
-    if (provider === 'openai' || model.includes('gpt')) {
-      // OpenAI pricing (much cheaper for testing!)
+    // Auto-detect provider from model name
+    if (model.startsWith('gpt-')) {
+      // OpenAI pricing
       // gpt-4o-mini: $0.15 input / $0.60 output per 1M
       // gpt-4o: $2.50 input / $10 output per 1M
-      const rates = model.includes('mini') || model.includes('haiku')
+      const rates = model.includes('mini')
         ? { input: 0.15, output: 0.60 }
         : { input: 2.50, output: 10 };
 
       return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
-    } else {
+    } else if (model.startsWith('claude-')) {
       // Anthropic pricing
-      // Haiku 4.5: $1 input / $5 output per 1M
-      // Sonnet 4.5: $3 input / $15 output per 1M
+      // claude-haiku-4-5: $1 input / $5 output per 1M
+      // claude-sonnet-4-5: $3 input / $15 output per 1M
       const rates = model.includes('haiku')
         ? { input: 1, output: 5 }
         : { input: 3, output: 15 };
 
       return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
+    } else {
+      // Unknown model - use default Anthropic Haiku pricing
+      logger.warn({ model }, 'Unknown model for cost calculation, using Haiku pricing');
+      return (inputTokens * 1 + outputTokens * 5) / 1_000_000;
     }
   }
 

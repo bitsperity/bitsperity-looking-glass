@@ -12,24 +12,20 @@ import type { AgentConfig, TurnConfig, ChatMessage, AgentRun } from './types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Model selector - use gpt-4o-mini for testing (cheap!)
+// Model selector - supports all Anthropic and OpenAI models
 function selectModel(modelName: string) {
-  const provider = process.env.LLM_PROVIDER || 'openai';
-  
-  if (provider === 'openai' || modelName.includes('gpt')) {
-    // Use OpenAI for cost efficiency during testing
-    // gpt-4o-mini: $0.15/$0.60 per 1M tokens (vs Haiku $1/$5, Sonnet $3/$15)
-    const modelMap: Record<string, string> = {
-      'claude-haiku-4-5': 'gpt-4o-mini',      // Swap for testing
-      'claude-sonnet-4-5': 'gpt-4o',          // More capable for complex reasoning
-      'gpt-4o-mini': 'gpt-4o-mini',
-      'gpt-4o': 'gpt-4o'
-    };
-    
-    const mappedModel = modelMap[modelName] || 'gpt-4o-mini';
-    logger.info({ originalModel: modelName, mappedModel, provider: 'openai' }, 'Model mapped');
-    return openai(mappedModel, { apiKey: process.env.OPENAI_API_KEY });
+  // Auto-detect provider from model name
+  if (modelName.startsWith('claude-')) {
+    // Anthropic models: claude-haiku-4-5, claude-sonnet-4-5, etc.
+    logger.debug({ model: modelName, provider: 'anthropic' }, 'Using Anthropic provider');
+    return anthropic(modelName);
+  } else if (modelName.startsWith('gpt-')) {
+    // OpenAI models: gpt-4o-mini, gpt-4o, etc.
+    logger.debug({ model: modelName, provider: 'openai' }, 'Using OpenAI provider');
+    return openai(modelName);
   } else {
+    // Fallback: try to infer from model name patterns
+    logger.warn({ model: modelName }, 'Unknown model prefix, defaulting to Anthropic');
     return anthropic(modelName);
   }
 }
