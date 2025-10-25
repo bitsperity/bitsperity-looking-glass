@@ -1,3 +1,5 @@
+# Configuration for Coalescence Multi-Agent Orchestrator
+# Last updated: 2025-10-25 Testing hot reload
 # Shared Turn Templates (YAML Anchors for reusability)
 _analyst_turns: &analyst_turns
   - id: 1
@@ -64,92 +66,92 @@ mcps:
 
 agents:
   discovery:
-    enabled: false
-    schedule: "*/2 * * * * *"
+    enabled: true
+    schedule: "0 * * * *"
     model: "haiku-3.5"
-    budget_daily_tokens: 5000
-    timeout_minutes: 3
+    budget_daily_tokens: 3000
+    timeout_minutes: 5
     rules_file: "./agent-rules/discovery.md"
     turns:
       - id: 1
         name: "load_watchlist"
-        max_tokens: 1000
+        max_tokens: 800
         mcps: ["satbase"]
         prompt: "Load your watchlist to see which sectors and themes are in scope today."
 
       - id: 2
         name: "get_trends"
-        max_tokens: 2000
+        max_tokens: 1200
         mcps: ["satbase"]
         prompt: "Get trending tickers and news heatmap. What are the top 5 themes/events today?"
 
       - id: 3
         name: "create_signals"
-        max_tokens: 1500
+        max_tokens: 1000
         mcps: ["manifold"]
         prompt: "Create Signal thoughts for the top 5 discoveries with confidence scores."
 
   analyst_tech:
-    enabled: false
-    schedule: "*/5 * * * * *"
+    enabled: true
+    schedule: "0 1 * * *"
     batch: 1
     sector: "tech"
     model: "haiku-3.5"
-    budget_daily_tokens: 12000
-    timeout_minutes: 8
+    budget_daily_tokens: 5000
+    timeout_minutes: 10
     rules_file: "./agent-rules/analyst-tech.md"
     turns: *analyst_turns
 
   analyst_biotech:
     enabled: false
-    schedule: "*/5 * * * * *"
+    schedule: "0 * * * *"
     batch: 1
     sector: "biotech"
     model: "haiku-3.5"
-    budget_daily_tokens: 12000
+    budget_daily_tokens: 5000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-biotech.md"
     turns: *analyst_turns
 
   analyst_commodities:
     enabled: false
-    schedule: "*/5 * * * * *"
+    schedule: "0 * * * *"
     batch: 1
     sector: "commodities"
     model: "haiku-3.5"
-    budget_daily_tokens: 12000
+    budget_daily_tokens: 5000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-commodities.md"
     turns: *analyst_turns
 
   analyst_macro:
     enabled: false
-    schedule: "*/5 * * * * *"
+    schedule: "0 * * * *"
     batch: 2
     sector: "macro"
     model: "haiku-3.5"
-    budget_daily_tokens: 12000
+    budget_daily_tokens: 5000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-macro.md"
     turns: *analyst_turns
 
   analyst_geopolitics:
     enabled: false
-    schedule: "*/5 * * * * *"
+    schedule: "0 * * * *"
     batch: 2
     sector: "geopolitics"
     model: "haiku-3.5"
-    budget_daily_tokens: 12000
+    budget_daily_tokens: 5000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-geopolitics.md"
     turns: *analyst_turns
 
   validator:
     enabled: false
-    schedule: "*/10 * * * * *"
+    schedule: "0 2 * * *"
     model: "haiku-3.5"
-    budget_daily_tokens: 12000
-    timeout_minutes: 8
+    budget_daily_tokens: 4000
+    timeout_minutes: 10
     rules_file: "./agent-rules/validator.md"
     turns:
       - id: 1
@@ -181,10 +183,10 @@ agents:
 
   trader:
     enabled: false
-    schedule: "*/15 * * * * *"
+    schedule: "0 3 * * *"
     model: "haiku-3.5"
-    budget_daily_tokens: 12000
-    timeout_minutes: 10
+    budget_daily_tokens: 8000
+    timeout_minutes: 12
     rules_file: "./agent-rules/trader.md"
     turns:
       - id: 1
