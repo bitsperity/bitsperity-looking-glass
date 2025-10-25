@@ -1,0 +1,1 @@
+function e(t){return t&&t.__esModule&&Object.prototype.hasOwnProperty.call(t,"default")?t.default:t}var r=function(o){return o!==null&&typeof o=="object"&&typeof o.addUndirectedEdgeWithKey=="function"&&typeof o.dropNode=="function"&&typeof o.multi=="boolean"};const n=e(r);export{n as a,e as g,r as i};

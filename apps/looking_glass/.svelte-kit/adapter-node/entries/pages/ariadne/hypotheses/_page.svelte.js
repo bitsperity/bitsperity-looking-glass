@@ -1,0 +1,13 @@
+import { c as create_ssr_component, d as add_attribute, e as escape, f as each, v as validate_component } from "../../../../chunks/ssr.js";
+import { C as ConfidenceBadge } from "../../../../chunks/ConfidenceBadge.js";
+const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
+  let minAnnotations = 3;
+  let hypotheses = [];
+  return `<div class="max-w-7xl mx-auto p-6"><h1 class="text-3xl font-bold text-neutral-100 mb-6" data-svelte-h="svelte-138jgzr">Pending Validations</h1> <div class="mb-6"><label class="block text-sm font-medium text-neutral-300 mb-1" data-svelte-h="svelte-1oxt2rx">Min Annotations</label> <input type="number" min="1" class="w-48 px-3 py-2 bg-neutral-900 border border-neutral-700 rounded text-neutral-100 focus:outline-none focus:border-indigo-500"${add_attribute("value", minAnnotations, 0)}> <button class="ml-2 px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white" data-svelte-h="svelte-9fy9lg">Refresh</button></div> ${`${`${hypotheses.length > 0 ? `<div class="mb-4 text-sm text-neutral-400">Found ${escape(hypotheses.length)} pending hypotheses</div> <div class="space-y-3">${each(hypotheses, (hyp) => {
+    return `<div class="bg-neutral-900 rounded border border-neutral-800 p-4"><div class="flex items-start justify-between mb-2"><div class="flex-1"><h3 class="text-lg font-medium text-neutral-100 mb-1">${escape(hyp.statement)}</h3> <div class="text-sm text-neutral-400 mb-1">${escape(hyp.relation_type)}: ${escape(hyp.source_name || hyp.source_entity_id)}${hyp.source_ticker ? ` (${escape(hyp.source_ticker)})` : ``} → ${escape(hyp.target_name || hyp.target_entity_id)}${hyp.target_ticker ? ` (${escape(hyp.target_ticker)})` : ``}</div> <div class="flex items-center gap-3 text-xs text-neutral-500">${validate_component(ConfidenceBadge, "ConfidenceBadge").$$render($$result, { confidence: hyp.confidence }, {}, {})} <span>Evidence: ${escape(hyp.evidence_count)}</span> <span>Contradictions: ${escape(hyp.contradiction_count)}</span> <span>Threshold: ${escape(hyp.validation_threshold)}</span></div> ${hyp.manifold_thought_id ? `<div class="text-xs text-neutral-600 mt-1"><a href="${"/manifold/thoughts/" + escape(hyp.manifold_thought_id, true)}" class="hover:text-indigo-400">Manifold: ${escape(hyp.manifold_thought_id)}</a> </div>` : ``}</div> <a href="${"/ariadne/hypotheses/" + escape(hyp.id, true)}" class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm">Review
+            </a></div> </div>`;
+  })}</div>` : `<div class="text-neutral-400" data-svelte-h="svelte-nxq32n">No pending validations</div>`}`}`}</div>`;
+});
+export {
+  Page as default
+};

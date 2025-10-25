@@ -1,0 +1,20 @@
+import { c as create_ssr_component, d as add_attribute, f as each, e as escape } from "../../../../chunks/ssr.js";
+import "lightweight-charts";
+const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
+  let watchlist = [];
+  let selectedTicker = "";
+  let newTicker = "";
+  let btcView = false;
+  let from = "";
+  let to = "";
+  const today = /* @__PURE__ */ (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  return `<div class="h-screen flex relative overflow-hidden"> <div class="w-56 flex-shrink-0 bg-neutral-900/50 border-r border-neutral-800 flex flex-col relative z-10 overflow-hidden"><div class="p-3 border-b border-neutral-800 relative overflow-visible"><h2 class="text-xs uppercase tracking-wider text-neutral-500 mb-2" data-svelte-h="svelte-1yb0n2z">Watchlist</h2> <input type="text" placeholder="Search ticker or company..." ${""} class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 transition-all"${add_attribute("value", newTicker, 0)}>  ${``}</div> <div class="flex-1 overflow-y-auto p-2 space-y-1">${each(watchlist, (item) => {
+    return `<div class="flex items-center gap-1 group"><button class="${"flex-1 text-left px-2 py-1.5 rounded text-sm font-mono transition-colors " + escape(
+      selectedTicker === item.symbol ? "bg-blue-600 text-white" : "bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300",
+      true
+    )}">${escape(item.symbol)}</button> <button class="w-6 h-6 flex items-center justify-center rounded text-neutral-500 hover:bg-red-500/20 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100" title="${"Remove " + escape(item.symbol, true)}">×</button> </div>`;
+  })}</div> ${watchlist.length === 0 ? `<div class="text-center py-8 px-4 text-xs text-neutral-600" data-svelte-h="svelte-19561q7">Add tickers above</div>` : ``}</div>  <div class="flex-1 flex flex-col overflow-hidden"> <div class="flex items-center gap-3 p-3 pb-2 border-b border-neutral-800 flex-shrink-0"><div class="flex items-center gap-2"><span class="text-xs text-neutral-500" data-svelte-h="svelte-1uf25g3">From</span> <input type="date"${add_attribute("max", today, 0)} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500"${add_attribute("value", from, 0)}></div> <div class="flex items-center gap-2"><span class="text-xs text-neutral-500" data-svelte-h="svelte-1qia4xw">To</span> <input type="date"${add_attribute("max", today, 0)} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500"${add_attribute("value", to, 0)}></div> <label class="flex items-center gap-2 text-xs cursor-pointer"><input type="checkbox" class="rounded border-neutral-600 bg-neutral-700 text-orange-600 focus:ring-1 focus:ring-orange-500/50"${add_attribute("checked", btcView, 1)}> <span class="text-neutral-300" data-svelte-h="svelte-eh92lb">₿ BTC View</span></label> <button ${""} class="ml-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-xs font-medium">${escape("Refresh")}</button></div>  ${``}  <div class="flex-1 min-h-0 overflow-hidden bg-neutral-800/50 border border-neutral-700/50 rounded-xl mx-3 mb-2">${`${`${`<div class="h-full flex items-center justify-center text-center" data-svelte-h="svelte-642e1u"><div><svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg> <h3 class="text-sm font-semibold text-neutral-300 mb-1">Select a ticker</h3> <p class="text-xs text-neutral-500">Choose from watchlist or add new</p></div></div>`}`}`}</div>  ${``}</div></div>`;
+});
+export {
+  Page as default
+};
