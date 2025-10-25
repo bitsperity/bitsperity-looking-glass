@@ -483,15 +483,15 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                           <button
                             type="button"
                             on:click={() => toggleMCP(i, mcp)}
-                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {turn.mcps?.includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
+                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {formData.turns[i].mcps?.includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
                           >
-                            {turn.mcps?.includes(mcp) ? '✓' : '+'} {mcp}
+                            {formData.turns[i].mcps?.includes(mcp) ? '✓' : '+'} {mcp}
                           </button>
                         {/each}
                       </div>
-                      {#if turn.mcps?.length > 0}
+                      {#if formData.turns[i].mcps?.length > 0}
                         <div class="mt-2 text-xs text-neutral-500">
-                          Aktiv: {turn.mcps.join(', ')}
+                          Aktiv: {formData.turns[i].mcps.join(', ')}
                         </div>
                       {/if}
                     </div>
@@ -504,15 +504,15 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                           <button
                             type="button"
                             on:click={() => toggleRule(i, rule.id)}
-                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {turn.rules?.includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
+                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {formData.turns[i].rules?.includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
                           >
-                            {turn.rules?.includes(rule.id) ? '✓' : '+'} {rule.name}
+                            {formData.turns[i].rules?.includes(rule.id) ? '✓' : '+'} {rule.name}
                           </button>
                         {/each}
                       </div>
-                      {#if turn.rules?.length > 0}
+                      {#if formData.turns[i].rules?.length > 0}
                         <div class="mt-2 text-xs text-neutral-500">
-                          Aktiv: {turn.rules.map(ruleId => {
+                          Aktiv: {formData.turns[i].rules.map(ruleId => {
                             const rule = availableRules.find(r => r.id === ruleId);
                             return rule?.name || ruleId;
                           }).join(', ')}
