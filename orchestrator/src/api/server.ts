@@ -60,8 +60,10 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       });
       const rulesPath = path.join(configDir, 'rules.yaml');
       await fs.writeFile(rulesPath, rulesYaml, 'utf-8');
-    } catch (error) {
-      logger.error({ error }, 'Failed to save rules to disk');
+      logger.info({ path: rulesPath, count: rules.length }, 'Rules saved to disk');
+    } catch (error: any) {
+      const errorMsg = error?.message || String(error);
+      logger.error({ error: errorMsg, stack: error?.stack }, 'Failed to save rules to disk');
     }
   }
 
