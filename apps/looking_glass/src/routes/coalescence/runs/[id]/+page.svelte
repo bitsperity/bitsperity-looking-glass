@@ -619,24 +619,24 @@
   }
 
   .tool-call-trigger {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.5rem;
-    padding: 0.6rem 0.8rem;
+    background: linear-gradient(135deg, rgba(180, 83, 9, 0.08) 0%, rgba(180, 83, 9, 0.04) 100%);
+    border: 1px solid rgba(180, 83, 9, 0.2);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
     color: white;
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 0.6rem;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     transition: all 0.2s ease;
     text-align: left;
-    font-weight: 500;
+    font-weight: 600;
   }
 
   .tool-call-trigger:hover {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: linear-gradient(135deg, rgba(180, 83, 9, 0.12) 0%, rgba(180, 83, 9, 0.06) 100%);
+    border-color: rgba(180, 83, 9, 0.3);
   }
 
   .expand-icon {
@@ -648,33 +648,44 @@
 
   .tool-name {
     font-weight: 600;
-    color: white;
+    color: #fcd34d;
     flex: 1;
   }
 
   .tool-status {
     display: flex;
     align-items: center;
+    gap: 0.4rem;
   }
 
   .status-badge {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 600;
   }
 
   .status-badge.success {
     color: #86efac;
+    background: rgba(16, 185, 129, 0.15);
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.3rem;
   }
 
   .status-badge.error {
     color: #fca5a5;
+    background: rgba(239, 68, 68, 0.15);
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.3rem;
   }
 
   .status-badge.pending {
     color: #fbbf24;
+    background: rgba(245, 158, 11, 0.15);
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.3rem;
   }
 
   .tool-duration {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.6);
     font-size: 0.75rem;
     font-family: 'Monaco', monospace;
     min-width: 3.5rem;
@@ -695,17 +706,15 @@
     margin-top: 0.4rem;
     padding: 0;
     background: rgba(0, 0, 0, 0.3);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 0.4rem;
+    border: 1px solid rgba(180, 83, 9, 0.15);
+    border-radius: 0 0 0.75rem 0.75rem;
     border-top: none;
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
     overflow: hidden;
   }
 
   .detail-section {
-    padding: 0.6rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 0.8rem;
+    border-bottom: 1px solid rgba(180, 83, 9, 0.08);
   }
 
   .detail-section:last-child {
@@ -721,15 +730,15 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: rgba(255, 255, 255, 0.5);
-    margin-bottom: 0.4rem;
+    color: #fbbf24;
+    margin-bottom: 0.5rem;
   }
 
   .detail-content {
     margin: 0;
     font-family: 'Monaco', monospace;
     font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.7);
+    color: rgba(255, 255, 255, 0.75);
     overflow-x: auto;
     max-height: 300px;
     overflow-y: auto;
