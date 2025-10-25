@@ -398,7 +398,16 @@ export async function runAgent(
 
         const turnCost = calculateCost(turnInputTokens, turnOutputTokens, model);
 
-        db.updateTurnDetails(turnId, 'completed', turnInputTokens, turnOutputTokens);
+        // Complete turn with all details
+        db.completeTurnDetails(
+          runId,
+          turnNumber,
+          turnInputTokens,
+          turnOutputTokens,
+          turnCost,
+          turnToolCalls,
+          'success'
+        );
 
         totalInputTokens += turnInputTokens;
         totalOutputTokens += turnOutputTokens;
