@@ -1,6 +1,7 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
-import fs from 'fs';
+import fs from 'fs/promises';
+import fss from 'fs';
 import path from 'path';
 import { OrchestrationDB } from '../db/database.js';
 import { logger } from '../logger.js';
@@ -26,7 +27,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   async function loadRulesFromDisk(): Promise<void> {
     try {
       const rulesPath = path.join(configDir, 'rules.yaml');
-      if (fs.existsSync(rulesPath)) {
+      if (fss.existsSync(rulesPath)) {
         const rulesYaml = await fs.readFile(rulesPath, 'utf-8');
         const rulesData = yaml.parse(rulesYaml);
         if (rulesData?.rules && Array.isArray(rulesData.rules)) {
@@ -260,7 +261,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   app.get('/api/config/agents', (req: Request, res: Response) => {
     try {
       const agentsPath = path.join(configDir, 'agents.yaml');
-      const content = fs.readFileSync(agentsPath, 'utf-8');
+      const content = fss.readFileSync(agentsPath, 'utf-8');
       const parsed = yaml.parse(content);
       res.json({ content, parsed, path: agentsPath });
     } catch (error) {
@@ -314,7 +315,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       const agentsPath = path.join(configDir, 'agents.yaml');
-      fs.writeFileSync(agentsPath, yamlContent, 'utf-8');
+      fss.writeFileSync(agentsPath, yamlContent, 'utf-8');
 
       logger.info({ path: agentsPath }, 'Agents config updated');
       res.json({ success: true, message: 'Agents config saved' });
@@ -328,7 +329,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   app.get('/api/config/models', (req: Request, res: Response) => {
     try {
       const modelsPath = path.join(configDir, 'models.yaml');
-      const content = fs.readFileSync(modelsPath, 'utf-8');
+      const content = fss.readFileSync(modelsPath, 'utf-8');
       const parsed = yaml.parse(content);
       res.json({ content, parsed, path: modelsPath });
     } catch (error) {
@@ -369,7 +370,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       const modelsPath = path.join(configDir, 'models.yaml');
-      fs.writeFileSync(modelsPath, yamlContent, 'utf-8');
+      fss.writeFileSync(modelsPath, yamlContent, 'utf-8');
 
       logger.info({ path: modelsPath }, 'Models config updated');
       res.json({ success: true, message: 'Models config saved' });
