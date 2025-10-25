@@ -293,7 +293,8 @@ export async function runAgent(
       status: 'running',
       created_at: new Date().toISOString(),
       turns_total: config.turns.length,
-      turns_completed: 0
+      turns_completed: 0,
+      model_used: config.model  // Set model immediately on start
     });
 
     logger.info({ runId, agent: configWithAgent.agent }, 'Starting agent run');
@@ -310,11 +311,12 @@ export async function runAgent(
 
       logger.info({ runId, turnNumber, turnName: turn.name }, 'Starting turn');
 
-      // Initialize turn - returns turn_id for logging
-      const turnId = db.insertTurnDetails(runId, turnNumber, turn.name, 'pending');
-
+      // Get model first so we can store it with the turn
       const model = await getModelId(turn.model || config.model);
       const maxSteps = turn.max_steps || (configWithAgent.max_steps || 5);
+
+      // Initialize turn with model - returns turn_id for logging
+      const turnId = db.insertTurnDetails(runId, turnNumber, turn.name, 'pending', undefined, model);
 
       let turnInputTokens = 0;
       let turnOutputTokens = 0;
@@ -322,6 +324,17 @@ export async function runAgent(
       let turnToolCalls = 0;
 
       try {
+        // Log system prompt for this turn (collapsed by default)
+        db.insertMessage(turnId, runId, 'system', configWithAgent.system_prompt || 'No system prompt defined', 0, 0, 'system');
+        
+        // Log rules if they exist (collapsed by default)
+        if (configWithAgent.rules) {
+          db.insertMessage(turnId, runId, 'system', configWithAgent.rules, 0, 0, 'rules');
+        }
+
+        // Log user prompt BEFORE processing (turn prompt)
+        db.insertMessage(turnId, runId, 'user', turn.prompt || '', 0, 0, 'user');
+
         // Process turn with agentic loop and tool calling
         const result = await processTurn(
           client,
@@ -340,9 +353,9 @@ export async function runAgent(
         turnOutputTokens = result.outputTokens;
         turnResponse = result.responseText;
         turnToolCalls = result.toolCalls;
-
+        
         // Log final response
-        db.insertMessage(turnId, runId, 'assistant', turnResponse);
+        db.insertMessage(turnId, runId, 'assistant', turnResponse, turnOutputTokens, turnInputTokens, 'assistant');
 
         const turnCost = calculateCost(turnInputTokens, turnOutputTokens, model);
         totalInputTokens += turnInputTokens;
@@ -370,6 +383,15 @@ export async function runAgent(
             toolCalls: turnToolCalls
           },
           'Turn completed successfully'
+        );
+
+        // Update run progress in real-time (tokens/costs) so running runs show live data
+        db.updateRunProgress(
+          runId,
+          totalInputTokens,
+          totalOutputTokens,
+          calculateCost(totalInputTokens, totalOutputTokens, config.model),
+          turnsCompleted
         );
 
       } catch (turnError: any) {
@@ -401,6 +423,19 @@ export async function runAgent(
           errorMsg
         );
 
+        // Immediately mark the entire run as failed to prevent stuck "running" status
+        db.completeRun(
+          runId,
+          totalInputTokens + turnInputTokens,
+          totalOutputTokens + turnOutputTokens,
+          calculateCost(totalInputTokens + turnInputTokens, totalOutputTokens + turnOutputTokens, model),
+          turnsCompleted,
+          'error',
+          errorMsg,
+          Math.round((Date.now() - startTime) / 1000),
+          config.model
+        );
+
         throw turnError;
       }
     }
@@ -416,7 +451,10 @@ export async function runAgent(
       totalOutputTokens,
       totalCost,
       config.turns.length,
-      'success'
+      'success',
+      undefined,
+      duration,
+      config.model
     );
 
     logger.info(
@@ -470,7 +508,9 @@ export async function runAgent(
       calculateCost(totalInputTokens, totalOutputTokens, config.model),
       turnsCompleted,
       'error',
-      errorMsg
+      errorMsg,
+      undefined,
+      config.model
     );
 
     return {

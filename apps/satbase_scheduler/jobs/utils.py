@@ -12,6 +12,11 @@ def _new_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=API_URL, timeout=30.0)
 
 
+async def get_api_client() -> httpx.AsyncClient:
+    """Get a configured API client for long-lived operations."""
+    return httpx.AsyncClient(base_url=API_URL, timeout=httpx.Timeout(60.0))
+
+
 async def request_with_retries(method: str, url: str, **kwargs) -> httpx.Response:
     """HTTP request with simple exponential backoff retries."""
     retries: int = int(kwargs.pop('retries', 3))

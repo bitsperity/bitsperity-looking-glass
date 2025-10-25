@@ -35,7 +35,12 @@ export class ConfigWatcher {
           await this.onAgentsChange();
           logger.info('Agents reloaded successfully');
         } catch (error) {
-          logger.error({ error }, 'Failed to reload agents');
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          logger.error(
+            { error: errorMessage, stack: errorStack },
+            'Failed to reload agents'
+          );
         }
       }
     });
@@ -48,7 +53,12 @@ export class ConfigWatcher {
           await this.onModelsChange();
           logger.info('Models reloaded successfully');
         } catch (error) {
-          logger.error({ error }, 'Failed to reload models');
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorStack = error instanceof Error ? error.stack : undefined;
+          logger.error(
+            { error: errorMessage, stack: errorStack },
+            'Failed to reload models'
+          );
         }
       }
     });

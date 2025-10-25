@@ -122,12 +122,12 @@ export class OrchestrationDB {
     return result.lastInsertRowid as number;
   }
 
-  insertMessage(turnId: number, runId: string, role: string, content: string, tokensInput?: number, tokensOutput?: number): number {
+  insertMessage(turnId: number, runId: string, role: string, content: string, tokensInput?: number, tokensOutput?: number, messageType: string = 'text'): number {
     const stmt = this.db.prepare(`
-      INSERT INTO messages (turn_id, run_id, role, content, tokens_input, tokens_output)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO messages (turn_id, run_id, role, content, message_type, tokens_input, tokens_output)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(turnId, runId, role, content, tokensInput, tokensOutput);
+    const result = stmt.run(turnId, runId, role, content, messageType, tokensInput, tokensOutput);
     return result.lastInsertRowid as number;
   }
 
@@ -377,25 +377,31 @@ export class OrchestrationDB {
       turnsTotal: run.turns_total,
       turnsCompleted: run.turns_completed,
       turns: turns.map((turn: any) => ({
-        turnNumber: turn.turn_number,
-        turnName: turn.turn_name,
-        startedAt: turn.started_at,
-        finishedAt: turn.finished_at,
-        durationMs: turn.duration_ms,
-        inputTokens: turn.input_tokens,
-        outputTokens: turn.output_tokens,
-        totalTokens: turn.total_tokens,
-        costUsd: turn.cost_usd,
-        numToolCalls: turn.num_tool_calls,
+        number: turn.turn_number,
+        name: turn.turn_name,
+        model: turn.model,
         status: turn.status,
+        duration: { ms: turn.duration_ms },
+        tokens: {
+          input: turn.input_tokens,
+          output: turn.output_tokens,
+          total: turn.total_tokens
+        },
+        cost: turn.cost_usd,
         messages: this.db.prepare(`
-          SELECT role, content, created_at FROM messages 
+          SELECT role, content, message_type, created_at as timestamp FROM messages 
           WHERE run_id = ? AND turn_id = (SELECT id FROM turns WHERE run_id = ? AND turn_number = ?)
           ORDER BY created_at ASC
         `).all(runId, runId, turn.turn_number) as any[],
         toolCalls: this.db.prepare(`
           SELECT 
-            tool_name, tool_input, tool_output, duration_ms, status, error, created_at
+            tool_name as name,
+            status,
+            duration_ms as duration,
+            tool_input as args,
+            tool_output as result,
+            error,
+            created_at as timestamp
           FROM tool_calls 
           WHERE run_id = ? AND turn_id = (SELECT id FROM turns WHERE run_id = ? AND turn_number = ?)
           ORDER BY created_at ASC
@@ -450,26 +456,27 @@ export class OrchestrationDB {
     turnNumber: number,
     turnName: string,
     status: 'pending' | 'success' | 'error' = 'pending',
-    errorMessage?: string
+    errorMessage?: string,
+    model?: string
   ): number {
     // First insert into turns table to get a turn_id
     const turnStmt = this.db.prepare(`
       INSERT INTO turns (
-        run_id, agent, turn_number, turn_name, created_at
-      ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        run_id, agent, turn_number, turn_name, model, created_at
+      ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
     
-    const turnResult = turnStmt.run(runId, 'unknown', turnNumber, turnName);
+    const turnResult = turnStmt.run(runId, 'unknown', turnNumber, turnName, model || null);
     const turnId = turnResult.lastInsertRowid as number;
     
     // Then insert into turn_details for detailed tracking
     const detailStmt = this.db.prepare(`
       INSERT INTO turn_details (
-        run_id, turn_number, turn_name, status, error_message, started_at
-      ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        run_id, turn_number, turn_name, model, status, error_message, started_at
+      ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
     
-    detailStmt.run(runId, turnNumber, turnName, status, errorMessage || null);
+    detailStmt.run(runId, turnNumber, turnName, model || null, status, errorMessage || null);
     
     return turnId;
   }
@@ -513,6 +520,35 @@ export class OrchestrationDB {
     );
   }
 
+  // Update run progress during execution (used to update tokens/costs for running runs)
+  updateRunProgress(
+    runId: string,
+    inputTokens: number,
+    outputTokens: number,
+    cost: number,
+    turnsCompleted: number
+  ): void {
+    const stmt = this.db.prepare(`
+      UPDATE runs
+      SET 
+        input_tokens = ?,
+        output_tokens = ?,
+        total_tokens = ?,
+        cost_usd = ?,
+        turns_completed = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      inputTokens,
+      outputTokens,
+      inputTokens + outputTokens,
+      cost,
+      turnsCompleted,
+      runId
+    );
+  }
+
   // Update run with final statistics after all turns complete
   completeRun(
     runId: string,
@@ -521,7 +557,9 @@ export class OrchestrationDB {
     cost: number,
     turnsCompleted: number,
     status: 'success' | 'error' = 'success',
-    errorMessage?: string
+    errorMessage?: string,
+    durationSeconds?: number,
+    modelUsed?: string
   ): void {
     const stmt = this.db.prepare(`
       UPDATE runs
@@ -533,7 +571,9 @@ export class OrchestrationDB {
         total_tokens = ?,
         cost_usd = ?,
         turns_completed = ?,
-        error_message = ?
+        error_message = ?,
+        duration_seconds = ?,
+        model_used = ?
       WHERE id = ?
     `);
 
@@ -545,6 +585,8 @@ export class OrchestrationDB {
       cost,
       turnsCompleted,
       errorMessage || null,
+      durationSeconds || null,
+      modelUsed || null,
       runId
     );
   }

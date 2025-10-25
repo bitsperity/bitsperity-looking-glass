@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS messages (
   run_id TEXT NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  message_type TEXT DEFAULT 'text',  -- 'system', 'rules', 'user', 'assistant'
   tokens_input INTEGER,
   tokens_output INTEGER,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -146,6 +147,7 @@ CREATE TABLE IF NOT EXISTS turn_details (
   run_id TEXT NOT NULL,
   turn_number INTEGER NOT NULL,
   turn_name TEXT,
+  model TEXT,
   started_at DATETIME,
   finished_at DATETIME,
   duration_ms INTEGER,

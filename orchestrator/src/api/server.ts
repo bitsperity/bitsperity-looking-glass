@@ -221,9 +221,20 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   });
 
   // PUT /api/config/agents - Write agents.yaml with validation
-  app.put('/api/config/agents', express.text({ type: 'text/yaml' }), (req: Request, res: Response) => {
+  app.put('/api/config/agents', express.text({ type: ['text/yaml', 'application/json'] }), (req: Request, res: Response) => {
     try {
-      const yamlContent = req.body;
+      let yamlContent = req.body;
+      
+      // Check if input is JSON and convert to YAML
+      if (req.get('content-type')?.includes('application/json') || yamlContent.startsWith('{')) {
+        try {
+          const jsonData = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+          yamlContent = yaml.stringify(jsonData);
+          logger.info('Converted JSON config to YAML');
+        } catch (jsonError: any) {
+          return res.status(400).json({ error: 'Invalid JSON syntax', details: jsonError.message });
+        }
+      }
       
       // Validate YAML syntax
       let parsed;
@@ -370,7 +381,9 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
           status: chat.status,
           createdAt: chat.createdAt,
           finishedAt: chat.finishedAt,
-          durationSeconds: chat.durationSeconds
+          durationSeconds: chat.durationSeconds || (chat.finishedAt ? 
+            Math.round((new Date(chat.finishedAt).getTime() - new Date(chat.createdAt).getTime()) / 1000) 
+            : undefined)
         },
         tokens: {
           input: chat.inputTokens,
@@ -387,30 +400,27 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
           totalToolCalls: chat.turns.reduce((sum: number, t: any) => sum + (t.toolCalls?.length || 0), 0)
         },
         turns: chat.turns.map((turn: any) => ({
-          number: turn.turnNumber,
-          name: turn.turnName,
+          number: turn.number,
+          name: turn.name,
+          model: turn.model,
           status: turn.status,
-          duration: { ms: turn.durationMs },
-          tokens: {
-            input: turn.inputTokens,
-            output: turn.outputTokens,
-            total: turn.totalTokens
-          },
-          cost: turn.costUsd,
+          duration: turn.duration,
+          tokens: turn.tokens,
+          cost: turn.cost,
           toolCalls: turn.toolCalls.map((tool: any, idx: number) => ({
             index: idx,
-            name: tool.tool_name,
+            name: tool.name,
             status: tool.status,
             error: tool.error,
-            duration: { ms: tool.duration_ms },
-            args: tool.tool_input ? JSON.parse(tool.tool_input) : null,
-            result: tool.tool_output ? JSON.parse(tool.tool_output) : null,
-            timestamp: tool.created_at
+            duration: { ms: tool.duration },
+            args: tool.args ? (typeof tool.args === 'string' ? JSON.parse(tool.args) : tool.args) : null,
+            result: tool.result ? (typeof tool.result === 'string' ? JSON.parse(tool.result) : tool.result) : null,
+            timestamp: tool.timestamp
           })),
           messages: turn.messages.map((msg: any) => ({
             role: msg.role,
             content: msg.content,
-            timestamp: msg.created_at
+            timestamp: msg.timestamp
           }))
         }))
       };

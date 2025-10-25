@@ -4,176 +4,788 @@
   import { coalescenceClient, type RunDetail } from '$lib/coalescence-client';
   import StatusBadge from '$lib/components/coalescence/StatusBadge.svelte';
   import CostDisplay from '$lib/components/coalescence/CostDisplay.svelte';
-  import TokenDisplay from '$lib/components/coalescence/TokenDisplay.svelte';
-  import ToolCallDisplay from '$lib/components/coalescence/ToolCallDisplay.svelte';
 
   let run: RunDetail | null = null;
   let loading = true;
   let error: string | null = null;
-  let expandedTools: Set<number> = new Set();
+  let expandedTools: Set<string> = new Set();
+  let expandedMessages: Set<string> = new Set();
 
   const runId = $page.params.id;
 
   async function loadRun() {
     try {
-      loading = true;
+      const data = await coalescenceClient.getRun(runId);
+      run = data;
       error = null;
-      run = await coalescenceClient.getRun(runId);
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load run';
+    } catch (e: any) {
+      error = `Failed to load run: ${e.message}`;
+      console.error('Error loading run:', e);
     } finally {
       loading = false;
     }
   }
 
-  function toggleToolExpanded(toolIndex: number) {
-    if (expandedTools.has(toolIndex)) {
-      expandedTools.delete(toolIndex);
+  function toggleTool(toolId: string) {
+    if (expandedTools.has(toolId)) {
+      expandedTools.delete(toolId);
     } else {
-      expandedTools.add(toolIndex);
+      expandedTools.add(toolId);
     }
-    expandedTools = expandedTools; // Trigger reactivity
+    expandedTools = expandedTools;
   }
 
-  function formatTime(isoString: string) {
-    const date = new Date(isoString);
-    return date.toLocaleTimeString();
+  function toggleMessage(messageId: string) {
+    if (expandedMessages.has(messageId)) {
+      expandedMessages.delete(messageId);
+    } else {
+      expandedMessages.add(messageId);
+    }
+    expandedMessages = expandedMessages;
   }
 
-  function formatRelativeTime(isoString: string) {
-    const date = new Date(isoString);
-    const now = new Date();
-    const diffSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diffSeconds < 60) return `${diffSeconds}s ago`;
-    if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
-    if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
-    return date.toLocaleDateString();
+  function buildTimeline(messages: any[], toolCalls: any[]) {
+    const timeline: any[] = [];
+    
+    // Add all messages
+    messages.forEach((msg, idx) => {
+      timeline.push({
+        type: 'message',
+        index: idx,
+        ...msg
+      });
+    });
+    
+    // Add all tool calls
+    toolCalls.forEach((tool, idx) => {
+      timeline.push({
+        type: 'toolCall',
+        index: idx,
+        ...tool
+      });
+    });
+    
+    // Sort by timestamp
+    timeline.sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      return timeA - timeB;
+    });
+    
+    return timeline;
   }
 
-  onMount(() => {
-    loadRun();
-    const interval = setInterval(loadRun, 5000);
-    return () => clearInterval(interval);
+  function formatTime(ms: number | undefined): string {
+    if (!ms || isNaN(ms)) return 'N/A';
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${(ms / 60000).toFixed(1)}m`;
+  }
+
+  function formatTokens(tokens: number | undefined): string {
+    if (!tokens) return '0';
+    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+    return `${tokens}`;
+  }
+
+  onMount(async () => {
+    await loadRun();
   });
 </script>
 
-<div class="flex-1 overflow-auto px-6 pb-6">
+<div class="run-details">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-top">
+      <div class="title-section">
+        <h1>{run?.meta.agent || 'Agent'}</h1>
+        {#if run}
+          <StatusBadge status={run.meta.status} />
+        {/if}
+      </div>
+      <div class="run-id">{runId}</div>
+      <button class="refresh-btn" on:click={loadRun}>🔄 Refresh</button>
+    </div>
+
+    <!-- Meta Info -->
+    {#if run}
+      <div class="meta-info">
+        <div class="meta-item">
+          <span class="label">Model</span>
+          <span class="value">{run.meta.model || '❌ Unknown'}</span>
+        </div>
+        <div class="meta-item">
+          <span class="label">Tokens</span>
+          <span class="value">
+            <span class="token-display">{formatTokens(run.tokens.total)}</span>
+            <span class="detail">({formatTokens(run.tokens.input)} in / {formatTokens(run.tokens.output)} out)</span>
+          </span>
+        </div>
+        <div class="meta-item">
+          <span class="label">Cost</span>
+          <span class="value">
+            <CostDisplay cost={run.cost.usd} />
+          </span>
+        </div>
+        <div class="meta-item">
+          <span class="label">Duration</span>
+          <span class="value">{formatTime(run.meta.durationSeconds ? run.meta.durationSeconds * 1000 : undefined)}</span>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="summary">
+        <span class="turns-count">{run.execution.turnsCompleted}/{run.execution.turnsTotal}</span>
+        <span class="summary-text">turns completed</span>
+        <span class="tool-count">· {run.execution.totalToolCalls} tool calls</span>
+      </div>
+    {/if}
+  </div>
+
+  <!-- Chat Messages -->
   {#if loading}
-    <div class="flex items-center justify-center h-64 text-neutral-400">
-      <div>Loading run details...</div>
-    </div>
+    <div class="loading">Loading run details...</div>
   {:else if error}
-    <div class="text-red-400 py-8">{error}</div>
+    <div class="error-box">{error}</div>
   {:else if run}
-    <!-- Metadata Header -->
-    <div class="bg-neutral-800 border border-neutral-700 rounded p-6 mb-6">
-      <div class="flex items-start justify-between mb-4">
-        <div>
-          <div class="flex items-center gap-3 mb-2">
-            <span class="text-xl font-bold">{run.meta.agent}</span>
-            <StatusBadge status={run.meta.status === 'success' ? 'success' : run.meta.status === 'error' ? 'error' : 'running'} />
+    <div class="chat-container">
+      {#each run.turns || [] as turn}
+        <!-- Turn Separator -->
+        <div class="turn-separator">
+          <div class="separator-line"></div>
+          <div class="separator-label">
+            <span class="turn-number">Turn {turn.number}</span>
+            <span class="turn-name">{turn.name || 'Turn'}</span>
+            <span class="turn-meta">
+              {#if turn.duration?.ms}
+                <span class="meta-badge">⏱️ {formatTime(turn.duration.ms)}</span>
+              {/if}
+              {#if turn.tokens?.total}
+                <span class="meta-badge">📊 {formatTokens(turn.tokens.total)}</span>
+              {/if}
+              {#if turn.cost !== undefined && turn.cost !== null}
+                <span class="meta-badge">💵 ${turn.cost.toFixed(4)}</span>
+              {/if}
+            </span>
           </div>
-          <div class="text-sm text-neutral-400">{run.meta.runId}</div>
+          <div class="separator-line"></div>
         </div>
-        <button
-          on:click={loadRun}
-          class="px-3 py-1 text-sm bg-neutral-700 hover:bg-neutral-600 rounded transition-colors"
-        >
-          🔄 Refresh
-        </button>
-      </div>
 
-      <!-- Stats Grid -->
-      <div class="grid grid-cols-4 gap-4">
-        <div>
-          <div class="text-xs text-neutral-400 mb-1">Model</div>
-          <div class="font-semibold">{run.meta.model || 'Unknown'}</div>
-        </div>
-        <div>
-          <div class="text-xs text-neutral-400 mb-1">Tokens</div>
-          <div class="font-semibold"><TokenDisplay tokens={run.tokens} /></div>
-        </div>
-        <div>
-          <div class="text-xs text-neutral-400 mb-1">Cost</div>
-          <div class="font-semibold"><CostDisplay cost={run.cost.usd} /></div>
-        </div>
-        <div>
-          <div class="text-xs text-neutral-400 mb-1">Duration</div>
-          <div class="font-semibold">{run.meta.durationSeconds ? `${run.meta.durationSeconds}s` : 'N/A'}</div>
-        </div>
-      </div>
-
-      <!-- Execution Summary -->
-      <div class="mt-4 pt-4 border-t border-neutral-700 text-sm">
-        <span class="text-neutral-400">
-          {run.execution.turnsCompleted}/{run.execution.turnsTotal} turns completed
-          · {run.execution.totalToolCalls} tool calls
-        </span>
-      </div>
-    </div>
-
-    <!-- Chat Display -->
-    <div class="space-y-6">
-      {#each run.turns as turn}
-        <div class="border border-neutral-700 rounded bg-neutral-800/30 overflow-hidden">
-          <!-- Turn Header -->
-          <div class="px-4 py-3 border-b border-neutral-700 bg-neutral-800">
-            <div class="font-semibold">
-              Turn {turn.number}: {turn.name}
-              <span class="text-sm text-neutral-400 ml-2">
-                {turn.duration.ms}ms
-                · <TokenDisplay tokens={turn.tokens} />
-                · <CostDisplay cost={turn.cost} showDetail={false} />
-              </span>
-            </div>
-            {#if turn.status !== 'success'}
-              <StatusBadge status={turn.status === 'error' ? 'error' : 'running'} />
-            {/if}
-          </div>
-
-          <!-- Messages and Tool Calls -->
-          <div class="px-4 py-4 space-y-4">
-            {#each turn.messages as message, msgIdx}
-              <div class="flex gap-3">
-                <div class="text-2xl w-8 flex-shrink-0">
-                  {#if message.role === 'user'}
-                    💬
-                  {:else if message.role === 'assistant'}
+        <!-- Messages and Tool Calls Timeline -->
+        {#each buildTimeline(turn.messages || [], turn.toolCalls || []) as item, itemIdx}
+          {@const isMessage = item.type === 'message'}
+          {@const isToolCall = item.type === 'toolCall'}
+          {@const messageId = `${turn.number}-msg-${item.index}`}
+          {@const toolId = `${turn.number}-tool-${item.index}`}
+          {@const isCollapsed = isMessage && (item.message_type === 'system' || item.message_type === 'rules')}
+          {@const isExpanded = isMessage ? expandedMessages.has(messageId) : expandedTools.has(toolId)}
+          
+          {#if isMessage}
+            {#if item.message_type === 'system' || item.message_type === 'rules'}
+              <!-- Collapsible System/Rules Message -->
+              <div class="message-collapsible">
+                <button 
+                  class="message-trigger"
+                  on:click={() => toggleMessage(messageId)}
+                >
+                  <span class="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                  <span class="message-label">
+                    {item.message_type === 'system' ? '⚙️ System Prompt' : '📋 Rules'}
+                  </span>
+                </button>
+                {#if isExpanded}
+                  <div class="message-content collapsible">
+                    <div class="message-text">
+                      {item.content}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            {:else}
+              <!-- Regular Message (User/Assistant) -->
+              <div class="message {item.role}-message">
+                <div class="message-avatar">
+                  {#if item.role === 'assistant'}
                     🤖
+                  {:else if item.role === 'user'}
+                    👤
                   {:else}
                     ⚙️
                   {/if}
                 </div>
-                <div class="flex-1 min-w-0">
-                  <div class="text-xs text-neutral-400 mb-1">
-                    {message.role === 'user' ? 'User' : message.role === 'assistant' ? 'Assistant' : 'System'}
-                    · {formatRelativeTime(message.timestamp)}
+                <div class="message-content">
+                  <div class="message-header">
+                    <span class="message-role">{item.role === 'assistant' ? 'Assistant' : item.role === 'user' ? 'User' : 'System'}</span>
+                    <span class="message-time">{new Date(item.timestamp).toLocaleTimeString()}</span>
                   </div>
-                  <div class="text-sm text-neutral-200 break-words whitespace-pre-wrap">
-                    {message.content.substring(0, 300)}{message.content.length > 300 ? '...' : ''}
+                  <div class="message-text">
+                    {item.content}
                   </div>
                 </div>
               </div>
+            {/if}
+          {:else if isToolCall}
+            <!-- Tool Call in Timeline -->
+            <div class="tool-call-item timeline-tool">
+              <button 
+                class="tool-call-trigger"
+                on:click={() => toggleTool(toolId)}
+              >
+                <span class="expand-icon">
+                  {isExpanded ? '▼' : '▶'}
+                </span>
+                <span class="tool-name">{item.name || 'Unknown Tool'}</span>
+                <span class="tool-status">
+                  {#if item.status === 'success'}
+                    <span class="status-badge success">✅</span>
+                  {:else if item.status === 'error'}
+                    <span class="status-badge error">❌</span>
+                  {:else}
+                    <span class="status-badge pending">⏳</span>
+                  {/if}
+                </span>
+                {#if item.duration}
+                  <span class="tool-duration">{formatTime(item.duration.ms)}</span>
+                {/if}
+                <span class="tool-time">{new Date(item.timestamp).toLocaleTimeString()}</span>
+              </button>
 
-              <!-- Tool Calls After This Message (if any) -->
-              {#if msgIdx === turn.messages.length - 1 && turn.toolCalls.length > 0}
-                <div class="space-y-3 mt-4 pl-11">
-                  <div class="text-xs font-semibold text-neutral-400 uppercase">Tool Calls</div>
-                  {#each turn.toolCalls as toolCall, toolIdx}
-                    <ToolCallDisplay
-                      {toolCall}
-                      expanded={expandedTools.has(toolIdx)}
-                      on:click={() => toggleToolExpanded(toolIdx)}
-                    />
-                  {/each}
+              {#if isExpanded}
+                <div class="tool-details">
+                  {#if item.args && Object.keys(item.args).length > 0}
+                    <div class="detail-section">
+                      <div class="detail-label">Arguments:</div>
+                      <pre class="detail-content">{JSON.stringify(JSON.parse(typeof item.args === 'string' ? item.args : JSON.stringify(item.args)), null, 2)}</pre>
+                    </div>
+                  {/if}
+                  {#if item.result}
+                    <div class="detail-section">
+                      <div class="detail-label">Result:</div>
+                      <pre class="detail-content">{JSON.stringify(JSON.parse(typeof item.result === 'string' ? item.result : JSON.stringify(item.result)), null, 2)}</pre>
+                    </div>
+                  {/if}
+                  {#if item.error}
+                    <div class="detail-section error">
+                      <div class="detail-label">Error:</div>
+                      <pre class="detail-content">{item.error}</pre>
+                    </div>
+                  {/if}
                 </div>
               {/if}
-            {/each}
-          </div>
-        </div>
+            </div>
+          {/if}
+        {/each}
       {/each}
     </div>
   {/if}
 </div>
 
+<style>
+  .run-details {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 2rem;
+    padding: 2rem;
+    background: linear-gradient(135deg, rgba(0,0,0,0.2) 0%, transparent 100%);
+  }
+
+  /* Header */
+  .header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 2rem;
+  }
+
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .title-section {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .title-section h1 {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #fff, rgba(255, 255, 255, 0.8));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .run-id {
+    font-family: 'Monaco', monospace;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.4);
+    flex-grow: 1;
+    text-align: right;
+  }
+
+  .refresh-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .refresh-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: scale(1.02);
+  }
+
+  /* Meta Info */
+  .meta-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .value {
+    font-size: 0.95rem;
+    color: white;
+    font-weight: 600;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+
+  .token-display {
+    font-family: 'Monaco', monospace;
+    font-size: 1.05rem;
+  }
+
+  .detail {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  /* Summary */
+  .summary {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .turns-count {
+    font-weight: 700;
+    color: white;
+    font-size: 1rem;
+  }
+
+  .summary-text {
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .tool-count {
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  /* Chat Container */
+  .chat-container {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  /* Turn Separator */
+  .turn-separator {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 2rem 0 1.5rem 0;
+  }
+
+  .separator-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  }
+
+  .separator-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .turn-number {
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.6);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.65rem;
+  }
+
+  .turn-name {
+    font-weight: 600;
+    color: white;
+  }
+
+  .turn-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-left: 0.75rem;
+    padding-left: 0.75rem;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .meta-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.75rem;
+  }
+
+  /* Messages */
+  .message {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    animation: slideIn 0.3s ease-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .message-avatar {
+    font-size: 1.5rem;
+    min-width: 2.5rem;
+    text-align: center;
+    margin-top: 0.2rem;
+  }
+
+  .message-content {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 0.9rem;
+    backdrop-filter: blur(10px);
+  }
+
+  .message-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    gap: 0.5rem;
+  }
+
+  .message-role {
+    font-weight: 700;
+    color: white;
+    font-size: 0.85rem;
+  }
+
+  .message-time {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .message-text {
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.6;
+    font-size: 0.88rem;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+  }
+
+  /* Tool Calls */
+  .tool-calls-section {
+    margin: 0.75rem 0 0 3rem;
+  }
+
+  .tool-calls-header {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .tool-calls-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .tool-call-item {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tool-call-trigger {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+    text-align: left;
+    font-weight: 500;
+  }
+
+  .tool-call-trigger:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .expand-icon {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.6rem;
+    min-width: 0.8rem;
+    text-align: center;
+  }
+
+  .tool-name {
+    font-weight: 600;
+    color: white;
+    flex: 1;
+  }
+
+  .tool-status {
+    display: flex;
+    align-items: center;
+  }
+
+  .status-badge {
+    font-size: 0.7rem;
+  }
+
+  .status-badge.success {
+    color: #86efac;
+  }
+
+  .status-badge.error {
+    color: #fca5a5;
+  }
+
+  .status-badge.pending {
+    color: #fbbf24;
+  }
+
+  .tool-duration {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.75rem;
+    font-family: 'Monaco', monospace;
+    min-width: 3.5rem;
+    text-align: right;
+  }
+
+  .tool-time {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.7rem;
+    margin-left: auto;
+  }
+
+  .timeline-tool {
+    margin-bottom: 0.5rem;
+  }
+
+  .tool-details {
+    margin-top: 0.4rem;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 0.4rem;
+    border-top: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    overflow: hidden;
+  }
+
+  .detail-section {
+    padding: 0.6rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .detail-section:last-child {
+    border-bottom: none;
+  }
+
+  .detail-section.error {
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .detail-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 0.4rem;
+  }
+
+  .detail-content {
+    margin: 0;
+    font-family: 'Monaco', monospace;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.7);
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    line-height: 1.4;
+  }
+
+  /* Collapsible Messages */
+  .message-collapsible {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0.5rem;
+  }
+
+  .message-trigger {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+    text-align: left;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    transition: all 0.2s ease;
+    text-align: left;
+    font-weight: 500;
+  }
+
+  .message-trigger:hover {
+    background: rgba(255, 255, 255, 0.07);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .message-label {
+    font-weight: 600;
+    color: white;
+    flex: 1;
+  }
+
+  .message-content.collapsible {
+    padding: 0.6rem 0.8rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.4rem;
+    border-top: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    overflow: hidden;
+  }
+
+  /* States */
+  .loading, .error-box {
+    text-align: center;
+    padding: 2rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.9rem;
+  }
+
+  .error-box {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 0.75rem;
+    color: #fca5a5;
+  }
+
+  /* Scrollbar */
+  .chat-container::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .chat-container::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .chat-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+
+  .chat-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .detail-content::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .detail-content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .detail-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+  }
+</style>

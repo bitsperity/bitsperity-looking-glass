@@ -18,6 +18,11 @@ SATBASE_SCHEDULE = {
         'hour': 8,
         'minute': 0,
         'timezone': 'UTC'
+    },
+    'news_bodies': {
+        'trigger': 'interval',
+        'minutes': 15,  # Check every 15 minutes
+        'max_articles': 100  # Process max 100 articles per run
     }
 }
 

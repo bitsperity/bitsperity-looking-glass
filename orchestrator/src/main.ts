@@ -41,6 +41,12 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
       continue;
     }
 
+    // Skip scheduling if manual schedule
+    if (agentConfig.schedule === 'manual') {
+      logger.info({ agent: agentName, schedule: 'manual' }, 'Agent on manual schedule, skipping automatic scheduling');
+      continue;
+    }
+
     logger.info(
       { agent: agentName, schedule: agentConfig.schedule, batch: agentConfig.batch },
       'Scheduling agent'

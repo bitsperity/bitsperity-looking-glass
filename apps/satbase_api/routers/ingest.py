@@ -106,12 +106,6 @@ def enqueue_news(query: str, hours: int | None = None) -> str:
     return job_id
 
 
-def enqueue_news_bodies(date_from: date, date_to: date) -> str:
-    job_id = _new_job("news_bodies", {"from": date_from.isoformat(), "to": date_to.isoformat()})
-    _start_thread(_run_news_bodies, job_id, date_from, date_to)
-    return job_id
-
-
 def enqueue_news_backfill(query: str, date_from: date, date_to: date) -> str:
     job_id = _new_job("news_backfill", {"query": query, "from": date_from.isoformat(), "to": date_to.isoformat()})
     _start_thread(_run_news_backfill, job_id, query, date_from, date_to)
@@ -163,7 +157,7 @@ def _run_macro_fred(job_id: str, series: list[str]) -> None:
         _persist_job(job_id)
 
 
-def _run_news(job_id: str, query: str, hours: int | None) -> None:
+def _run_news(job_id: str, query: str, hours: int | None = None) -> None:
     _JOBS[job_id]["status"] = "running"
     _persist_job(job_id)
     
@@ -191,114 +185,9 @@ def _run_news(job_id: str, query: str, hours: int | None) -> None:
         _JOBS[job_id].update({"status": "done", "result": results})
         _persist_job(job_id)
         
-        # Automatically fetch bodies for today's news
-        today = date.today()
-        log("news_ingest_auto_bodies", date=today.isoformat())
-        body_job_id = _new_job("news_bodies", {"from": today.isoformat(), "to": today.isoformat(), "auto": True})
-        _start_thread(_run_news_bodies, body_job_id, today, today)
+        # Note: News body fetching is now handled by satbase_scheduler background job
+        # This decouples the blocking I/O from the API layer
         
-    except Exception as e:
-        _JOBS[job_id].update({"status": "error", "error": str(e)})
-        _persist_job(job_id)
-
-
-def _run_news_bodies(job_id: str, date_from: date, date_to: date) -> None:
-    _JOBS[job_id]["status"] = "running"
-    _persist_job(job_id)
-    
-    reg = registry()
-    try:
-        s = load_settings()
-        # Load news_docs for range
-        lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", date_from, date_to)
-        lf_r = scan_parquet_glob(s.stage_dir, "news_rss", "news_docs", date_from, date_to)
-        try:
-            df_g = lf_g.collect()
-        except Exception:
-            df_g = pl.DataFrame()
-        try:
-            df_r = lf_r.collect()
-        except Exception:
-            df_r = pl.DataFrame()
-        # Align published_at dtype to avoid tz conflicts (let Pydantic parse ISO later)
-        if df_g.height and "published_at" in df_g.columns:
-            df_g = df_g.with_columns(pl.col("published_at").cast(pl.Utf8))
-        if df_r.height and "published_at" in df_r.columns:
-            df_r = df_r.with_columns(pl.col("published_at").cast(pl.Utf8))
-        # Build NewsDoc list without polars concat to avoid tz dtype conflicts
-        from libs.satbase_core.models.news import NewsDoc
-        rows: list[dict[str, Any]] = []
-        if df_g.height:
-            g_rows = df_g.with_columns(
-                pl.col("published_at").cast(pl.Utf8)
-            ).to_dicts()
-            rows.extend(g_rows)
-        if df_r.height:
-            r_rows = df_r.with_columns(
-                pl.col("published_at").cast(pl.Utf8)
-            ).to_dicts()
-            rows.extend(r_rows)
-        docs = [NewsDoc(**row) for row in rows] if rows else []
-        
-        # Load existing bodies to skip already fetched
-        try:
-            lf_bodies = scan_parquet_glob(s.stage_dir, "news_body", "news_body", date_from, date_to)
-            df_bodies = lf_bodies.collect()
-            existing_body_ids = set(df_bodies["id"].to_list()) if df_bodies.height and "id" in df_bodies.columns else set()
-        except Exception:
-            existing_body_ids = set()
-        
-        # Filter: only fetch docs without bodies
-        docs_without_body = [d for d in docs if d.id not in existing_body_ids]
-        
-        log("news_bodies_filter", 
-            total_docs=len(docs), 
-            existing_bodies=len(existing_body_ids), 
-            to_fetch=len(docs_without_body),
-            already_fetched=len(docs) - len(docs_without_body))
-        
-        # Run body fetcher only for missing bodies
-        fetch, normalize, sink = reg["news_body_fetcher"]
-        
-        # Group bodies by published_at date for proper partitioning + incremental save
-        from collections import defaultdict
-        bodies_by_date: dict[date, list] = defaultdict(list)
-        total_fetched = 0
-        
-        for body in normalize(docs_without_body):
-            # Parse published_at to date for partitioning
-            try:
-                if isinstance(body.published_at, str):
-                    from datetime import datetime
-                    # Remove timezone info to keep datetime naive
-                    pub_date = datetime.fromisoformat(body.published_at.replace("Z", "").replace("+00:00", "")).date()
-                else:
-                    pub_date = body.published_at.date() if hasattr(body.published_at, "date") else date.today()
-            except Exception:
-                pub_date = date.today()  # Fallback
-            
-            bodies_by_date[pub_date].append(body)
-            total_fetched += 1
-            
-            # Incremental save every 100 bodies to prevent data loss on crash
-            if total_fetched % 100 == 0:
-                for part_date, bodies in bodies_by_date.items():
-                    if bodies:
-                        sink(bodies, part_date)
-                bodies_by_date.clear()  # Clear after saving
-                log("news_bodies_checkpoint", fetched=total_fetched, saved=total_fetched)
-        
-        # Final save of remaining bodies
-        paths_written = []
-        for part_date, bodies in bodies_by_date.items():
-            if bodies:
-                info = sink(bodies, part_date)
-                if info.get("path"):
-                    paths_written.append(info["path"])
-        
-        result_info = {"paths": paths_written, "count": total_fetched}
-        _JOBS[job_id].update({"status": "done", "result": result_info})
-        _persist_job(job_id)
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
         _persist_job(job_id)
