@@ -123,7 +123,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 5000
     timeout_minutes: 10
-    rules_file: ./agent-rules/analyst-tech.md
     turns:
       - id: 1
         name: load_watchlist
@@ -180,7 +179,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 5000
     timeout_minutes: 8
-    rules_file: ./agent-rules/analyst-biotech.md
     turns:
       - id: 1
         name: load_watchlist
@@ -237,7 +235,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 5000
     timeout_minutes: 8
-    rules_file: ./agent-rules/analyst-commodities.md
     turns:
       - id: 1
         name: load_watchlist
@@ -294,7 +291,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 5000
     timeout_minutes: 8
-    rules_file: ./agent-rules/analyst-macro.md
     turns:
       - id: 1
         name: load_watchlist
@@ -351,7 +347,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 5000
     timeout_minutes: 8
-    rules_file: ./agent-rules/analyst-geopolitics.md
     turns:
       - id: 1
         name: load_watchlist
@@ -406,7 +401,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 4000
     timeout_minutes: 10
-    rules_file: ./agent-rules/validator.md
     turns:
       - id: 1
         name: load_hypotheses
@@ -442,7 +436,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 8000
     timeout_minutes: 12
-    rules_file: ./agent-rules/trader.md
     turns:
       - id: 1
         name: load_patterns
@@ -488,7 +481,6 @@ agents:
     model: haiku-3.5
     budget_daily_tokens: 8000
     timeout_minutes: 6
-    rules_file: ./agent-rules/reflection.md
     turns:
       - id: 1
         name: load_trades
