@@ -481,8 +481,9 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       <div class="flex flex-wrap gap-2">
                         {#each availableMCPs as mcp}
                           <button
+                            type="button"
                             on:click={() => toggleMCP(i, mcp)}
-                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all {turn.mcps?.includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
+                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {turn.mcps?.includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
                           >
                             {turn.mcps?.includes(mcp) ? '✓' : '+'} {mcp}
                           </button>
