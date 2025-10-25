@@ -9,6 +9,7 @@ import { logger } from './logger.js';
 import { MCPPool } from './mcp-pool.js';
 import { TokenBudgetManager } from './token-budget.js';
 import type { AgentConfig, TurnConfig, ChatMessage, AgentRun } from './types.js';
+import { MCPHandler } from './mcp-handler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -118,24 +119,41 @@ export async function runAgent(
         break;
       }
 
-      // Get tools for this turn
-      // const tools =
-      //   turn.mcps && turn.mcps.length > 0 ? await mcpPool.getTools(turn.mcps) : {};
+      // Get tools for this turn using Schema Definition Mode
+      let tools: Record<string, any> = {};
+      if (turn.mcps && turn.mcps.length > 0) {
+        try {
+          for (const mcpName of turn.mcps) {
+            const mcpConfig = mcpPool.getConfig()[mcpName];
+            if (!mcpConfig) {
+              logger.warn({ agent: agentName, mcp: mcpName }, 'MCP config not found');
+              continue;
+            }
 
-      // logger.debug(
-      //   { agent: agentName, turn: turn.id, toolCount: Object.keys(tools).length },
-      //   'Tools loaded'
-      // );
+            const client = await mcpCache.getClient(mcpName, mcpConfig.command, mcpConfig.args);
+            const mcpTools = await mcpCache.getTools(mcpName, client);
+            Object.assign(tools, mcpTools);
+          }
+        } catch (error) {
+          logger.error({ agent: agentName, turn: turn.id, error }, 'Failed to load MCP tools');
+        }
+      }
 
-      // LLM call
+      logger.debug(
+        { agent: agentName, turn: turn.id, toolCount: Object.keys(tools).length },
+        'Tools loaded via Schema Definition Mode'
+      );
+
+      // LLM call with tools using Schema Definition Mode
       let result;
       try {
         result = await generateText({
           model,
           maxTokens: turn.max_tokens,
           prompt: turnPrompt,
-          // tools: Object.keys(tools).length > 0 ? tools : undefined,
-          temperature: 0.7
+          tools: Object.keys(tools).length > 0 ? tools : undefined,
+          temperature: 0.7,
+          maxSteps: 3
         });
       } catch (error) {
         const errorInfo = {

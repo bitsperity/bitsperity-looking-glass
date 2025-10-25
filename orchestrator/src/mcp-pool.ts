@@ -122,4 +122,8 @@ export class MCPPool {
       }
     }
   }
+
+  public getConfig(): MCPConfig {
+    return this.config;
+  }
 }
