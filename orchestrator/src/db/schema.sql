@@ -61,17 +61,20 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   args TEXT,
   tool_input TEXT,  -- Full JSON arguments passed to tool
   tool_output TEXT,  -- Full JSON result from tool
+  tool_use_id TEXT,  -- Claude's tool_use block ID for updates
   duration_ms INTEGER,  -- Tool execution time
-  status TEXT DEFAULT 'pending',  -- 'success', 'error', 'timeout'
+  status TEXT DEFAULT 'pending',  -- 'pending', 'success', 'error'
   error TEXT,  -- Error message if failed
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (turn_id) REFERENCES turns(id) ON DELETE CASCADE,
-  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE,
+  UNIQUE(tool_use_id)  -- Ensure each tool_use_id is logged once
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_calls_turn_id ON tool_calls(turn_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run_id ON tool_calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_name ON tool_calls(tool_name);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_use_id ON tool_calls(tool_use_id);
 
 CREATE TABLE IF NOT EXISTS tool_results (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

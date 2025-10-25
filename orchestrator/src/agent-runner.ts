@@ -1,4 +1,4 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,81 +8,13 @@ import { TokenBudgetManager } from './token-budget.js';
 import type { AgentConfig, TurnConfig } from './types.js';
 import { getModelId } from './model-mapper.js';
 import { OrchestrationDB } from './db/database.js';
+import { ToolExecutor, type MCPConfig } from './tool-executor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-interface MCPConfig {
-  [key: string]: {
-    type: 'http';
-    url: string;
-    description?: string;
-  };
-}
-
-// Build MCP server configurations for Claude Agent SDK
-function buildMCPServersConfig(config: AgentConfig, mcpConfig: MCPConfig): Record<string, any> {
-  const mcpServers: Record<string, any> = {};
-
-  // Collect unique MCPs used across all turns
-  const usedMCPs = new Set<string>();
-  for (const turn of config.turns) {
-    if (turn.mcps) {
-      for (const mcpName of turn.mcps) {
-        usedMCPs.add(mcpName);
-      }
-    }
-  }
-
-  // Build config for each used MCP (HTTP only)
-  for (const mcpName of usedMCPs) {
-    const mcp = mcpConfig[mcpName];
-    if (!mcp || mcp.type !== 'http') {
-      logger.warn({ mcpName }, 'MCP not found or not HTTP type, skipping');
-      continue;
-    }
-
-    mcpServers[mcpName] = {
-      url: mcp.url
-    };
-  }
-
-  return mcpServers;
-}
-
-// Filter MCPs for specific turn
-function filterMCPServers(allMCPs: Record<string, any>, turnMCPs?: string[]): Record<string, any> {
-  if (!turnMCPs || turnMCPs.length === 0) {
-    return {};
-  }
-  
-  const filtered: Record<string, any> = {};
-  for (const mcpName of turnMCPs) {
-    if (allMCPs[mcpName]) {
-      filtered[mcpName] = allMCPs[mcpName];
-    }
-  }
-  return filtered;
-}
-
-// Build system prompt with step control guidance
-function buildSystemPrompt(config: AgentConfig, turn: TurnConfig): string {
-  const basePrompt = config.system_prompt || '';
-  
-  const stepControl = `
-## Response Guidelines
-- Make 3-5 focused tool calls per response, then analyze
-- After each tool call, briefly reflect on what you learned
-- If you have enough information to complete the turn, provide a summary
-- Be efficient and avoid redundant queries
-- Use JSON schemas correctly for all tool calls
-`;
-
-  return basePrompt + '\n' + stepControl;
-}
-
 // Convert cost to USD based on model pricing
 function calculateCost(inputTokens: number, outputTokens: number, model: string): number {
-  // Haiku 3.5 pricing
+  // Haiku 3.5 pricing: $0.80 per 1M input, $2.40 per 1M output
   if (model.includes('haiku-3.5')) {
     return (inputTokens * 0.00080 + outputTokens * 0.0024) / 1000;
   }
@@ -90,45 +22,286 @@ function calculateCost(inputTokens: number, outputTokens: number, model: string)
   if (model.includes('haiku-4.5')) {
     return (inputTokens * 0.00080 + outputTokens * 0.0024) / 1000;
   }
-  // Sonnet 4.5 pricing
+  // Sonnet 4.5 pricing: $3.00 per 1M input, $15.00 per 1M output
   if (model.includes('sonnet-4.5')) {
     return (inputTokens * 0.003 + outputTokens * 0.015) / 1000;
   }
-  // Opus 4.1 pricing
+  // Opus 4.1 pricing: $15.00 per 1M input, $75.00 per 1M output
   if (model.includes('opus-4.1')) {
     return (inputTokens * 0.015 + outputTokens * 0.075) / 1000;
   }
   return 0;
 }
 
+// Process a single agentic turn with Claude and Tool Calling
+async function processTurn(
+  client: Anthropic,
+  runId: string,
+  turnId: number,
+  turnNumber: number,
+  turn: TurnConfig,
+  config: AgentConfig,
+  toolExecutor: ToolExecutor,
+  db: OrchestrationDB,
+  model: string,
+  maxSteps: number
+): Promise<{ inputTokens: number; outputTokens: number; responseText: string; toolCalls: number }> {
+  const messages: Anthropic.MessageParam[] = [];
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalToolCalls = 0;
+  let responseText = '';
+
+  logger.info(
+    { turnNumber, maxSteps, toolCount: toolExecutor.getToolCount() },
+    'Starting agentic loop with Tool Calling'
+  );
+
+  // Get all tools as Claude tool definitions
+  const claudeTools = toolExecutor.getClaudeTools();
+
+  // Agentic loop: keep calling Claude until stop
+  for (let step = 0; step < maxSteps; step++) {
+    logger.info({ turnNumber, step: step + 1, maxSteps }, 'Processing step');
+
+    try {
+      // Add user message on first step
+      if (step === 0) {
+        messages.push({
+          role: 'user',
+          content: turn.prompt || 'Process the available data'
+        });
+
+        logger.info(
+          { turnNumber, step: step + 1, prompt: turn.prompt?.slice(0, 100) },
+          'User prompt added'
+        );
+      }
+
+      // Build request
+      const requestParams: Anthropic.Messages.MessageCreateParamsNonStreaming = {
+        model: model,
+        max_tokens: turn.max_tokens || (config as any).max_tokens_per_turn || 4000,
+        system: (config as any).system_prompt || '',
+        messages: messages as Anthropic.MessageParam[],
+        tools: claudeTools
+      };
+
+      // Call Claude with tool definitions
+      const response = await client.messages.create(requestParams);
+
+      // Track tokens
+      totalInputTokens += response.usage.input_tokens;
+      totalOutputTokens += response.usage.output_tokens;
+
+      logger.info(
+        {
+          turnNumber,
+          step: step + 1,
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          stopReason: response.stop_reason
+        },
+        'Claude response received'
+      );
+
+      // Collect all content from response
+      let hasToolUse = false;
+      const assistantContent: any[] = [];
+
+      for (const block of response.content) {
+        if (block.type === 'text') {
+          responseText += block.text;
+          assistantContent.push(block);
+
+          logger.info(
+            { turnNumber, step: step + 1, textLength: block.text.length },
+            'Text response'
+          );
+        } else if (block.type === 'tool_use') {
+          // Tool use detected
+          hasToolUse = true;
+          totalToolCalls++;
+          assistantContent.push(block);
+
+          logger.info(
+            {
+              turnNumber,
+              step: step + 1,
+              toolName: block.name,
+              toolId: block.id,
+              inputKeys: Object.keys(block.input || {})
+            },
+            'Tool use detected'
+          );
+
+          // Log tool call START (before execution)
+          db.insertToolCallStart(
+            runId,
+            turnId,
+            block.id,
+            block.name,
+            JSON.stringify(block.input || {})
+          );
+        }
+      }
+
+      // Add assistant response to messages
+      messages.push({
+        role: 'assistant',
+        content: assistantContent
+      });
+
+      // If no tool use or stop reason is 'end_turn', we're done
+      if (!hasToolUse || response.stop_reason === 'end_turn') {
+        logger.info(
+          { turnNumber, step: step + 1, reason: response.stop_reason },
+          'Turn completed - no more tool use'
+        );
+        break;
+      }
+
+      // Execute tool calls and collect results
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+      for (const block of response.content) {
+        if (block.type === 'tool_use') {
+          try {
+            const toolStartTime = Date.now();
+
+            logger.info(
+              { turnNumber, step: step + 1, toolName: block.name },
+              'Executing tool'
+            );
+
+            // Execute the tool via ToolExecutor
+            const result = await toolExecutor.executeTool(block.name, block.input as Record<string, any>);
+
+            const duration = Date.now() - toolStartTime;
+
+            logger.info(
+              {
+                turnNumber,
+                step: step + 1,
+                toolName: block.name,
+                durationMs: duration,
+                resultType: typeof result
+              },
+              'Tool executed successfully'
+            );
+
+            // Update tool call with RESULT (after execution)
+            db.updateToolCallComplete(
+              block.id,
+              JSON.stringify(result),
+              duration,
+              'success'
+            );
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify(result)
+            });
+          } catch (error: any) {
+            const duration = 0;
+            const errorMsg = error?.message || String(error);
+            const errorStack = error?.stack || '';
+
+            logger.error(
+              { 
+                turnNumber, 
+                step: step + 1, 
+                toolName: block.name,
+                toolId: block.id,
+                args: block.input,
+                error: errorMsg,
+                stack: errorStack
+              },
+              'Tool execution failed'
+            );
+
+            // Update tool call with ERROR (after execution)
+            db.updateToolCallComplete(
+              block.id,
+              JSON.stringify({ error: errorMsg, stack: errorStack }),
+              duration,
+              'error',
+              errorMsg
+            );
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: `Error: ${errorMsg}`,
+              is_error: true
+            });
+          }
+        }
+      }
+
+      // Add tool results to messages
+      if (toolResults.length > 0) {
+        messages.push({
+          role: 'user',
+          content: toolResults
+        });
+
+        logger.info(
+          { turnNumber, step: step + 1, resultCount: toolResults.length },
+          'Tool results added to context'
+        );
+      }
+
+    } catch (error: any) {
+      logger.error(
+        { turnNumber, step: step + 1, error: error?.message },
+        'Step failed'
+      );
+      throw error;
+    }
+  }
+
+  return {
+    inputTokens: totalInputTokens,
+    outputTokens: totalOutputTokens,
+    responseText,
+    toolCalls: totalToolCalls
+  };
+}
+
 export async function runAgent(
   config: AgentConfig,
-  mcpConfig: MCPConfig,
+  toolExecutor: ToolExecutor,
   db: OrchestrationDB,
   tokenBudget?: TokenBudgetManager
 ): Promise<{ runId: string; status: string; totalTokens: number; cost: number }> {
   const runId = randomUUID();
   const startTime = Date.now();
+  const configWithAgent = config as any;
+
+  // Initialize Anthropic client
+  const client = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY
+  });
 
   try {
     // Initialize run
     db.insertRun({
       id: runId,
-      agent: config.agent || 'unknown',
+      agent: configWithAgent.agent || 'unknown',
       status: 'running',
       created_at: new Date().toISOString(),
       turns_total: config.turns.length,
       turns_completed: 0
     });
 
-    logger.info({ runId, agent: config.agent }, 'Starting agent run');
+    logger.info({ runId, agent: configWithAgent.agent }, 'Starting agent run');
 
-    // Setup MCP servers
-    const mcpServers = buildMCPServersConfig(config, mcpConfig);
-    
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let totalToolCalls = 0;
+    let turnsCompleted = 0;
 
     // Run turns sequentially
     for (let turnIdx = 0; turnIdx < config.turns.length; turnIdx++) {
@@ -137,66 +310,45 @@ export async function runAgent(
 
       logger.info({ runId, turnNumber, turnName: turn.name }, 'Starting turn');
 
-      // Initialize turn
-      db.insertTurnDetails(runId, turnNumber, turn.name, 'pending');
+      // Initialize turn - returns turn_id for logging
+      const turnId = db.insertTurnDetails(runId, turnNumber, turn.name, 'pending');
 
-      const turnMCPs = filterMCPServers(mcpServers, turn.mcps);
-      const systemPrompt = buildSystemPrompt(config, turn);
-      const model = getModelId(turn.model || config.model);
+      const model = await getModelId(turn.model || config.model);
+      const maxSteps = turn.max_steps || (configWithAgent.max_steps || 5);
 
       let turnInputTokens = 0;
       let turnOutputTokens = 0;
-      let turnToolCalls = 0;
       let turnResponse = '';
+      let turnToolCalls = 0;
 
       try {
-        // Call Claude Agent SDK
-        for await (const chunk of query({
-          prompt: turn.prompt,
-          systemPrompt: systemPrompt,
-          model: model,
-          maxTokens: turn.max_tokens || config.max_tokens_per_turn || 4000,
-          mcpServers: turnMCPs
-        })) {
-          // Handle text chunks
-          if (chunk.type === 'text') {
-            turnResponse += chunk.text;
-            await db.insertMessage(runId, turnNumber, 'assistant', chunk.text);
-          }
+        // Process turn with agentic loop and tool calling
+        const result = await processTurn(
+          client,
+          runId,
+          turnId,
+          turnNumber,
+          turn,
+          config,
+          toolExecutor,
+          db,
+          model,
+          maxSteps
+        );
 
-          // Handle tool use
-          if (chunk.type === 'tool_use') {
-            const toolStart = Date.now();
-            
-            await db.insertToolCallComplete(
-              runId,
-              turnNumber,
-              chunk.tool_name,
-              chunk.tool_input || {},
-              chunk.tool_output || {},
-              Date.now() - toolStart,
-              'success'
-            );
+        turnInputTokens = result.inputTokens;
+        turnOutputTokens = result.outputTokens;
+        turnResponse = result.responseText;
+        turnToolCalls = result.toolCalls;
 
-            turnToolCalls++;
-            logger.debug(
-              { toolName: chunk.tool_name, durationMs: Date.now() - toolStart },
-              'Tool executed'
-            );
-          }
+        // Log final response
+        db.insertMessage(turnId, runId, 'assistant', turnResponse);
 
-          // Handle usage
-          if (chunk.type === 'usage') {
-            turnInputTokens = chunk.usage.input_tokens || 0;
-            turnOutputTokens = chunk.usage.output_tokens || 0;
-          }
-        }
-
+        const turnCost = calculateCost(turnInputTokens, turnOutputTokens, model);
         totalInputTokens += turnInputTokens;
         totalOutputTokens += turnOutputTokens;
         totalToolCalls += turnToolCalls;
-
-        const turnCost = calculateCost(turnInputTokens, turnOutputTokens, model);
+        turnsCompleted++;
 
         // Complete turn
         db.completeTurnDetails(
@@ -212,16 +364,32 @@ export async function runAgent(
         logger.info(
           {
             turnNumber,
-            tokens: turnInputTokens + turnOutputTokens,
-            toolCalls: turnToolCalls,
-            cost: turnCost
+            inputTokens: turnInputTokens,
+            outputTokens: turnOutputTokens,
+            cost: turnCost,
+            toolCalls: turnToolCalls
           },
-          'Turn completed'
+          'Turn completed successfully'
         );
 
       } catch (turnError: any) {
         const errorMsg = turnError?.message || String(turnError);
-        
+        const errorStack = turnError?.stack || '';
+        const errorStatus = turnError?.status || null;
+        const errorCode = turnError?.error?.error?.type || null;
+
+        logger.error(
+          { 
+            turnNumber,
+            turnName: turn.name,
+            error: errorMsg,
+            status: errorStatus,
+            errorCode,
+            stack: errorStack
+          },
+          'Turn failed'
+        );
+
         db.completeTurnDetails(
           runId,
           turnNumber,
@@ -233,7 +401,6 @@ export async function runAgent(
           errorMsg
         );
 
-        logger.error({ turnNumber, error: errorMsg }, 'Turn failed');
         throw turnError;
       }
     }
@@ -242,29 +409,30 @@ export async function runAgent(
     const totalCost = calculateCost(totalInputTokens, totalOutputTokens, config.model);
     const duration = Math.round((Date.now() - startTime) / 1000);
 
-    // Complete run
-    db.updateRun(runId, {
-      status: 'success',
-      finished_at: new Date().toISOString(),
-      duration_seconds: duration,
-      input_tokens: totalInputTokens,
-      output_tokens: totalOutputTokens,
-      total_tokens: totalInputTokens + totalOutputTokens,
-      cost_usd: totalCost,
-      turns_completed: config.turns.length,
-      model_used: config.model
-    });
+    // Complete run with all final statistics
+    db.completeRun(
+      runId,
+      totalInputTokens,
+      totalOutputTokens,
+      totalCost,
+      config.turns.length,
+      'success'
+    );
 
     logger.info(
       {
         runId,
+        agent: config.agent || configWithAgent.name,
+        model: config.model,
         duration,
-        tokens: totalInputTokens + totalOutputTokens,
-        toolCalls: totalToolCalls,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        totalTokens: totalInputTokens + totalOutputTokens,
         cost: totalCost,
+        toolCalls: totalToolCalls,
         status: 'success'
       },
-      'Agent run completed'
+      'Agent run completed successfully'
     );
 
     return {
@@ -276,20 +444,40 @@ export async function runAgent(
 
   } catch (error: any) {
     const errorMsg = error?.message || String(error);
+    const errorStack = error?.stack || '';
+    const errorStatus = error?.status || null;
+    const errorCode = error?.error?.error?.type || null;
 
-    db.updateRun(runId, {
-      status: 'error',
-      finished_at: new Date().toISOString(),
-      error_message: errorMsg
-    });
+    logger.error(
+      {
+        runId,
+        agent: configWithAgent.agent || 'unknown',
+        error: errorMsg,
+        status: errorStatus,
+        errorCode,
+        stack: errorStack,
+        tokens: { input: totalInputTokens, output: totalOutputTokens },
+        turnsCompleted
+      },
+      'Agent run failed'
+    );
 
-    logger.error({ runId, error: errorMsg }, 'Agent run failed');
+    // Mark run as failed but keep the tokens/costs recorded so far
+    db.completeRun(
+      runId,
+      totalInputTokens,
+      totalOutputTokens,
+      calculateCost(totalInputTokens, totalOutputTokens, config.model),
+      turnsCompleted,
+      'error',
+      errorMsg
+    );
 
     return {
       runId,
       status: 'error',
-      totalTokens: 0,
-      cost: 0
+      totalTokens: totalInputTokens + totalOutputTokens,
+      cost: calculateCost(totalInputTokens, totalOutputTokens, config.model)
     };
   }
 }

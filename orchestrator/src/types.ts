@@ -3,6 +3,7 @@ export interface TurnConfig {
   name: string;
   model?: string;  // Override agent-level model
   max_tokens: number;
+  max_steps?: number;  // Max agentic loop iterations for this turn
   mcps?: string[];  // e.g., ["satbase", "manifold"]
   prompt?: string;  // Inline prompt
   prompt_file?: string;  // External prompt file path
@@ -15,6 +16,7 @@ export interface AgentConfig {
   model: string;  // CUSTOMIZABLE: haiku-3.5, haiku-4.5, sonnet-4.5, opus-4.1
   system_prompt?: string;  // System prompt with step-control guidance
   max_tokens_per_turn?: number;  // Default max tokens per turn (4000)
+  max_steps?: number;  // Default max agentic loop iterations (5)
   rules_file?: string;  // Optional agent rules
   budget_daily_tokens: number;
   timeout_minutes: number;

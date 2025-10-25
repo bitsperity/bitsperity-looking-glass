@@ -1,0 +1,36 @@
+# Stdio MCP Configuration for ToolExecutor
+# Each MCP is configured to run as a local subprocess via stdio
+# This allows tight integration with Claude without HTTPS/firewall issues
+
+mcps:
+  satbase:
+    command: node
+    args:
+      - ../../../mcps/satbase/dist/index-stdio.js
+    env:
+      SATBASE_API_URL: http://localhost:8080
+    description: Market data, news, macro indicators
+    
+  manifold:
+    command: node
+    args:
+      - ../../../mcps/manifold/dist/index-stdio.js
+    env:
+      MANIFOLD_API_URL: http://localhost:8083
+    description: Knowledge graph for thoughts and hypotheses
+    
+  ariadne:
+    command: node
+    args:
+      - ../../../mcps/ariadne/dist/index-stdio.js
+    env:
+      ARIADNE_API_URL: http://localhost:8082
+    description: Event detection, pattern analysis, relationships
+    
+  tesseract:
+    command: node
+    args:
+      - ../../../mcps/tesseract/dist/index-stdio.js
+    env:
+      TESSERACT_API_URL: http://localhost:8081
+    description: Semantic search and text analysis

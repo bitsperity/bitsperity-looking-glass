@@ -352,6 +352,180 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     }
   });
 
+  // GET /api/runs/:id - Detailed run with all data (unified endpoint)
+  app.get('/api/runs/:id', (req: Request, res: Response) => {
+    try {
+      const runId = req.params.id;
+      const chat = db.getChatHistoryComplete(runId);
+      if (!chat) {
+        return res.status(404).json({ error: 'Run not found' });
+      }
+
+      // Build complete run summary with all relevant data
+      const runSummary = {
+        meta: {
+          runId: chat.runId,
+          agent: chat.agent,
+          model: chat.model,
+          status: chat.status,
+          createdAt: chat.createdAt,
+          finishedAt: chat.finishedAt,
+          durationSeconds: chat.durationSeconds
+        },
+        tokens: {
+          input: chat.inputTokens,
+          output: chat.outputTokens,
+          total: chat.totalTokens
+        },
+        cost: {
+          usd: parseFloat(chat.costUsd || '0'),
+          currency: 'USD'
+        },
+        execution: {
+          turnsCompleted: chat.turnsCompleted,
+          turnsTotal: chat.turnsTotal,
+          totalToolCalls: chat.turns.reduce((sum: number, t: any) => sum + (t.toolCalls?.length || 0), 0)
+        },
+        turns: chat.turns.map((turn: any) => ({
+          number: turn.turnNumber,
+          name: turn.turnName,
+          status: turn.status,
+          duration: { ms: turn.durationMs },
+          tokens: {
+            input: turn.inputTokens,
+            output: turn.outputTokens,
+            total: turn.totalTokens
+          },
+          cost: turn.costUsd,
+          toolCalls: turn.toolCalls.map((tool: any, idx: number) => ({
+            index: idx,
+            name: tool.tool_name,
+            status: tool.status,
+            error: tool.error,
+            duration: { ms: tool.duration_ms },
+            args: tool.tool_input ? JSON.parse(tool.tool_input) : null,
+            result: tool.tool_output ? JSON.parse(tool.tool_output) : null,
+            timestamp: tool.created_at
+          })),
+          messages: turn.messages.map((msg: any) => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.created_at
+          }))
+        }))
+      };
+
+      res.json(runSummary);
+    } catch (error) {
+      logger.error({ error, runId: req.params.id }, 'Failed to fetch run details');
+      res.status(500).json({ error: 'Failed to fetch run details' });
+    }
+  });
+
+  // GET /api/runs/:id/tools/detailed - Detailed tool execution breakdown
+  app.get('/api/runs/:id/tools/detailed', (req: Request, res: Response) => {
+    try {
+      const chat = db.getChatHistoryComplete(req.params.id);
+      if (!chat) {
+        return res.status(404).json({ error: 'Run not found' });
+      }
+
+      const toolBreakdown = {
+        runId: chat.runId,
+        totalTools: chat.turns.reduce((sum: number, t: any) => sum + (t.toolCalls?.length || 0), 0),
+        byStatus: {
+          success: 0,
+          error: 0,
+          pending: 0
+        },
+        byMcp: {} as Record<string, any>,
+        timeline: [] as any[]
+      };
+
+      for (const turn of chat.turns) {
+        for (const tool of turn.toolCalls || []) {
+          // Count by status
+          if (tool.status === 'success') toolBreakdown.byStatus.success++;
+          else if (tool.status === 'error') toolBreakdown.byStatus.error++;
+          else if (tool.status === 'pending') toolBreakdown.byStatus.pending++;
+
+          // Extract MCP name (format: "mcp_tool-name")
+          const [mcp, ...toolNameParts] = tool.tool_name.split('_');
+          if (!toolBreakdown.byMcp[mcp]) {
+            toolBreakdown.byMcp[mcp] = { count: 0, success: 0, error: 0, avgDuration: 0, totalDuration: 0 };
+          }
+          toolBreakdown.byMcp[mcp].count++;
+          if (tool.status === 'success') toolBreakdown.byMcp[mcp].success++;
+          else if (tool.status === 'error') toolBreakdown.byMcp[mcp].error++;
+          toolBreakdown.byMcp[mcp].totalDuration += tool.duration_ms || 0;
+          toolBreakdown.byMcp[mcp].avgDuration = Math.round(toolBreakdown.byMcp[mcp].totalDuration / toolBreakdown.byMcp[mcp].count);
+
+          // Add to timeline
+          toolBreakdown.timeline.push({
+            turnNumber: turn.turnNumber,
+            toolName: tool.tool_name,
+            status: tool.status,
+            duration: tool.duration_ms,
+            timestamp: tool.created_at,
+            error: tool.error || null,
+            args: tool.tool_input ? JSON.parse(tool.tool_input) : null,
+            resultSize: tool.tool_output ? Buffer.byteLength(tool.tool_output) : 0
+          });
+        }
+      }
+
+      res.json(toolBreakdown);
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch tool details');
+      res.status(500).json({ error: 'Failed to fetch tool details' });
+    }
+  });
+
+  // GET /api/stats/dashboard - Complete dashboard data
+  app.get('/api/stats/dashboard', (req: Request, res: Response) => {
+    try {
+      const days = parseInt(req.query.days as string) || 7;
+      
+      const allStats = db.getAllAgentStats();
+      const costBreakdown = db.getCostBreakdown(days);
+      
+      const totalStats = {
+        agents: allStats.filter((a: any) => a.total_runs > 0).length,
+        runs: costBreakdown.reduce((sum: number, item: any) => sum + (item.numRuns || 0), 0),
+        tokens: costBreakdown.reduce((sum: number, item: any) => sum + (item.totalTokens || 0), 0),
+        cost: parseFloat(costBreakdown.reduce((sum: number, item: any) => sum + (item.totalCost || 0), 0).toFixed(4))
+      };
+
+      const byAgent = {} as Record<string, any>;
+      for (const agent of allStats) {
+        if (agent.total_runs > 0) {
+          byAgent[agent.name] = {
+            runs: agent.total_runs,
+            tokens: agent.total_tokens,
+            cost: parseFloat(agent.total_cost_usd.toFixed(4)),
+            lastRun: agent.last_run_at
+          };
+        }
+      }
+
+      res.json({
+        timeframe: `${days} days`,
+        total: totalStats,
+        byAgent,
+        byDate: costBreakdown.map((item: any) => ({
+          date: item.date,
+          runs: item.numRuns,
+          tokens: item.totalTokens,
+          cost: parseFloat(item.totalCost.toFixed(4)),
+          byAgent: item
+        }))
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch dashboard stats');
+      res.status(500).json({ error: 'Failed to fetch dashboard stats' });
+    }
+  });
+
   // Start server
   return new Promise((resolve, reject) => {
     const server = app.listen(port, () => {

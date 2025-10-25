@@ -15,6 +15,7 @@ export default defineConfig({
       external: [
         'ai',
         '@ai-sdk/anthropic',
+        '@anthropic-ai/sdk',
         '@modelcontextprotocol/sdk',
         'node-cron',
         'pino',
@@ -31,6 +32,7 @@ export default defineConfig({
         'path',
         'crypto',
         'url',
+        'events',
         'node:stream',
         'node:process'
       ],

@@ -10,6 +10,7 @@ import { logger } from './logger.js';
 import { createApiServer } from './api/server.js';
 import { OrchestrationDB } from './db/database.js';
 import { ConfigWatcher } from './config-watcher.js';
+import { ToolExecutor, type MCPConfig } from './tool-executor.js';
 import type { AgentsConfig } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,7 +20,7 @@ dotenvConfig({ path: path.join(__dirname, '..', '..', '.env') });
 
 // Global state for live reload
 let currentCrons: Map<string, cron.ScheduledTask> = new Map();
-let mcpServersConfig: Record<string, any> | null = null;
+let toolExecutor: ToolExecutor | null = null;
 let budget: TokenBudgetManager | null = null;
 let db: OrchestrationDB | null = null;
 
@@ -48,12 +49,12 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
     const task = cron.schedule(agentConfig.schedule, async () => {
       logger.info({ agent: agentName, batch: agentConfig.batch }, 'Starting agent run');
       try {
-        if (!mcpServersConfig || !db) throw new Error('MCP config or Database not initialized');
+        if (!toolExecutor || !db) throw new Error('ToolExecutor or Database not initialized');
         
         // Set agent name in config for logging
         const configWithAgent = { ...agentConfig, agent: agentName };
         
-        const result = await runAgent(configWithAgent, mcpServersConfig, db, budget);
+        const result = await runAgent(configWithAgent, toolExecutor, db, budget);
         logger.info(
           {
             agent: agentName,
@@ -107,23 +108,30 @@ async function main() {
     const configYaml = await fs.readFile(configPath, 'utf-8');
     const config: AgentsConfig = yaml.parse(configYaml);
 
-    // Load MCP configuration
-    const mcpConfigPath = path.join(__dirname, '..', 'config', 'mcps.yaml');
+    // Load stdio MCP configuration for ToolExecutor
+    const mcpConfigPath = path.join(__dirname, '..', 'config', 'mcps-stdio.yaml');
     const mcpConfigYaml = await fs.readFile(mcpConfigPath, 'utf-8');
-    const mcpConfig = yaml.parse(mcpConfigYaml);
+    const mcpConfigData = yaml.parse(mcpConfigYaml);
+    const mcpConfig: MCPConfig = mcpConfigData.mcps;
 
     logger.info(
-      { agentCount: Object.keys(config.agents).length, mcpCount: Object.keys(mcpConfig.mcps).length },
+      { agentCount: Object.keys(config.agents).length, mcpCount: Object.keys(mcpConfig).length },
       'Configuration loaded'
     );
-
-    // Store MCP server configs - Claude Agent SDK will handle connections directly via HTTP
-    mcpServersConfig = mcpConfig.mcps;
 
     // Initialize database
     const dbPath = path.join(__dirname, '..', 'logs', 'orchestration.db');
     await fs.mkdir(path.dirname(dbPath), { recursive: true });
     db = new OrchestrationDB(dbPath);
+
+    // Initialize ToolExecutor
+    logger.info('Initializing ToolExecutor...');
+    toolExecutor = new ToolExecutor(mcpConfig);
+    await toolExecutor.loadTools();
+    logger.info(
+      { toolCount: toolExecutor.getToolCount() },
+      'ToolExecutor initialized with tools loaded'
+    );
 
     // Initialize budget manager
     budget = new TokenBudgetManager(config.budget);
@@ -134,14 +142,14 @@ async function main() {
     
     // Callback for manual agent triggering
     const onRunAgent = async (agentName: string) => {
-      if (!mcpServersConfig || !db) throw new Error('MCP config or Database not initialized');
+      if (!toolExecutor || !db) throw new Error('ToolExecutor or Database not initialized');
       const agentConfig = config.agents[agentName];
       if (!agentConfig) throw new Error(`Agent ${agentName} not found`);
       
       logger.info({ agent: agentName }, 'Manual agent trigger started');
       try {
         const configWithAgent = { ...agentConfig, agent: agentName };
-        const result = await runAgent(configWithAgent, mcpServersConfig, db, budget);
+        const result = await runAgent(configWithAgent, toolExecutor, db, budget);
         logger.info({ agent: agentName, status: result.status, tokens: result.totalTokens, cost: result.cost }, 'Manual trigger completed');
       } catch (error) {
         logger.error({ agent: agentName, error }, 'Manual trigger failed');

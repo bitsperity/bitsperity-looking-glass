@@ -299,36 +299,57 @@ export class OrchestrationDB {
     stmt.run(...values);
   }
 
-  // Insert complete tool call with input/output and timing
-  insertToolCallComplete(
+  // Insert tool call - logs BEFORE execution with status 'pending'
+  insertToolCallStart(
     runId: string,
-    turnNumber: number,
+    turnId: number,
+    toolUseId: string,
     toolName: string,
-    toolInput: any,
-    toolOutput: any,
+    toolInput: string
+  ): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO tool_calls (
+        turn_id, run_id, tool_name, tool_input, tool_output, 
+        duration_ms, status, error, tool_use_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    stmt.run(
+      turnId,
+      runId,
+      toolName,
+      toolInput,
+      null, // output pending
+      0,
+      'pending',
+      null,
+      toolUseId
+    );
+  }
+
+  // Update tool call AFTER execution with result
+  updateToolCallComplete(
+    toolUseId: string,
+    toolOutput: string,
     durationMs: number,
     status: 'success' | 'error' = 'success',
     error?: string
   ): void {
-    const turn = this.db.prepare('SELECT id FROM turns WHERE run_id = ? AND turn_number = ?').get(runId, turnNumber) as any;
-    if (!turn) return;
-
     const stmt = this.db.prepare(`
-      INSERT INTO tool_calls (
-        turn_id, run_id, tool_name, tool_input, tool_output, 
-        duration_ms, status, error, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      UPDATE tool_calls 
+      SET tool_output = ?,
+          duration_ms = ?,
+          status = ?,
+          error = ?
+      WHERE tool_use_id = ?
     `);
 
     stmt.run(
-      turn.id,
-      runId,
-      toolName,
-      JSON.stringify(toolInput),
-      JSON.stringify(toolOutput),
+      toolOutput,
       durationMs,
       status,
-      error || null
+      error || null,
+      toolUseId
     );
   }
 
@@ -423,21 +444,34 @@ export class OrchestrationDB {
     `).all(days) as any[];
   }
 
-  // Insert turn details for comprehensive tracking
+  // Insert turn details - creates entry in turns table and returns turn_id
   insertTurnDetails(
     runId: string,
     turnNumber: number,
     turnName: string,
     status: 'pending' | 'success' | 'error' = 'pending',
     errorMessage?: string
-  ): void {
-    const stmt = this.db.prepare(`
+  ): number {
+    // First insert into turns table to get a turn_id
+    const turnStmt = this.db.prepare(`
+      INSERT INTO turns (
+        run_id, agent, turn_number, turn_name, created_at
+      ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+    
+    const turnResult = turnStmt.run(runId, 'unknown', turnNumber, turnName);
+    const turnId = turnResult.lastInsertRowid as number;
+    
+    // Then insert into turn_details for detailed tracking
+    const detailStmt = this.db.prepare(`
       INSERT INTO turn_details (
         run_id, turn_number, turn_name, status, error_message, started_at
       ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
-
-    stmt.run(runId, turnNumber, turnName, status, errorMessage || null);
+    
+    detailStmt.run(runId, turnNumber, turnName, status, errorMessage || null);
+    
+    return turnId;
   }
 
   // Update turn details with completion info
@@ -476,6 +510,42 @@ export class OrchestrationDB {
       errorMessage || null,
       runId,
       turnNumber
+    );
+  }
+
+  // Update run with final statistics after all turns complete
+  completeRun(
+    runId: string,
+    inputTokens: number,
+    outputTokens: number,
+    cost: number,
+    turnsCompleted: number,
+    status: 'success' | 'error' = 'success',
+    errorMessage?: string
+  ): void {
+    const stmt = this.db.prepare(`
+      UPDATE runs
+      SET 
+        status = ?,
+        finished_at = CURRENT_TIMESTAMP,
+        input_tokens = ?,
+        output_tokens = ?,
+        total_tokens = ?,
+        cost_usd = ?,
+        turns_completed = ?,
+        error_message = ?
+      WHERE id = ?
+    `);
+
+    stmt.run(
+      status,
+      inputTokens,
+      outputTokens,
+      inputTokens + outputTokens,
+      cost,
+      turnsCompleted,
+      errorMessage || null,
+      runId
     );
   }
 
