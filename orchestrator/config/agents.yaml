@@ -104,7 +104,7 @@ agents:
           Load your watchlist. This is the first step - understand which tickers
           you should focus on today.
         rules:
-          - rule_1761426314366_it7ts9rse
+          - rule_1761426547502_3tp6kd3o4
       - id: 2
         name: gather_data
         max_tokens: 2000
