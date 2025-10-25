@@ -148,6 +148,9 @@
       return { ...turn, mcps: newMcps };
     });
     
+    // CRITICAL: Force Svelte reactivity by reassigning the entire object
+    formData = formData;
+    
     console.log('🔥 formData.turns after update:');
     formData.turns.forEach((t, idx) => {
       console.log(`  Turn ${idx}: ${t.name}, MCPs:`, t.mcps);
@@ -155,6 +158,8 @@
   }
 
   function toggleRule(turnIndex: number, ruleId: string) {
+    console.log('🔥 toggleRule CALLED!', { turnIndex, ruleId, currentRules: formData.turns[turnIndex]?.rules });
+    
     // Clone the entire turns array with the updated turn
     formData.turns = formData.turns.map((turn, idx) => {
       if (idx !== turnIndex) return turn;
@@ -164,9 +169,21 @@
         ? rules.filter((r: string) => r !== ruleId) 
         : [...rules, ruleId];
       
+      console.log('🔥 Updated Rules:', { old: rules, new: newRules });
       return { ...turn, rules: newRules };
     });
+    
+    // CRITICAL: Force Svelte reactivity by reassigning the entire object
+    formData = formData;
+    
+    console.log('🔥 formData.turns after update:');
+    formData.turns.forEach((t, idx) => {
+      console.log(`  Turn ${idx}: ${t.name}, Rules:`, t.rules);
+    });
   }
+
+  // REACTIVE: Re-evaluate turn display when formData changes
+  $: turnsForDisplay = formData.turns;
 </script>
 
 {#if isOpen}
@@ -426,7 +443,7 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
               </div>
             {:else}
               <div class="space-y-4">
-                {#each formData.turns as turn, i}
+                {#each formData.turns as turn, i (turn.name + i)}
                   <div class="bg-neutral-900/30 border-2 border-neutral-700/50 rounded-xl p-6 hover:border-blue-500/30 transition-all">
                     <div class="flex items-start justify-between mb-5">
                       <div class="flex items-center gap-3">
