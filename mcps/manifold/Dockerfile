@@ -6,11 +6,11 @@ COPY dist ./dist
 COPY package.json package-lock.json ./
 COPY node_modules ./node_modules
 
-ENV HTTP_PORT=3004
-ENV TESSERACT_API_URL=http://localhost:8081
+ENV HTTP_PORT=3002
+ENV MANIFOLD_API_URL=http://localhost:8083
 ENV LOG_LEVEL=info
-ENV SERVER_NAME=tesseract-mcp
+ENV SERVER_NAME=manifold-mcp
 
-EXPOSE 3004
+EXPOSE 3002
 
 CMD ["node", "dist/index-http.js"]
