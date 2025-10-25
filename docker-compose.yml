@@ -172,3 +172,56 @@ services:
       retries: 3
       start_period: 10s
 
+
+  # HTTP MCP Servers
+  satbase-mcp-http:
+    build: ./mcps/satbase
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - SATBASE_API_URL=http://localhost:8080
+      - HTTP_PORT=3001
+    command: ["node", "dist/index-http.js"]
+    depends_on:
+      - satbase-api
+    restart: unless-stopped
+
+  manifold-mcp-http:
+    build: ./mcps/manifold
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - MANIFOLD_API_URL=http://localhost:8083
+      - HTTP_PORT=3002
+    command: ["node", "dist/index-http.js"]
+    depends_on:
+      - manifold-api
+    restart: unless-stopped
+
+  ariadne-mcp-http:
+    build: ./mcps/ariadne
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - ARIADNE_API_URL=http://localhost:8082
+      - HTTP_PORT=3003
+    command: ["node", "dist/index-http.js"]
+    depends_on:
+      - ariadne-api
+    restart: unless-stopped
+
+  tesseract-mcp-http:
+    build: ./mcps/tesseract
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - TESSERACT_API_URL=http://localhost:8081
+      - HTTP_PORT=3004
+    command: ["node", "dist/index-http.js"]
+    depends_on:
+      - tesseract-api
+    restart: unless-stopped

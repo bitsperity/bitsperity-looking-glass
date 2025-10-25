@@ -4,11 +4,17 @@ import { resolve } from 'path';
 export default defineConfig({
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index-stdio.ts'),
+      entry: {
+        'index-stdio': resolve(__dirname, 'src/index-stdio.ts'),
+        'index-http': resolve(__dirname, 'src/index-http.ts'),
+      },
       formats: ['es'],
-      fileName: 'index-stdio'
     },
     rollupOptions: {
+      output: {
+        dir: 'dist',
+        entryFileNames: '[name].js',
+      },
       external: [
         // Node.js built-ins
         'node:crypto',
@@ -35,7 +41,6 @@ export default defineConfig({
         /^@modelcontextprotocol\/sdk\/.*/,
       ]
     },
-    outDir: 'dist',
     sourcemap: true,
     target: 'node22',
     minify: false,
