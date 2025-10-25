@@ -10,24 +10,28 @@ import { MCPPool } from './mcp-pool.js';
 import { TokenBudgetManager } from './token-budget.js';
 import type { AgentConfig, TurnConfig, ChatMessage, AgentRun } from './types.js';
 import { MCPHandler } from './mcp-handler.js';
+import { getModelId, getModelProvider } from './model-mapper.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Model selector - supports all Anthropic and OpenAI models
-function selectModel(modelName: string) {
-  // Auto-detect provider from model name
-  if (modelName.startsWith('claude-')) {
-    // Anthropic models: claude-haiku-4-5, claude-sonnet-4-5, etc.
-    logger.debug({ model: modelName, provider: 'anthropic' }, 'Using Anthropic provider');
-    return anthropic(modelName);
-  } else if (modelName.startsWith('gpt-')) {
-    // OpenAI models: gpt-4o-mini, gpt-4o, etc.
-    logger.debug({ model: modelName, provider: 'openai' }, 'Using OpenAI provider');
-    return openai(modelName);
+// Model selector with automatic mapping
+async function selectModel(modelName: string) {
+  // Map simple name to actual API ID (e.g., "haiku-3.5" -> "claude-3-5-haiku-20241022")
+  const actualModelId = await getModelId(modelName);
+  const provider = await getModelProvider(modelName);
+
+  logger.debug(
+    { simpleName: modelName, actualId: actualModelId, provider },
+    'Model selected'
+  );
+
+  if (provider === 'anthropic') {
+    return anthropic(actualModelId);
+  } else if (provider === 'openai') {
+    return openai(actualModelId);
   } else {
-    // Fallback: try to infer from model name patterns
-    logger.warn({ model: modelName }, 'Unknown model prefix, defaulting to Anthropic');
-    return anthropic(modelName);
+    logger.warn({ model: modelName }, 'Unknown provider, defaulting to Anthropic');
+    return anthropic(actualModelId);
   }
 }
 
@@ -111,7 +115,7 @@ export async function runAgent(
 
       // Select model
       const modelName = turn.model || config.model;
-      const model = selectModel(modelName);
+      const model = await selectModel(modelName);
 
       // Check budget
       if (!budget.canSpend(agentName, turn.max_tokens)) {
@@ -130,8 +134,8 @@ export async function runAgent(
               continue;
             }
 
-            const client = await mcpCache.getClient(mcpName, mcpConfig.command, mcpConfig.args);
-            const mcpTools = await mcpCache.getTools(mcpName, client);
+            const client = await mcpPool.getClient(mcpName, mcpConfig.command, mcpConfig.args);
+            const mcpTools = await mcpPool.getTools(mcpName, client);
             Object.assign(tools, mcpTools);
           }
         } catch (error) {
@@ -173,8 +177,23 @@ export async function runAgent(
         throw error;
       }
 
-      totalInputTokens += result.usage?.promptTokens ?? 0;
-      totalOutputTokens += result.usage?.completionTokens ?? 0;
+      totalInputTokens += result.usage?.inputTokens ?? 0;
+      totalOutputTokens += result.usage?.outputTokens ?? 0;
+
+      logger.info(
+        {
+          agent: agentName,
+          turn: turn.id,
+          inputTokens: result.usage?.inputTokens ?? 0,
+          outputTokens: result.usage?.outputTokens ?? 0,
+          totalInputSoFar: totalInputTokens,
+          totalOutputSoFar: totalOutputTokens,
+          hasUsage: !!result.usage,
+          responseLength: result.text.length,
+          responsePreview: result.text.substring(0, 100)
+        },
+        'Turn completed with token counts'
+      );
 
       // Record chat
       chatHistory.push({
@@ -233,7 +252,7 @@ export async function runAgent(
   const totalTokens = totalInputTokens + totalOutputTokens;
   budget.record(agentName, totalTokens);
 
-  const cost = budget.calculateCost(totalInputTokens, totalOutputTokens, config.model);
+  const cost = await budget.calculateCost(totalInputTokens, totalOutputTokens, config.model);
   const durationSeconds = (Date.now() - startTime) / 1000;
 
   // Save run log
@@ -241,7 +260,7 @@ export async function runAgent(
     run_id: runId,
     agent: agentName,
     timestamp: new Date().toISOString(),
-    status: totalTokens > 0 ? 'completed' : 'failed',
+    status: chatHistory.length > 1 ? 'completed' : 'failed',  // If there's at least 1 exchange (user + assistant), it's completed
     duration_seconds: durationSeconds,
     chat_history: chatHistory,
     outputs: {},

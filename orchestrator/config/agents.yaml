@@ -2,41 +2,41 @@
 _analyst_turns: &analyst_turns
   - id: 1
     name: "load_watchlist"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     max_tokens: 1500
     mcps: ["satbase"]
     prompt: "Load your watchlist from Satbase to see which tickers you should analyze today."
 
   - id: 2
     name: "gather_data"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     max_tokens: 2000
     mcps: ["satbase"]
     prompt: "Gather news, prices, and macro data for your tickers from the last 48 hours."
 
   - id: 3
     name: "semantic_search"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     max_tokens: 2000
     mcps: ["tesseract"]
     prompt: "Use semantic search to find articles related to supply chain, demand changes, and regulatory shifts."
 
   - id: 4
     name: "analyze_causal"
-    model: "claude-3-5-sonnet-20241022"
+    model: "haiku-3.5"
     max_tokens: 3000
     prompt: "Analyze the causal chains: Why are prices moving? What are the mechanisms?"
 
   - id: 5
     name: "link_and_hypothesize"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     max_tokens: 2000
     mcps: ["manifold", "ariadne"]
     prompt: "Search for existing thoughts. Formulate hypotheses about what's happening."
 
   - id: 6
     name: "store_insights"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     max_tokens: 1500
     mcps: ["manifold", "ariadne"]
     prompt: "Store your signals as Thoughts and your hypotheses in Ariadne."
@@ -66,7 +66,7 @@ agents:
   discovery:
     enabled: true
     schedule: "*/2 * * * * *"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 5000
     timeout_minutes: 3
     rules_file: "./agent-rules/discovery.md"
@@ -94,7 +94,7 @@ agents:
     schedule: "*/5 * * * * *"
     batch: 1
     sector: "tech"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 12000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-tech.md"
@@ -105,7 +105,7 @@ agents:
     schedule: "*/5 * * * * *"
     batch: 1
     sector: "biotech"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 12000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-biotech.md"
@@ -116,7 +116,7 @@ agents:
     schedule: "*/5 * * * * *"
     batch: 1
     sector: "commodities"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 12000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-commodities.md"
@@ -127,7 +127,7 @@ agents:
     schedule: "*/5 * * * * *"
     batch: 2
     sector: "macro"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 12000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-macro.md"
@@ -138,7 +138,7 @@ agents:
     schedule: "*/5 * * * * *"
     batch: 2
     sector: "geopolitics"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 12000
     timeout_minutes: 8
     rules_file: "./agent-rules/analyst-geopolitics.md"
@@ -147,34 +147,34 @@ agents:
   validator:
     enabled: true
     schedule: "*/10 * * * * *"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 12000
     timeout_minutes: 8
     rules_file: "./agent-rules/validator.md"
     turns:
       - id: 1
         name: "load_hypotheses"
-        model: "claude-3-5-haiku-20241022"
+        model: "haiku-3.5"
         max_tokens: 1500
         mcps: ["ariadne"]
         prompt: "Load all pending hypotheses from Ariadne that need evidence collection."
 
       - id: 2
         name: "gather_evidence"
-        model: "claude-3-5-haiku-20241022"
+        model: "haiku-3.5"
         max_tokens: 2000
         mcps: ["satbase", "tesseract", "manifold"]
         prompt: "Gather evidence for each hypothesis: news, prices, related thoughts."
 
       - id: 3
         name: "validate"
-        model: "claude-3-5-sonnet-20241022"
+        model: "haiku-3.5"
         max_tokens: 3000
         prompt: "Evaluate each hypothesis: Is it supported or contradicted? Confidence?"
 
       - id: 4
         name: "store_evidence"
-        model: "claude-3-5-haiku-20241022"
+        model: "haiku-3.5"
         max_tokens: 1500
         mcps: ["ariadne"]
         prompt: "Store evidence and validation decisions in Ariadne."
@@ -182,41 +182,41 @@ agents:
   trader:
     enabled: true
     schedule: "*/15 * * * * *"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 12000
     timeout_minutes: 10
     rules_file: "./agent-rules/trader.md"
     turns:
       - id: 1
         name: "load_patterns"
-        model: "claude-3-5-haiku-20241022"
+        model: "haiku-3.5"
         max_tokens: 1500
         mcps: ["ariadne"]
         prompt: "Load validated patterns (confidence >= 0.8) and current market regimes."
 
       - id: 2
         name: "calculate_impact"
-        model: "claude-3-5-haiku-20241022"
+        model: "haiku-3.5"
         max_tokens: 2000
         mcps: ["ariadne", "satbase"]
         prompt: "For each pattern: calculate impact on top 5 entities, get current prices."
 
       - id: 3
         name: "evaluate"
-        model: "claude-3-5-sonnet-20241022"
+        model: "haiku-3.5"
         max_tokens: 3000
         mcps: ["manifold"]
         prompt: "Evaluate trade feasibility: What's the risk/reward? Are there related risks?"
 
       - id: 4
         name: "formulate"
-        model: "claude-3-5-haiku-20241022"
+        model: "haiku-3.5"
         max_tokens: 2000
         prompt: "Formulate trade ideas with entry, stop loss, take profit, and thesis."
 
       - id: 5
         name: "store"
-        model: "claude-3-5-haiku-20241022"
+        model: "haiku-3.5"
         max_tokens: 1500
         mcps: ["manifold", "ariadne"]
         prompt: "Store trade ideas as Thoughts and link to underlying patterns/hypotheses."
@@ -224,7 +224,7 @@ agents:
   reflection:
     enabled: false
     schedule: "0 23 * * 0"
-    model: "claude-3-5-haiku-20241022"
+    model: "haiku-3.5"
     budget_daily_tokens: 8000
     timeout_minutes: 6
     rules_file: "./agent-rules/reflection.md"
@@ -237,7 +237,7 @@ agents:
 
       - id: 2
         name: "evaluate_accuracy"
-        model: "claude-3-5-sonnet-20241022"
+        model: "haiku-3.5"
         max_tokens: 3000
         prompt: "Evaluate: Were the hypotheses correct? What was the accuracy?"
 

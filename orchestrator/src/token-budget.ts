@@ -1,4 +1,5 @@
 import { logger } from './logger.js';
+import { getModelPricing } from './model-mapper.js';
 
 export class TokenBudgetManager {
   private dailyLimit: number;
@@ -34,56 +35,24 @@ export class TokenBudgetManager {
     );
   }
 
-  calculateCost(inputTokens: number, outputTokens: number, model: string): number {
-    // Auto-detect provider from model name
-    if (model.startsWith('gpt-')) {
-      // OpenAI pricing
-      // gpt-4o-mini: $0.15 input / $0.60 output per 1M
-      // gpt-4o: $2.50 input / $10 output per 1M
-      const rates = model.includes('mini')
-        ? { input: 0.15, output: 0.60 }
-        : { input: 2.50, output: 10 };
-
-      return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
-    } else if (model.startsWith('claude-')) {
-      // Anthropic pricing - handle all versions
-      let rates = { input: 0.80, output: 4 }; // Default to Haiku 3.5 (cheapest)
-
-      // Claude 4.5 models (Oct 2025)
-      if (model.includes('haiku-4-5')) {
-        rates = { input: 1, output: 5 };
-      } else if (model.includes('sonnet-4-5')) {
-        rates = { input: 3, output: 15 };
-      } else if (model.includes('opus-4-1')) {
-        rates = { input: 15, output: 75 };
-      }
-      // Claude 3.7 models
-      else if (model.includes('3-7-sonnet')) {
-        rates = { input: 3, output: 15 };
-      }
-      // Claude 3.5 models (default)
-      else if (model.includes('3-5-haiku')) {
-        rates = { input: 0.80, output: 4 };
-      } else if (model.includes('3-5-sonnet')) {
-        rates = { input: 3, output: 15 };
-      } else if (model.includes('3-5-opus')) {
-        rates = { input: 15, output: 75 };
-      }
-      // Claude 3 models
-      else if (model.includes('3-haiku')) {
-        rates = { input: 0.25, output: 1.25 };
-      } else if (model.includes('3-sonnet')) {
-        rates = { input: 3, output: 15 };
-      } else if (model.includes('3-opus')) {
-        rates = { input: 15, output: 75 };
-      }
-
-      return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000;
-    } else {
-      // Unknown model - use default Anthropic Haiku pricing
-      logger.warn({ model }, 'Unknown model for cost calculation, using Haiku pricing');
-      return (inputTokens * 0.80 + outputTokens * 4) / 1_000_000;
-    }
+  async calculateCost(inputTokens: number, outputTokens: number, model: string): Promise<number> {
+    // Use model mapper to get pricing
+    const pricing = await getModelPricing(model);
+    
+    const cost = (inputTokens * pricing.input_mtok + outputTokens * pricing.output_mtok) / 1_000_000;
+    
+    logger.debug(
+      { 
+        model, 
+        inputTokens, 
+        outputTokens, 
+        pricing,
+        cost 
+      },
+      'Cost calculated'
+    );
+    
+    return cost;
   }
 
   getDailyUsage(): { total: number; limit: number; percentage: number } {
