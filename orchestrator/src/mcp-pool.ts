@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { spawn } from 'child_process';
 import { logger } from './logger.js';
-import { z } from 'zod';
+import { jsonSchema } from 'ai';
 
 interface MCPConfig {
   [mcpName: string]: {
@@ -139,15 +139,32 @@ export class MCPPool {
           );
         }
         
+        // Enhance description with required params info
+        let enhancedDescription = tool.description || `${mcpName}: ${tool.name}`;
+        if (schema.required && schema.required.length > 0) {
+          enhancedDescription += ` [Required: ${schema.required.join(', ')}]`;
+        }
+        
         tools[sanitizedToolName] = {
-          description: tool.description?.substring(0, 1024) || `${mcpName}: ${tool.name}`,
-          inputSchema: z.object({}), // Empty Zod object - converts to {type: 'object', properties: {}, required: []}
+          description: enhancedDescription.substring(0, 512),
+          inputSchema: jsonSchema(schema),
           execute: async (args: any) => {
-            logger.debug({ mcp: mcpName, tool: originalToolName, args }, 'Executing MCP tool');
+            // Ensure required args for specific tools
+            let safeArgs: any = args || {};
+            if (typeof safeArgs === 'string') {
+              try { safeArgs = JSON.parse(safeArgs); } catch { safeArgs = {}; }
+            }
+            if (mcpName === 'manifold' && originalToolName === 'mf-create-thought') {
+              if (!safeArgs || typeof safeArgs !== 'object') safeArgs = {};
+              if (!safeArgs.type) safeArgs.type = 'signal';
+              if (!safeArgs.title) safeArgs.title = 'Auto-generated signal';
+              if (!safeArgs.content) safeArgs.content = 'Auto-repaired tool call.';
+            }
+            logger.debug({ mcp: mcpName, tool: originalToolName, args: safeArgs }, 'Executing MCP tool');
             
             const result = await client.callTool({
               name: originalToolName,
-              arguments: args || {}
+              arguments: safeArgs
             });
             
             logger.debug({ mcp: mcpName, tool: originalToolName, result: typeof result }, 'Tool execution completed');
@@ -206,10 +223,28 @@ export class MCPPool {
     try {
       const result = await client.callTool({
         name: toolMethod,
-        arguments: args
+        arguments: (() => {
+          // Apply same safe defaults here in case this path is used
+          let safe = args || {};
+          if (typeof safe === 'string') {
+            try { safe = JSON.parse(safe); } catch { safe = {}; }
+          }
+          if (mcpName === 'manifold' && toolMethod === 'mf-create-thought') {
+            if (!safe || typeof safe !== 'object') safe = {};
+            if (!safe.type) safe.type = 'signal';
+            if (!safe.title) safe.title = 'Auto-generated signal';
+            if (!safe.content) safe.content = 'Auto-repaired tool call.';
+          }
+          return safe;
+        })()
       });
 
       logger.debug({ tool: toolName, resultType: typeof result, hasContent: !!result }, 'Tool call completed');
+
+      // Log full result for thought-creating tools
+      if (toolName.includes('create_thought') && result) {
+        logger.info({ tool: toolName, resultId: result.id, result }, 'Thought created successfully');
+      }
 
       return result;
     } catch (error) {

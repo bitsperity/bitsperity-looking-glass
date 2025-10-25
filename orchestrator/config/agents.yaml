@@ -77,19 +77,25 @@ agents:
         name: "load_watchlist"
         max_tokens: 800
         mcps: ["satbase"]
-        prompt: "Load your watchlist to see which sectors and themes are in scope today."
+        prompt: |
+          Load your watchlist. This is the first step - understand which tickers you should focus on today.
 
       - id: 2
-        name: "get_trends"
-        max_tokens: 1200
+        name: "gather_data"
+        max_tokens: 2000
         mcps: ["satbase"]
-        prompt: "Get trending tickers and news heatmap. What are the top 5 themes/events today?"
+        prompt: |
+          Gather news, prices, and macro data for your watchlist tickers from the last 48 hours.
+          Look for trends, volume spikes, and unusual activity.
 
       - id: 3
-        name: "create_signals"
-        max_tokens: 1000
+        name: "create_thoughts"
+        max_tokens: 1500
         mcps: ["manifold"]
-        prompt: "Create Signal thoughts for the top 5 discoveries with confidence scores."
+        prompt: |
+          Create thoughts in the knowledge graph to capture your market signals.
+          Each thought should include: type (e.g., signal), title, and content.
+          Focus on actionable insights you found in the data.
 
   analyst_tech:
     enabled: false

@@ -91,6 +91,8 @@ export class OrchestrationLogger {
 
     const actualTurnId = typeof turnId === 'string' ? this.currentTurnId : turnId;
     
+    logger.debug({ toolName, argsType: typeof args, argsValue: args ? JSON.stringify(args).substring(0, 300) : 'undefined' }, 'logToolCall received args');
+    
     this.db.insertToolCall(
       actualTurnId,
       runId,

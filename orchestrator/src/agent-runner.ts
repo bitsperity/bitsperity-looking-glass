@@ -105,10 +105,11 @@ export async function runAgent(
     : '';
 
   try {
-    for (const turn of config.turns) {
+    for (const [turnIndex, turn] of config.turns.entries()) {
+      const turnNumber = turnIndex + 1;
       logger.info({ agent: agentName, turn: turn.id, name: turn.name }, 'Starting turn');
 
-      await orchestrationLogger.logTurnStart(runId, turn.id, turn.name);
+      await orchestrationLogger.logTurnStart(runId, turnNumber, turn.name);
 
       // Build turn prompt
       const turnPrompt = await buildTurnPrompt(turn, rulesContent, chatHistory, agentName);
@@ -188,7 +189,38 @@ export async function runAgent(
           prompt: turnPrompt,
           tools: Object.keys(tools).length > 0 ? tools : undefined,
           temperature: 0.7,
-          maxSteps: 3
+          maxSteps: 3,
+          experimental_repairToolCall: async ({ toolCall, tools, inputSchema, error }) => {
+            // Only attempt to repair invalid inputs
+            if (!error || (error as any).type !== 'invalid-tool-input') return null;
+
+            const toolName = toolCall.toolName;
+            const toolDef = (tools as any)[toolName];
+
+            try {
+              // Simple heuristics for common MCP tools
+              const input: any = typeof toolCall.input === 'string' ? JSON.parse(toolCall.input) : toolCall.input || {};
+
+              if (toolName.includes('manifold_mf_create_thought')) {
+                // Ensure required 'type' exists
+                if (!input.type) input.type = 'signal';
+                if (!input.title) input.title = 'Auto-generated signal';
+                if (!input.content) input.content = 'Auto-repaired tool call.';
+
+                return { ...toolCall, input: JSON.stringify(input) };
+              }
+
+              if (toolName.includes('satbase_get_watchlist')) {
+                // No args needed
+                return { ...toolCall, input: JSON.stringify({}) };
+              }
+
+              // Default: return original
+              return null;
+            } catch {
+              return null;
+            }
+          }
         });
         
         logger.info(
@@ -224,7 +256,7 @@ export async function runAgent(
         logger.error(errorInfo, 'LLM call FAILED - CRITICAL ERROR');
         
         // Also log to database for persistence
-        await orchestrationLogger.logMessage(runId, turn.id, 'system', `ERROR: LLM call failed: ${errorInfo.errorMessage}`);
+        await orchestrationLogger.logMessage(runId, turnNumber, 'system', `ERROR: LLM call failed: ${errorInfo.errorMessage}`);
         
         throw error;
       }
@@ -233,8 +265,8 @@ export async function runAgent(
       totalOutputTokens += result.usage?.outputTokens ?? 0;
 
       // Log user message and assistant response
-      await orchestrationLogger.logMessage(runId, turn.id, 'user', turnPrompt);
-      await orchestrationLogger.logMessage(runId, turn.id, 'assistant', result.text, {
+      await orchestrationLogger.logMessage(runId, turnNumber, 'user', turnPrompt);
+      await orchestrationLogger.logMessage(runId, turnNumber, 'assistant', result.text, {
         input: result.usage?.inputTokens ?? 0,
         output: result.usage?.outputTokens ?? 0
       });
@@ -273,14 +305,22 @@ export async function runAgent(
       if (result.toolCalls && result.toolCalls.length > 0) {
         for (const toolCall of result.toolCalls) {
           try {
+            // Always log the tool call first, regardless of execution
+            await orchestrationLogger.logToolCall(runId, turnNumber, toolCall.toolName, toolCall.args);
+
+            // If this tool has an execute handler (handled by AI SDK already), skip re-execution
+            const hasExecute = tools && (tools as any)[toolCall.toolName] && typeof (tools as any)[toolCall.toolName].execute === 'function';
+            if (hasExecute) {
+              logger.debug({ tool: toolCall.toolName }, 'Skipping manual tool call (already executed by AI SDK)');
+              continue;
+            }
+
             logger.debug({ 
               agent: agentName, 
               tool: toolCall.toolName,
               argsType: typeof toolCall.args,
               argsValue: toolCall.args ? JSON.stringify(toolCall.args).substring(0, 200) : 'undefined'
             }, 'Calling tool');
-            
-            await orchestrationLogger.logToolCall(runId, turn.id, toolCall.toolName, toolCall.args);
             
             logger.debug({ 
               tool: toolCall.toolName,
@@ -289,7 +329,7 @@ export async function runAgent(
             
             const toolResult = await mcpPool.callTool(toolCall.toolName, toolCall.args || {});
 
-            await orchestrationLogger.logToolResult(runId, turn.id, toolCall.toolName, toolResult);
+            await orchestrationLogger.logToolResult(runId, turnNumber, toolCall.toolName, toolResult);
 
             chatHistory.push({
               role: 'user',
