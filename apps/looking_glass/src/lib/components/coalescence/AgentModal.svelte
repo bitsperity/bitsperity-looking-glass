@@ -32,7 +32,12 @@
     turns: [] as any[]
   };
   
-  $: if (agent && isOpen) {
+  // Tooltip state
+  let hoveredRuleId: string | null = null;
+  
+  function initializeFormData() {
+    if (!agent || !isOpen) return;
+    
     // Load rules from either 'rules' field or 'rules_file' field
     let rulesContent = agent.config?.rules || '';
     if (!rulesContent && agent.config?.rules_file) {
@@ -55,7 +60,11 @@
       }))
     };
     parseSchedule(formData.schedule);
-  } else if (!agent && isOpen) {
+  }
+  
+  function initializeNewAgent() {
+    if (agent || !isOpen) return;
+    
     // Reset form for new agent
     formData = {
       name: '',
@@ -70,6 +79,18 @@
     };
     scheduleType = 'manual';
   }
+  
+  // Reactive statement that triggers when agent, isOpen, or both change
+  $: if (isOpen) {
+    if (agent) {
+      initializeFormData();
+    } else {
+      initializeNewAgent();
+    }
+  }
+  
+  // Also initialize immediately when component first receives agent
+  $: agent, initializeFormData();
   
   function parseSchedule(schedule: string) {
     if (schedule === 'manual') {
@@ -490,24 +511,44 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       <label class="block text-xs font-semibold text-neutral-400 mb-2">Regeln (für diesen Turn)</label>
                       <div class="flex flex-wrap gap-2">
                         {#each availableRules as rule (rule.id)}
-                          <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all {(formData.turns[i]?.rules || []).includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-neutral-700'}">
-                            <input
-                              type="checkbox"
-                              checked={(formData.turns[i]?.rules || []).includes(rule.id)}
-                              on:change={(e) => {
-                                const isChecked = e.currentTarget.checked;
-                                const rules = formData.turns[i].rules || [];
-                                if (isChecked && !rules.includes(rule.id)) {
-                                  formData.turns[i].rules = [...rules, rule.id];
-                                } else if (!isChecked && rules.includes(rule.id)) {
-                                  formData.turns[i].rules = rules.filter(r => r !== rule.id);
-                                }
-                                formData.turns = [...formData.turns];
-                              }}
-                              class="w-4 h-4 cursor-pointer"
-                            />
-                            <span class="text-sm font-medium">{rule.name}</span>
-                          </label>
+                          <div class="relative group">
+                            <label 
+                              class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all {(formData.turns[i]?.rules || []).includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-neutral-700'}"
+                              on:mouseenter={() => hoveredRuleId = rule.id}
+                              on:mouseleave={() => hoveredRuleId = null}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={(formData.turns[i]?.rules || []).includes(rule.id)}
+                                on:change={(e) => {
+                                  const isChecked = e.currentTarget.checked;
+                                  const rules = formData.turns[i].rules || [];
+                                  if (isChecked && !rules.includes(rule.id)) {
+                                    formData.turns[i].rules = [...rules, rule.id];
+                                  } else if (!isChecked && rules.includes(rule.id)) {
+                                    formData.turns[i].rules = rules.filter(r => r !== rule.id);
+                                  }
+                                  formData.turns = [...formData.turns];
+                                }}
+                                class="w-4 h-4 cursor-pointer"
+                              />
+                              <span class="text-sm font-medium">{rule.name}</span>
+                            </label>
+                            
+                            <!-- Tooltip with Rule Content - Elegant Coalescence Style -->
+                            {#if hoveredRuleId === rule.id && rule.content}
+                              <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-3 px-4 py-3 bg-gradient-to-br from-neutral-900 to-neutral-950 border border-neutral-700/80 rounded-xl shadow-2xl z-50 pointer-events-none">
+                                <div class="text-neutral-300 font-semibold mb-3 text-sm flex items-center gap-2">
+                                  <span>📋</span>
+                                  <span>Regel-Inhalt</span>
+                                </div>
+                                <div class="text-neutral-200 text-sm leading-relaxed font-light whitespace-pre-wrap break-words max-w-xl">
+                                  {rule.content}
+                                </div>
+                                <div class="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-neutral-900"></div>
+                              </div>
+                            {/if}
+                          </div>
                         {/each}
                       </div>
                       {#if formData.turns[i]?.rules?.length > 0}

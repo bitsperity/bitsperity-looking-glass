@@ -118,6 +118,9 @@
       
       showModal = false;
       await loadData();
+      
+      // Refresh selectedAgent with the newly loaded data so changes persist when reopening
+      selectedAgent = agents.find(a => a.name === formData.name) || null;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to save agent';
     }
