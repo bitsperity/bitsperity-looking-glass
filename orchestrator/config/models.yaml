@@ -70,14 +70,6 @@ models:
   # OPENAI MODELS (Alternative provider)
   # ============================================================
   
-  gpt-4o-mini:
-    id: "gpt-4o-mini"
-    provider: "openai"
-    pricing:
-      input_mtok: 0.15   # $0.15 per 1M input tokens
-      output_mtok: 0.60  # $0.60 per 1M output tokens
-    notes: "OpenAI's cheapest model - VERY cheap, good for simple tasks"
-  
   gpt-4o:
     id: "gpt-4o"
     provider: "openai"

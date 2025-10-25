@@ -126,25 +126,6 @@ export async function getModelPricing(modelName: string): Promise<{
 }
 
 /**
- * Get model provider (anthropic or openai)
- */
-export async function getModelProvider(
-  modelName: string
-): Promise<'anthropic' | 'openai'> {
-  // Quick check: does it start with known prefixes?
-  if (modelName.startsWith('claude-') || modelName.startsWith('haiku-') || modelName.startsWith('sonnet-') || modelName.startsWith('opus-')) {
-    return 'anthropic';
-  }
-  if (modelName.startsWith('gpt-')) {
-    return 'openai';
-  }
-
-  // Fallback: look up in mapping
-  const pricing = await getModelPricing(modelName);
-  return pricing.provider as 'anthropic' | 'openai';
-}
-
-/**
  * List all available simple model names
  */
 export async function listAvailableModels(): Promise<string[]> {

@@ -4,7 +4,6 @@ import yaml from 'yaml';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { MCPPool } from './mcp-pool.js';
 import { TokenBudgetManager } from './token-budget.js';
 import { runAgent } from './agent-runner.js';
 import { logger } from './logger.js';
@@ -20,7 +19,7 @@ dotenvConfig({ path: path.join(__dirname, '..', '..', '.env') });
 
 // Global state for live reload
 let currentCrons: Map<string, cron.ScheduledTask> = new Map();
-let mcpPool: MCPPool | null = null;
+let mcpServersConfig: Record<string, any> | null = null;
 let budget: TokenBudgetManager | null = null;
 let db: OrchestrationDB | null = null;
 
@@ -49,13 +48,13 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
     const task = cron.schedule(agentConfig.schedule, async () => {
       logger.info({ agent: agentName, batch: agentConfig.batch }, 'Starting agent run');
       try {
-        if (!mcpPool || !budget) throw new Error('MCP Pool or Budget not initialized');
-        const result = await runAgent(agentName, agentConfig, mcpPool, budget);
+        if (!mcpServersConfig || !budget) throw new Error('MCP config or Budget not initialized');
+        const result = await runAgent(agentName, agentConfig, mcpServersConfig, budget);
         logger.info(
           {
             agent: agentName,
             tokens: result.tokens,
-            duration: result.duration_seconds,
+            duration: result.duration,
             status: result.status
           },
           'Agent run completed'
@@ -108,9 +107,8 @@ async function main() {
       'Configuration loaded'
     );
 
-    // Initialize MCP Pool
-    mcpPool = new MCPPool(config.mcps);
-    await mcpPool.initialize();
+    // Store MCP server configs - Claude Agent SDK will handle connections directly
+    mcpServersConfig = config.mcps;
 
     // Initialize database
     const dbPath = path.join(__dirname, '..', 'logs', 'orchestration.db');
@@ -126,13 +124,13 @@ async function main() {
     
     // Callback for manual agent triggering
     const onRunAgent = async (agentName: string) => {
-      if (!mcpPool || !budget) throw new Error('MCP Pool or Budget not initialized');
+      if (!mcpServersConfig || !budget) throw new Error('MCP config or Budget not initialized');
       const agentConfig = config.agents[agentName];
       if (!agentConfig) throw new Error(`Agent ${agentName} not found`);
       
       logger.info({ agent: agentName }, 'Manual agent trigger started');
       try {
-        const result = await runAgent(agentName, agentConfig, mcpPool, budget);
+        const result = await runAgent(agentName, agentConfig, mcpServersConfig, budget);
         logger.info({ agent: agentName, status: result.status, tokens: result.tokens }, 'Manual trigger completed');
       } catch (error) {
         logger.error({ agent: agentName, error }, 'Manual trigger failed');

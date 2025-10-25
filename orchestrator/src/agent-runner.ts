@@ -1,41 +1,70 @@
-import { generateText } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
-import { openai } from '@ai-sdk/openai';
+import { query, type ClaudeAgentOptions } from 'claude-agent-sdk';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { logger } from './logger.js';
-import { MCPPool } from './mcp-pool.js';
 import { TokenBudgetManager } from './token-budget.js';
 import type { AgentConfig, TurnConfig, ChatMessage, AgentRun } from './types.js';
-import { MCPHandler } from './mcp-handler.js';
-import { getModelId, getModelProvider } from './model-mapper.js';
+import { getModelId } from './model-mapper.js';
 import { OrchestrationLogger } from './orchestration-logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Model selector with automatic mapping
-async function selectModel(modelName: string) {
-  // Map simple name to actual API ID (e.g., "haiku-3.5" -> "claude-3-5-haiku-20241022")
-  const actualModelId = await getModelId(modelName);
-  const provider = await getModelProvider(modelName);
+// Build allowed_tools list from agent's MCP configurations
+function buildAllowedToolsList(config: AgentConfig): string[] {
+  const allowedTools: Set<string> = new Set();
 
-  logger.debug(
-    { simpleName: modelName, actualId: actualModelId, provider },
-    'Model selected'
-  );
+  for (const turn of config.turns) {
+    if (!turn.mcps) continue;
 
-  if (provider === 'anthropic') {
-    return anthropic(actualModelId);
-  } else if (provider === 'openai') {
-    return openai(actualModelId);
-  } else {
-    logger.warn({ model: modelName }, 'Unknown provider, defaulting to Anthropic');
-    return anthropic(actualModelId);
+    for (const mcp of turn.mcps) {
+      // Discover tools from MCP - for now, allow all tools from enabled MCPs
+      // Format: "mcp__{mcpName}__{toolName}"
+      // This will be populated dynamically by Claude Agent SDK
+    }
   }
+
+  // Return empty array to allow all tools (Claude Agent SDK will filter via allowed_tools in options)
+  return [];
 }
 
+// Build MCP server configurations for Claude Agent SDK
+function buildMCPServerConfigs(
+  config: AgentConfig,
+  mcpServersConfig: Record<string, any>
+): Record<string, any> {
+  const mcpConfigs: Record<string, any> = {};
+
+  // Collect unique MCPs used across all turns
+  const usedMCPs = new Set<string>();
+  for (const turn of config.turns) {
+    if (turn.mcps) {
+      for (const mcp of turn.mcps) {
+        usedMCPs.add(mcp);
+      }
+    }
+  }
+
+  // Build config for each used MCP
+  for (const mcpName of usedMCPs) {
+    const mcpConfig = mcpServersConfig[mcpName];
+    if (!mcpConfig) {
+      logger.warn({ mcpName }, 'MCP server config not found');
+      continue;
+    }
+
+    mcpConfigs[mcpName] = {
+      command: mcpConfig.command,
+      args: mcpConfig.args,
+      env: mcpConfig.env
+    };
+  }
+
+  return mcpConfigs;
+}
+
+// Build turn prompt with context
 async function buildTurnPrompt(
   turn: TurnConfig,
   rulesContent: string,
@@ -49,29 +78,19 @@ async function buildTurnPrompt(
     prompt += rulesContent + '\n\n---\n\n';
   }
 
-  // Turn-specific prompt
-  prompt += `## Turn ${turn.id}: ${turn.name}\n\n`;
-
-  if (turn.prompt_file) {
-    try {
-      const fileContent = await fs.readFile(turn.prompt_file, 'utf-8');
-      prompt += fileContent;
-    } catch (error) {
-      logger.warn({ agent: agentName, turn: turn.id, file: turn.prompt_file }, 'Prompt file not found');
-      prompt += '(No prompt file found)\n';
-    }
-  } else if (turn.prompt) {
-    prompt += turn.prompt;
+  // Chat history as context
+  if (chatHistory.length > 0) {
+    prompt += 'Previous conversation:\n';
+    prompt += chatHistory
+      .map((msg) => `${msg.role}: ${msg.content.substring(0, 500)}...`)
+      .join('\n\n');
+    prompt += '\n\n---\n\n';
   }
 
-  // Context from previous turns
-  if (chatHistory.length > 0) {
-    prompt += '\n\n### Context from previous turns:\n';
-    const context = chatHistory
-      .slice(-4)
-      .map((msg, i) => `${msg.role}: ${msg.content.substring(0, 500)}...`)
-      .join('\n');
-    prompt += context;
+  // Turn-specific prompt
+  prompt += `Turn: ${turn.name}\n`;
+  if (turn.prompt) {
+    prompt += turn.prompt;
   }
 
   return prompt;
@@ -80,16 +99,15 @@ async function buildTurnPrompt(
 export async function runAgent(
   agentName: string,
   config: AgentConfig,
-  mcpPool: MCPPool,
+  mcpServersConfig: Record<string, any>,
   budget: TokenBudgetManager
 ): Promise<AgentRun> {
   const startTime = Date.now();
   const runId = `${agentName}__${new Date().toISOString().replace(/[:.]/g, '-')}__${randomUUID().substring(0, 8)}`;
 
-  // Initialize new logging system
+  // Initialize logging system
   const dbPath = path.join(__dirname, '..', 'logs', 'orchestration.db');
-  const chatDir = path.join(__dirname, '..', 'logs', 'chats');
-  const orchestrationLogger = new OrchestrationLogger(dbPath, chatDir);
+  const orchestrationLogger = new OrchestrationLogger(dbPath);
 
   await orchestrationLogger.logRunStart(agentName, runId);
 
@@ -105,347 +123,159 @@ export async function runAgent(
     : '';
 
   try {
+    // Build MCP server configurations
+    const mcpConfigs = buildMCPServerConfigs(config, mcpServersConfig);
+
+    // Get model ID
+    const modelId = await getModelId(config.model);
+
+    // Build allowed tools list - we'll use all tools from enabled MCPs
+    // Claude Agent SDK will handle tool discovery
+    const allowedTools: string[] = [];
+
+    // Process each turn sequentially
     for (const [turnIndex, turn] of config.turns.entries()) {
       const turnNumber = turnIndex + 1;
       logger.info({ agent: agentName, turn: turn.id, name: turn.name }, 'Starting turn');
-
       await orchestrationLogger.logTurnStart(runId, turnNumber, turn.name);
 
-      // Build turn prompt
-      const turnPrompt = await buildTurnPrompt(turn, rulesContent, chatHistory, agentName);
-
-      // Select model
-      const modelName = turn.model || config.model;
-      const model = await selectModel(modelName);
-
-      // Check budget
-      if (!budget.canSpend(agentName, turn.max_tokens)) {
-        logger.warn({ agent: agentName, turn: turn.id }, 'Budget exhausted, stopping');
-        break;
-      }
-
-      // Get tools for this turn
-      let tools: Record<string, any> = {};
-      if (turn.mcps && turn.mcps.length > 0) {
-        try {
-          // Get tools for all MCPs needed by this turn
-          tools = await mcpPool.getTools(turn.mcps);
-          logger.debug({ agent: agentName, turn: turn.id, mcps: turn.mcps, toolCount: Object.keys(tools).length }, 'MCP tools loaded');
-          
-          // Log first tool schema for debug
-          const firstToolName = Object.keys(tools)[0];
-          if (firstToolName) {
-            const firstTool = tools[firstToolName];
-            console.log(`[AGENT] First tool schema: ${firstToolName}`, {
-              hasDescription: !!firstTool.description,
-              hasInputSchema: !!firstTool.inputSchema,
-              hasExecute: typeof firstTool.execute,
-              schemaType: firstTool.inputSchema?.type,
-              schemaPropsCount: Object.keys(firstTool.inputSchema?.properties || {}).length
-            });
-          }
-        } catch (error) {
-          logger.error({ agent: agentName, turn: turn.id, error }, 'Failed to load MCP tools');
-        }
-      }
-
-      logger.debug(
-        { agent: agentName, turn: turn.id, toolCount: Object.keys(tools).length },
-        'Tools loaded via Schema Definition Mode'
-      );
-
-      // LLM call
-      let result;
       try {
-        // DEBUG: Check tools before sending to LLM
-        if (Object.keys(tools).length > 0) {
-          const firstToolName = Object.keys(tools)[0];
-          const firstTool = tools[firstToolName];
-          logger.info({
-            agent: agentName,
-            turn: turn.id,
-            firstToolName,
-            firstToolKeys: Object.keys(firstTool),
-            hasParameters: 'parameters' in firstTool,
-            parametersType: firstTool.parameters?.type,
-            parametersKeys: Object.keys(firstTool.parameters || {})
-          }, 'TOOLS_BEFORE_LLM_CALL');
-        }
-        
-        logger.info(
-          {
-            agent: agentName,
-            turn: turn.id,
-            modelName,
-            toolCount: Object.keys(tools).length,
-            promptLength: turnPrompt.length
-          },
-          'About to call LLM'
-        );
-        
-        result = await generateText({
-          model,
-          maxTokens: turn.max_tokens,
-          prompt: turnPrompt,
-          tools: Object.keys(tools).length > 0 ? tools : undefined,
-          temperature: 0.7,
-          maxSteps: 3,
-          experimental_repairToolCall: async ({ toolCall, tools, inputSchema, error }) => {
-            // Only attempt to repair invalid inputs
-            if (!error || (error as any).type !== 'invalid-tool-input') return null;
+        // Build turn prompt
+        const turnPrompt = await buildTurnPrompt(turn, rulesContent, chatHistory, agentName);
 
-            const toolName = toolCall.toolName;
-            const toolDef = (tools as any)[toolName];
+        // Prepare Claude Agent SDK options
+        // Note: callbacks will be called by SDK when tools are invoked
+        const options: ClaudeAgentOptions = {
+          model: modelId,
+          mcp_servers: mcpConfigs,
+          allowed_tools: allowedTools.length > 0 ? allowedTools : undefined
+          // callbacks will be handled inline below
+        };
 
-            try {
-              // Simple heuristics for common MCP tools
-              const input: any = typeof toolCall.input === 'string' ? JSON.parse(toolCall.input) : toolCall.input || {};
+        logger.info({ agent: agentName, turn: turn.name }, 'Calling Claude Agent SDK query');
 
-              if (toolName.includes('manifold_mf_create_thought')) {
-                // Ensure required 'type' exists
-                if (!input.type) input.type = 'signal';
-                if (!input.title) input.title = 'Auto-generated signal';
-                if (!input.content) input.content = 'Auto-repaired tool call.';
+        // Call Claude Agent SDK - this will handle MCP tool discovery and execution
+        const response = await query(turnPrompt, options);
 
-                return { ...toolCall, input: JSON.stringify(input) };
-              }
+        // Log user prompt
+        await orchestrationLogger.logMessage(runId, turnNumber, 'user', turnPrompt);
 
-              if (toolName.includes('satbase_get_watchlist')) {
-                // No args needed
-                return { ...toolCall, input: JSON.stringify({}) };
-              }
-
-              // Default: return original
-              return null;
-            } catch {
-              return null;
-            }
-          }
+        // Log assistant response
+        await orchestrationLogger.logMessage(runId, turnNumber, 'assistant', response.text, {
+          input: response.usage?.input_tokens,
+          output: response.usage?.output_tokens
         });
-        
+
+        // Track tokens
+        const inputTokens = response.usage?.input_tokens ?? 0;
+        const outputTokens = response.usage?.output_tokens ?? 0;
+        totalInputTokens += inputTokens;
+        totalOutputTokens += outputTokens;
+
         logger.info(
           {
             agent: agentName,
             turn: turn.id,
-            hasUsage: !!result.usage,
-            inputTokens: result.usage?.inputTokens,
-            outputTokens: result.usage?.outputTokens,
-            textLength: result.text.length
+            inputTokens,
+            outputTokens,
+            totalInputSoFar: totalInputTokens,
+            totalOutputSoFar: totalOutputTokens
           },
-          'LLM call succeeded'
+          'Turn completed'
         );
+
+        // Add to chat history for next turn
+        chatHistory.push({
+          role: 'user',
+          content: turnPrompt
+        });
+        chatHistory.push({
+          role: 'assistant',
+          content: response.text
+        });
+
+        // Record cost
+        const cost = await budget.calculateCost(inputTokens, outputTokens, config.model);
+        await orchestrationLogger.logTurnCost(runId, turnNumber, agentName, config.model, inputTokens, outputTokens, cost);
       } catch (error) {
         const errorInfo: any = {
           agent: agentName,
           turn: turn.id,
-          modelName,
-          toolCount: Object.keys(tools).length,
-          provider: modelName.startsWith('claude-') ? 'anthropic' : 'openai'
+          model: config.model
         };
-        
+
         if (error instanceof Error) {
           errorInfo.errorName = error.name;
           errorInfo.errorMessage = error.message;
           errorInfo.errorStack = error.stack?.split('\n').slice(0, 5);
-        } else if (error && typeof error === 'object') {
-          errorInfo.errorObject = JSON.stringify(error, null, 2).substring(0, 500);
         } else {
           errorInfo.errorValue = String(error).substring(0, 200);
         }
-        
-        logger.error(errorInfo, 'LLM call FAILED - CRITICAL ERROR');
-        
-        // Also log to database for persistence
-        await orchestrationLogger.logMessage(runId, turnNumber, 'system', `ERROR: LLM call failed: ${errorInfo.errorMessage}`);
-        
+
+        logger.error(errorInfo, 'Turn execution failed');
+        await orchestrationLogger.logMessage(
+          runId,
+          turnNumber,
+          'system',
+          `ERROR: Turn failed: ${errorInfo.errorMessage}`
+        );
+
         throw error;
       }
+    }
 
-      totalInputTokens += result.usage?.inputTokens ?? 0;
-      totalOutputTokens += result.usage?.outputTokens ?? 0;
+    // Record final budget usage
+    const totalTokens = totalInputTokens + totalOutputTokens;
+    budget.record(agentName, totalTokens);
 
-      // Log user message and assistant response
-      await orchestrationLogger.logMessage(runId, turnNumber, 'user', turnPrompt);
-      await orchestrationLogger.logMessage(runId, turnNumber, 'assistant', result.text, {
-        input: result.usage?.inputTokens ?? 0,
-        output: result.usage?.outputTokens ?? 0
-      });
+    const cost = await budget.calculateCost(totalInputTokens, totalOutputTokens, config.model);
+    const durationSeconds = (Date.now() - startTime) / 1000;
 
-      logger.info(
-        {
-          agent: agentName,
-          turn: turn.id,
-          inputTokens: result.usage?.inputTokens ?? 0,
-          outputTokens: result.usage?.outputTokens ?? 0,
-          totalInputSoFar: totalInputTokens,
-          totalOutputSoFar: totalOutputTokens,
-          hasUsage: !!result.usage,
-          responseLength: result.text.length,
-          responsePreview: result.text.substring(0, 100)
-        },
-        'Turn completed with token counts'
-      );
+    await orchestrationLogger.logRunFinish(runId, 'completed', durationSeconds, cost);
 
-      // Record chat
-      chatHistory.push({
-        role: 'user',
-        content: turnPrompt
-      });
-
-      chatHistory.push({
-        role: 'assistant',
-        content: result.text,
-        tool_calls: result.toolCalls?.map(tc => ({
-          toolName: tc.toolName,
-          args: tc.args
-        }))
-      });
-
-      // Handle tool calls and results
-      if (result.toolCalls && result.toolCalls.length > 0) {
-        // Log all tool results from AI SDK
-        logger.info({ 
-          toolResultsCount: result.toolResults?.length || 0,
-          toolResults: result.toolResults 
-        }, 'Tool results from AI SDK');
-
-        for (const toolCall of result.toolCalls) {
-          try {
-            // Log complete tool call to see all available data
-            logger.info({ toolCall }, 'toolCall details from AI SDK result');
-            
-            // Always log the tool call first, regardless of execution
-            await orchestrationLogger.logToolCall(runId, turnNumber, toolCall.toolName, toolCall.args);
-
-            // If this tool has an execute handler (handled by AI SDK already), use result from SDK
-            const hasExecute = tools && (tools as any)[toolCall.toolName] && typeof (tools as any)[toolCall.toolName].execute === 'function';
-            if (hasExecute) {
-              logger.debug({ tool: toolCall.toolName }, 'Tool was executed by AI SDK, fetching result');
-              
-              // Find the corresponding tool result from the AI SDK
-              const toolResult = result.toolResults?.find(tr => tr.toolCallId === toolCall.toolCallId);
-              
-              if (toolResult) {
-                // toolResult has 'output' field, not 'result' (per AI SDK docs)
-                const output = (toolResult as any).output;
-                
-                logger.info({ 
-                  tool: toolCall.toolName, 
-                  toolCallId: toolCall.toolCallId,
-                  output,
-                  isError: (toolResult as any).isError 
-                }, 'Tool result captured from AI SDK');
-                
-                // Log the result to database
-                await orchestrationLogger.logToolResult(runId, turnNumber, toolCall.toolName, output);
-                
-                // Safely stringify output for chat history
-                const outputStr = typeof output === 'string' 
-                  ? output 
-                  : JSON.stringify(output);
-                
-                chatHistory.push({
-                  role: 'user',
-                  content: `Tool ${toolCall.toolName} result: ${outputStr.substring(0, 1000)}`
-                });
-              } else {
-                logger.warn({ tool: toolCall.toolName, toolCallId: toolCall.toolCallId }, 'No tool result found in AI SDK response');
-              }
-              
-              continue;
-            }
-
-            logger.debug({ 
-              agent: agentName, 
-              tool: toolCall.toolName,
-              argsType: typeof toolCall.args,
-              argsValue: toolCall.args ? JSON.stringify(toolCall.args).substring(0, 200) : 'undefined'
-            }, 'Calling tool');
-            
-            logger.debug({ 
-              tool: toolCall.toolName,
-              beforeCallArgsType: typeof toolCall.args
-            }, 'About to call mcpPool.callTool');
-            
-            const toolResult = await mcpPool.callTool(toolCall.toolName, toolCall.args || {});
-
-            await orchestrationLogger.logToolResult(runId, turnNumber, toolCall.toolName, toolResult);
-
-            // Safely stringify tool result for chat history
-            const resultStr = toolResult !== undefined && toolResult !== null
-              ? (typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult))
-              : 'null';
-
-            chatHistory.push({
-              role: 'user',
-              content: `Tool ${toolCall.toolName} result: ${resultStr.substring(0, 1000)}`
-            });
-
-            logger.debug({ agent: agentName, tool: toolCall.toolName }, 'Tool call succeeded');
-          } catch (error) {
-            logger.error({ 
-              agent: agentName, 
-              tool: toolCall.toolName, 
-              errorMessage: error instanceof Error ? error.message : String(error),
-              errorType: error instanceof Error ? error.constructor.name : typeof error,
-              errorCode: (error as any)?.code,
-              error 
-            }, 'Tool call failed');
-            chatHistory.push({
-              role: 'user',
-              content: `Tool ${toolCall.toolName} failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-            });
-          }
+    logger.info(
+      {
+        agent: agentName,
+        runId,
+        status: 'completed',
+        duration: durationSeconds,
+        tokens: {
+          input: totalInputTokens,
+          output: totalOutputTokens,
+          total: totalTokens,
+          cost_usd: cost
         }
-      }
-    }
-  } catch (error) {
-    logger.error({ agent: agentName, runId, error }, 'Agent run failed');
-  }
+      },
+      'Agent run finished'
+    );
 
-  // Record budget
-  const totalTokens = totalInputTokens + totalOutputTokens;
-  budget.record(agentName, totalTokens);
-
-  const cost = await budget.calculateCost(totalInputTokens, totalOutputTokens, config.model);
-  const durationSeconds = (Date.now() - startTime) / 1000;
-
-  // Log run end
-  const status = chatHistory.length > 0 ? 'completed' : 'failed';
-  await orchestrationLogger.logRunEnd(runId, agentName, status, {
-    input: totalInputTokens,
-    output: totalOutputTokens
-  }, cost, durationSeconds);
-
-  // Compatibility: still return AgentRun for other code
-  const run: AgentRun = {
-    run_id: runId,
-    agent: agentName,
-    timestamp: new Date().toISOString(),
-    status: status as any,
-    duration_seconds: durationSeconds,
-    chat_history: chatHistory,
-    outputs: {},
-    tokens: {
-      input: totalInputTokens,
-      output: totalOutputTokens,
-      total: totalTokens,
-      cost_usd: cost
-    }
-  };
-
-  await orchestrationLogger.close();
-
-  logger.info(
-    {
+    return {
       agent: agentName,
       runId,
-      status: run.status,
+      status: 'completed',
+      tokens: {
+        input: totalInputTokens,
+        output: totalOutputTokens,
+        total: totalTokens,
+        cost_usd: cost
+      },
       duration: durationSeconds,
-      tokens: run.tokens
-    },
-    'Agent run finished'
-  );
+      turns_completed: config.turns.length
+    };
+  } catch (error) {
+    const durationSeconds = (Date.now() - startTime) / 1000;
+    logger.error(
+      {
+        agent: agentName,
+        runId,
+        error: error instanceof Error ? error.message : String(error),
+        duration: durationSeconds
+      },
+      'Agent run failed'
+    );
 
-  return run;
+    await orchestrationLogger.logRunFinish(runId, 'failed', durationSeconds, 0);
+
+    throw error;
+  }
 }
