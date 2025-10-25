@@ -64,7 +64,7 @@ mcps:
 
 agents:
   discovery:
-    enabled: true
+    enabled: false
     schedule: "*/2 * * * * *"
     model: "haiku-3.5"
     budget_daily_tokens: 5000
@@ -90,7 +90,7 @@ agents:
         prompt: "Create Signal thoughts for the top 5 discoveries with confidence scores."
 
   analyst_tech:
-    enabled: true
+    enabled: false
     schedule: "*/5 * * * * *"
     batch: 1
     sector: "tech"
@@ -101,7 +101,7 @@ agents:
     turns: *analyst_turns
 
   analyst_biotech:
-    enabled: true
+    enabled: false
     schedule: "*/5 * * * * *"
     batch: 1
     sector: "biotech"
@@ -112,7 +112,7 @@ agents:
     turns: *analyst_turns
 
   analyst_commodities:
-    enabled: true
+    enabled: false
     schedule: "*/5 * * * * *"
     batch: 1
     sector: "commodities"
@@ -123,7 +123,7 @@ agents:
     turns: *analyst_turns
 
   analyst_macro:
-    enabled: true
+    enabled: false
     schedule: "*/5 * * * * *"
     batch: 2
     sector: "macro"
@@ -134,7 +134,7 @@ agents:
     turns: *analyst_turns
 
   analyst_geopolitics:
-    enabled: true
+    enabled: false
     schedule: "*/5 * * * * *"
     batch: 2
     sector: "geopolitics"
@@ -145,7 +145,7 @@ agents:
     turns: *analyst_turns
 
   validator:
-    enabled: true
+    enabled: false
     schedule: "*/10 * * * * *"
     model: "haiku-3.5"
     budget_daily_tokens: 12000
@@ -180,7 +180,7 @@ agents:
         prompt: "Store evidence and validation decisions in Ariadne."
 
   trader:
-    enabled: true
+    enabled: false
     schedule: "*/15 * * * * *"
     model: "haiku-3.5"
     budget_daily_tokens: 12000
