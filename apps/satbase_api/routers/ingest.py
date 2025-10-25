@@ -296,6 +296,7 @@ def ingest_news(body: dict[str, Any]):
 
 @router.post("/ingest/news/bodies", status_code=status.HTTP_202_ACCEPTED)
 def ingest_news_bodies(body: dict[str, Any]):
+    """Trigger news body fetching for a date range"""
     from_str = body.get("from")
     to_str = body.get("to")
     if not from_str or not to_str:
@@ -303,8 +304,17 @@ def ingest_news_bodies(body: dict[str, Any]):
     dfrom = date.fromisoformat(from_str)
     dto = date.fromisoformat(to_str)
     job_id = _new_job("news_bodies", {"from": from_str, "to": to_str})
-    _start_thread(_run_news_bodies, job_id, dfrom, dto)
-    return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
+    
+    # News body fetching is now handled by satbase_scheduler as an async background job
+    # The scheduler will pick up pending news bodies and fetch them
+    # This endpoint just creates a job record for tracking
+    
+    return JSONResponse({
+        "job_id": job_id, 
+        "status": "accepted", 
+        "retry_after": 2,
+        "message": "News body fetching queued and will be processed by background scheduler"
+    }, status_code=status.HTTP_202_ACCEPTED)
 
 
 @router.post("/ingest/news/backfill", status_code=status.HTTP_202_ACCEPTED)

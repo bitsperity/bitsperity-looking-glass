@@ -61,8 +61,9 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
             if term:
                 df = df.filter(pl.col("title").str.contains(term, literal=False) | pl.col("text").str.contains(term, literal=False))
     
-    # Sort by published_at first (newest first)
-    df = df.sort("published_at", descending=True)
+    # Sort by published_at first (newest first) - only if column exists and dataframe not empty
+    if df.height > 0 and "published_at" in df.columns:
+        df = df.sort("published_at", descending=True)
     
     # Then deduplicate by ID (keep first = newest)
     if df.height > 0 and "id" in df.columns:
