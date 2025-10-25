@@ -1,1 +1,528 @@
-{"_analyst_turns":[{"id":1,"name":"load_watchlist","model":"haiku-3.5","max_tokens":1500,"mcps":["satbase"],"prompt":"Load your watchlist from Satbase to see which tickers you should analyze today."},{"id":2,"name":"gather_data","model":"haiku-3.5","max_tokens":2000,"mcps":["satbase"],"prompt":"Gather news, prices, and macro data for your tickers from the last 48 hours."},{"id":3,"name":"semantic_search","model":"haiku-3.5","max_tokens":2000,"mcps":["tesseract"],"prompt":"Use semantic search to find articles related to supply chain, demand changes, and regulatory shifts."},{"id":4,"name":"analyze_causal","model":"haiku-3.5","max_tokens":3000,"prompt":"Analyze the causal chains: Why are prices moving? What are the mechanisms?"},{"id":5,"name":"link_and_hypothesize","model":"haiku-3.5","max_tokens":2000,"mcps":["manifold","ariadne"],"prompt":"Search for existing thoughts. Formulate hypotheses about what's happening."},{"id":6,"name":"store_insights","model":"haiku-3.5","max_tokens":1500,"mcps":["manifold","ariadne"],"prompt":"Store your signals as Thoughts and your hypotheses in Ariadne."}],"orchestrator":{"timezone":"UTC"},"budget":{"daily_tokens":101000,"monthly_budget_usd":50},"mcps":{"satbase":{"command":"node","args":["../mcps/satbase/dist/index-stdio.js"]},"tesseract":{"command":"node","args":["../mcps/tesseract/dist/index-stdio.js"]},"manifold":{"command":"node","args":["../mcps/manifold/dist/index-stdio.js"]},"ariadne":{"command":"node","args":["../mcps/ariadne/dist/index-stdio.js"]}},"agents":{"discovery":{"enabled":true,"schedule":"manual","model":"haiku-3.5","timeout_minutes":5,"budget_daily_tokens":3000,"system_prompt":"You are a market discovery agent analyzing financial instruments and market dynamics.\n\nFor each turn, follow these guidelines:\n1. Make targeted tool calls to gather market information\n2. After 3-5 tool calls, pause to analyze and reflect on findings\n3. Be efficient and avoid redundant queries\n4. Focus on actionable market signals and anomalies\n5. Synthesize information to identify patterns and opportunities\n\nWhen creating thoughts, always use valid types: 'observation', 'hypothesis', 'analysis', 'decision', 'reflection', or 'question'.\n","turns":[{"id":1,"name":"load_watchlist","max_tokens":800,"mcps":["satbase"],"prompt":"Load your watchlist. This is the first step - understand which tickers you should focus on today.\n"},{"id":2,"name":"gather_data","max_tokens":2000,"mcps":["satbase"],"prompt":"Gather news, prices, and macro data for your watchlist tickers from the last 48 hours.\nLook for trends, volume spikes, and unusual activity.\n"},{"id":3,"name":"create_thoughts","max_tokens":1500,"mcps":["manifold"],"prompt":"Create thoughts in the knowledge graph to capture your market signals.\nEach thought must have a type that is one of: 'observation', 'hypothesis', 'analysis', 'decision', 'reflection', or 'question'.\nUse 'observation' for market signals and data points you've discovered.\nInclude title, content, tickers, tags, and confidence_score.\nFocus on actionable insights you found in the data.\n"}],"rules":"# Rules laden aus: ./agent-rules/discovery.md\n\n(Rules werden aus File geladen - hier kannst du sie direkt bearbeiten)"},"analyst_tech":{"enabled":false,"schedule":"0 1 * * *","batch":1,"sector":"tech","model":"haiku-3.5","budget_daily_tokens":5000,"timeout_minutes":10,"rules_file":"./agent-rules/analyst-tech.md","turns":[{"id":1,"name":"load_watchlist","model":"haiku-3.5","max_tokens":1500,"mcps":["satbase"],"prompt":"Load your watchlist from Satbase to see which tickers you should analyze today."},{"id":2,"name":"gather_data","model":"haiku-3.5","max_tokens":2000,"mcps":["satbase"],"prompt":"Gather news, prices, and macro data for your tickers from the last 48 hours."},{"id":3,"name":"semantic_search","model":"haiku-3.5","max_tokens":2000,"mcps":["tesseract"],"prompt":"Use semantic search to find articles related to supply chain, demand changes, and regulatory shifts."},{"id":4,"name":"analyze_causal","model":"haiku-3.5","max_tokens":3000,"prompt":"Analyze the causal chains: Why are prices moving? What are the mechanisms?"},{"id":5,"name":"link_and_hypothesize","model":"haiku-3.5","max_tokens":2000,"mcps":["manifold","ariadne"],"prompt":"Search for existing thoughts. Formulate hypotheses about what's happening."},{"id":6,"name":"store_insights","model":"haiku-3.5","max_tokens":1500,"mcps":["manifold","ariadne"],"prompt":"Store your signals as Thoughts and your hypotheses in Ariadne."}]},"analyst_biotech":{"enabled":false,"schedule":"0 * * * *","batch":1,"sector":"biotech","model":"haiku-3.5","budget_daily_tokens":5000,"timeout_minutes":8,"rules_file":"./agent-rules/analyst-biotech.md","turns":[{"id":1,"name":"load_watchlist","model":"haiku-3.5","max_tokens":1500,"mcps":["satbase"],"prompt":"Load your watchlist from Satbase to see which tickers you should analyze today."},{"id":2,"name":"gather_data","model":"haiku-3.5","max_tokens":2000,"mcps":["satbase"],"prompt":"Gather news, prices, and macro data for your tickers from the last 48 hours."},{"id":3,"name":"semantic_search","model":"haiku-3.5","max_tokens":2000,"mcps":["tesseract"],"prompt":"Use semantic search to find articles related to supply chain, demand changes, and regulatory shifts."},{"id":4,"name":"analyze_causal","model":"haiku-3.5","max_tokens":3000,"prompt":"Analyze the causal chains: Why are prices moving? What are the mechanisms?"},{"id":5,"name":"link_and_hypothesize","model":"haiku-3.5","max_tokens":2000,"mcps":["manifold","ariadne"],"prompt":"Search for existing thoughts. Formulate hypotheses about what's happening."},{"id":6,"name":"store_insights","model":"haiku-3.5","max_tokens":1500,"mcps":["manifold","ariadne"],"prompt":"Store your signals as Thoughts and your hypotheses in Ariadne."}]},"analyst_commodities":{"enabled":false,"schedule":"0 * * * *","batch":1,"sector":"commodities","model":"haiku-3.5","budget_daily_tokens":5000,"timeout_minutes":8,"rules_file":"./agent-rules/analyst-commodities.md","turns":[{"id":1,"name":"load_watchlist","model":"haiku-3.5","max_tokens":1500,"mcps":["satbase"],"prompt":"Load your watchlist from Satbase to see which tickers you should analyze today."},{"id":2,"name":"gather_data","model":"haiku-3.5","max_tokens":2000,"mcps":["satbase"],"prompt":"Gather news, prices, and macro data for your tickers from the last 48 hours."},{"id":3,"name":"semantic_search","model":"haiku-3.5","max_tokens":2000,"mcps":["tesseract"],"prompt":"Use semantic search to find articles related to supply chain, demand changes, and regulatory shifts."},{"id":4,"name":"analyze_causal","model":"haiku-3.5","max_tokens":3000,"prompt":"Analyze the causal chains: Why are prices moving? What are the mechanisms?"},{"id":5,"name":"link_and_hypothesize","model":"haiku-3.5","max_tokens":2000,"mcps":["manifold","ariadne"],"prompt":"Search for existing thoughts. Formulate hypotheses about what's happening."},{"id":6,"name":"store_insights","model":"haiku-3.5","max_tokens":1500,"mcps":["manifold","ariadne"],"prompt":"Store your signals as Thoughts and your hypotheses in Ariadne."}]},"analyst_macro":{"enabled":false,"schedule":"0 * * * *","batch":2,"sector":"macro","model":"haiku-3.5","budget_daily_tokens":5000,"timeout_minutes":8,"rules_file":"./agent-rules/analyst-macro.md","turns":[{"id":1,"name":"load_watchlist","model":"haiku-3.5","max_tokens":1500,"mcps":["satbase"],"prompt":"Load your watchlist from Satbase to see which tickers you should analyze today."},{"id":2,"name":"gather_data","model":"haiku-3.5","max_tokens":2000,"mcps":["satbase"],"prompt":"Gather news, prices, and macro data for your tickers from the last 48 hours."},{"id":3,"name":"semantic_search","model":"haiku-3.5","max_tokens":2000,"mcps":["tesseract"],"prompt":"Use semantic search to find articles related to supply chain, demand changes, and regulatory shifts."},{"id":4,"name":"analyze_causal","model":"haiku-3.5","max_tokens":3000,"prompt":"Analyze the causal chains: Why are prices moving? What are the mechanisms?"},{"id":5,"name":"link_and_hypothesize","model":"haiku-3.5","max_tokens":2000,"mcps":["manifold","ariadne"],"prompt":"Search for existing thoughts. Formulate hypotheses about what's happening."},{"id":6,"name":"store_insights","model":"haiku-3.5","max_tokens":1500,"mcps":["manifold","ariadne"],"prompt":"Store your signals as Thoughts and your hypotheses in Ariadne."}]},"analyst_geopolitics":{"enabled":false,"schedule":"0 * * * *","batch":2,"sector":"geopolitics","model":"haiku-3.5","budget_daily_tokens":5000,"timeout_minutes":8,"rules_file":"./agent-rules/analyst-geopolitics.md","turns":[{"id":1,"name":"load_watchlist","model":"haiku-3.5","max_tokens":1500,"mcps":["satbase"],"prompt":"Load your watchlist from Satbase to see which tickers you should analyze today."},{"id":2,"name":"gather_data","model":"haiku-3.5","max_tokens":2000,"mcps":["satbase"],"prompt":"Gather news, prices, and macro data for your tickers from the last 48 hours."},{"id":3,"name":"semantic_search","model":"haiku-3.5","max_tokens":2000,"mcps":["tesseract"],"prompt":"Use semantic search to find articles related to supply chain, demand changes, and regulatory shifts."},{"id":4,"name":"analyze_causal","model":"haiku-3.5","max_tokens":3000,"prompt":"Analyze the causal chains: Why are prices moving? What are the mechanisms?"},{"id":5,"name":"link_and_hypothesize","model":"haiku-3.5","max_tokens":2000,"mcps":["manifold","ariadne"],"prompt":"Search for existing thoughts. Formulate hypotheses about what's happening."},{"id":6,"name":"store_insights","model":"haiku-3.5","max_tokens":1500,"mcps":["manifold","ariadne"],"prompt":"Store your signals as Thoughts and your hypotheses in Ariadne."}]},"validator":{"enabled":false,"schedule":"0 2 * * *","model":"haiku-3.5","budget_daily_tokens":4000,"timeout_minutes":10,"rules_file":"./agent-rules/validator.md","turns":[{"id":1,"name":"load_hypotheses","model":"haiku-3.5","max_tokens":1500,"mcps":["ariadne"],"prompt":"Load all pending hypotheses from Ariadne that need evidence collection."},{"id":2,"name":"gather_evidence","model":"haiku-3.5","max_tokens":2000,"mcps":["satbase","tesseract","manifold"],"prompt":"Gather evidence for each hypothesis: news, prices, related thoughts."},{"id":3,"name":"validate","model":"haiku-3.5","max_tokens":3000,"prompt":"Evaluate each hypothesis: Is it supported or contradicted? Confidence?"},{"id":4,"name":"store_evidence","model":"haiku-3.5","max_tokens":1500,"mcps":["ariadne"],"prompt":"Store evidence and validation decisions in Ariadne."}]},"trader":{"enabled":false,"schedule":"0 3 * * *","model":"haiku-3.5","budget_daily_tokens":8000,"timeout_minutes":12,"rules_file":"./agent-rules/trader.md","turns":[{"id":1,"name":"load_patterns","model":"haiku-3.5","max_tokens":1500,"mcps":["ariadne"],"prompt":"Load validated patterns (confidence >= 0.8) and current market regimes."},{"id":2,"name":"calculate_impact","model":"haiku-3.5","max_tokens":2000,"mcps":["ariadne","satbase"],"prompt":"For each pattern: calculate impact on top 5 entities, get current prices."},{"id":3,"name":"evaluate","model":"haiku-3.5","max_tokens":3000,"mcps":["manifold"],"prompt":"Evaluate trade feasibility: What's the risk/reward? Are there related risks?"},{"id":4,"name":"formulate","model":"haiku-3.5","max_tokens":2000,"prompt":"Formulate trade ideas with entry, stop loss, take profit, and thesis."},{"id":5,"name":"store","model":"haiku-3.5","max_tokens":1500,"mcps":["manifold","ariadne"],"prompt":"Store trade ideas as Thoughts and link to underlying patterns/hypotheses."}]},"reflection":{"enabled":false,"schedule":"0 23 * * 0","model":"haiku-3.5","budget_daily_tokens":8000,"timeout_minutes":6,"rules_file":"./agent-rules/reflection.md","turns":[{"id":1,"name":"load_trades","max_tokens":2000,"mcps":["manifold"],"prompt":"Load all trade ideas from the past week."},{"id":2,"name":"evaluate_accuracy","model":"haiku-3.5","max_tokens":3000,"prompt":"Evaluate: Were the hypotheses correct? What was the accuracy?"},{"id":3,"name":"store_learnings","max_tokens":1500,"mcps":["manifold"],"prompt":"Store learnings as Reflection thoughts for next week."}]}}}
+_analyst_turns:
+  - id: 1
+    name: load_watchlist
+    model: haiku-3.5
+    max_tokens: 1500
+    mcps:
+      - satbase
+    prompt: Load your watchlist from Satbase to see which tickers you should analyze
+      today.
+  - id: 2
+    name: gather_data
+    model: haiku-3.5
+    max_tokens: 2000
+    mcps:
+      - satbase
+    prompt: Gather news, prices, and macro data for your tickers from the last 48
+      hours.
+  - id: 3
+    name: semantic_search
+    model: haiku-3.5
+    max_tokens: 2000
+    mcps:
+      - tesseract
+    prompt: Use semantic search to find articles related to supply chain, demand
+      changes, and regulatory shifts.
+  - id: 4
+    name: analyze_causal
+    model: haiku-3.5
+    max_tokens: 3000
+    prompt: "Analyze the causal chains: Why are prices moving? What are the
+      mechanisms?"
+  - id: 5
+    name: link_and_hypothesize
+    model: haiku-3.5
+    max_tokens: 2000
+    mcps:
+      - manifold
+      - ariadne
+    prompt: Search for existing thoughts. Formulate hypotheses about what's happening.
+  - id: 6
+    name: store_insights
+    model: haiku-3.5
+    max_tokens: 1500
+    mcps:
+      - manifold
+      - ariadne
+    prompt: Store your signals as Thoughts and your hypotheses in Ariadne.
+orchestrator:
+  timezone: UTC
+budget:
+  daily_tokens: 101000
+  monthly_budget_usd: 50
+mcps:
+  satbase:
+    command: node
+    args:
+      - ../mcps/satbase/dist/index-stdio.js
+  tesseract:
+    command: node
+    args:
+      - ../mcps/tesseract/dist/index-stdio.js
+  manifold:
+    command: node
+    args:
+      - ../mcps/manifold/dist/index-stdio.js
+  ariadne:
+    command: node
+    args:
+      - ../mcps/ariadne/dist/index-stdio.js
+agents:
+  discovery:
+    enabled: true
+    schedule: manual
+    model: haiku-3.5
+    timeout_minutes: 5
+    budget_daily_tokens: 3000
+    system_prompt: >
+      You are a market discovery agent analyzing financial instruments and
+      market dynamics.
+
+
+      For each turn, follow these guidelines:
+
+      1. Make targeted tool calls to gather market information
+
+      2. After 3-5 tool calls, pause to analyze and reflect on findings
+
+      3. Be efficient and avoid redundant queries
+
+      4. Focus on actionable market signals and anomalies
+
+      5. Synthesize information to identify patterns and opportunities
+
+
+      When creating thoughts, always use valid types: 'observation',
+      'hypothesis', 'analysis', 'decision', 'reflection', or 'question'.
+    turns:
+      - id: 1
+        name: load_watchlist
+        max_tokens: 800
+        mcps:
+          - satbase
+        prompt: >
+          Load your watchlist. This is the first step - understand which tickers
+          you should focus on today.
+      - id: 2
+        name: gather_data
+        max_tokens: 2000
+        mcps:
+          - satbase
+        prompt: >
+          Gather news, prices, and macro data for your watchlist tickers from
+          the last 48 hours.
+
+          Look for trends, volume spikes, and unusual activity.
+      - id: 3
+        name: create_thoughts
+        max_tokens: 1500
+        mcps:
+          - manifold
+        prompt: >
+          Create thoughts in the knowledge graph to capture your market signals.
+
+          Each thought must have a type that is one of: 'observation',
+          'hypothesis', 'analysis', 'decision', 'reflection', or 'question'.
+
+          Use 'observation' for market signals and data points you've
+          discovered.
+
+          Include title, content, tickers, tags, and confidence_score.
+
+          Focus on actionable insights you found in the data.
+    rules: |-
+      # Rules laden aus: ./agent-rules/discovery.md
+
+      (Rules werden aus File geladen - hier kannst du sie direkt bearbeiten)
+  analyst_tech:
+    enabled: false
+    schedule: 0 1 * * *
+    batch: 1
+    sector: tech
+    model: haiku-3.5
+    budget_daily_tokens: 5000
+    timeout_minutes: 10
+    rules_file: ./agent-rules/analyst-tech.md
+    turns:
+      - id: 1
+        name: load_watchlist
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - satbase
+        prompt: Load your watchlist from Satbase to see which tickers you should analyze
+          today.
+      - id: 2
+        name: gather_data
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - satbase
+        prompt: Gather news, prices, and macro data for your tickers from the last 48
+          hours.
+      - id: 3
+        name: semantic_search
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - tesseract
+        prompt: Use semantic search to find articles related to supply chain, demand
+          changes, and regulatory shifts.
+      - id: 4
+        name: analyze_causal
+        model: haiku-3.5
+        max_tokens: 3000
+        prompt: "Analyze the causal chains: Why are prices moving? What are the
+          mechanisms?"
+      - id: 5
+        name: link_and_hypothesize
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Search for existing thoughts. Formulate hypotheses about what's
+          happening.
+      - id: 6
+        name: store_insights
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Store your signals as Thoughts and your hypotheses in Ariadne.
+  analyst_biotech:
+    enabled: false
+    schedule: 0 * * * *
+    batch: 1
+    sector: biotech
+    model: haiku-3.5
+    budget_daily_tokens: 5000
+    timeout_minutes: 8
+    rules_file: ./agent-rules/analyst-biotech.md
+    turns:
+      - id: 1
+        name: load_watchlist
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - satbase
+        prompt: Load your watchlist from Satbase to see which tickers you should analyze
+          today.
+      - id: 2
+        name: gather_data
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - satbase
+        prompt: Gather news, prices, and macro data for your tickers from the last 48
+          hours.
+      - id: 3
+        name: semantic_search
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - tesseract
+        prompt: Use semantic search to find articles related to supply chain, demand
+          changes, and regulatory shifts.
+      - id: 4
+        name: analyze_causal
+        model: haiku-3.5
+        max_tokens: 3000
+        prompt: "Analyze the causal chains: Why are prices moving? What are the
+          mechanisms?"
+      - id: 5
+        name: link_and_hypothesize
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Search for existing thoughts. Formulate hypotheses about what's
+          happening.
+      - id: 6
+        name: store_insights
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Store your signals as Thoughts and your hypotheses in Ariadne.
+  analyst_commodities:
+    enabled: false
+    schedule: 0 * * * *
+    batch: 1
+    sector: commodities
+    model: haiku-3.5
+    budget_daily_tokens: 5000
+    timeout_minutes: 8
+    rules_file: ./agent-rules/analyst-commodities.md
+    turns:
+      - id: 1
+        name: load_watchlist
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - satbase
+        prompt: Load your watchlist from Satbase to see which tickers you should analyze
+          today.
+      - id: 2
+        name: gather_data
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - satbase
+        prompt: Gather news, prices, and macro data for your tickers from the last 48
+          hours.
+      - id: 3
+        name: semantic_search
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - tesseract
+        prompt: Use semantic search to find articles related to supply chain, demand
+          changes, and regulatory shifts.
+      - id: 4
+        name: analyze_causal
+        model: haiku-3.5
+        max_tokens: 3000
+        prompt: "Analyze the causal chains: Why are prices moving? What are the
+          mechanisms?"
+      - id: 5
+        name: link_and_hypothesize
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Search for existing thoughts. Formulate hypotheses about what's
+          happening.
+      - id: 6
+        name: store_insights
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Store your signals as Thoughts and your hypotheses in Ariadne.
+  analyst_macro:
+    enabled: false
+    schedule: 0 * * * *
+    batch: 2
+    sector: macro
+    model: haiku-3.5
+    budget_daily_tokens: 5000
+    timeout_minutes: 8
+    rules_file: ./agent-rules/analyst-macro.md
+    turns:
+      - id: 1
+        name: load_watchlist
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - satbase
+        prompt: Load your watchlist from Satbase to see which tickers you should analyze
+          today.
+      - id: 2
+        name: gather_data
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - satbase
+        prompt: Gather news, prices, and macro data for your tickers from the last 48
+          hours.
+      - id: 3
+        name: semantic_search
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - tesseract
+        prompt: Use semantic search to find articles related to supply chain, demand
+          changes, and regulatory shifts.
+      - id: 4
+        name: analyze_causal
+        model: haiku-3.5
+        max_tokens: 3000
+        prompt: "Analyze the causal chains: Why are prices moving? What are the
+          mechanisms?"
+      - id: 5
+        name: link_and_hypothesize
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Search for existing thoughts. Formulate hypotheses about what's
+          happening.
+      - id: 6
+        name: store_insights
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Store your signals as Thoughts and your hypotheses in Ariadne.
+  analyst_geopolitics:
+    enabled: false
+    schedule: 0 * * * *
+    batch: 2
+    sector: geopolitics
+    model: haiku-3.5
+    budget_daily_tokens: 5000
+    timeout_minutes: 8
+    rules_file: ./agent-rules/analyst-geopolitics.md
+    turns:
+      - id: 1
+        name: load_watchlist
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - satbase
+        prompt: Load your watchlist from Satbase to see which tickers you should analyze
+          today.
+      - id: 2
+        name: gather_data
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - satbase
+        prompt: Gather news, prices, and macro data for your tickers from the last 48
+          hours.
+      - id: 3
+        name: semantic_search
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - tesseract
+        prompt: Use semantic search to find articles related to supply chain, demand
+          changes, and regulatory shifts.
+      - id: 4
+        name: analyze_causal
+        model: haiku-3.5
+        max_tokens: 3000
+        prompt: "Analyze the causal chains: Why are prices moving? What are the
+          mechanisms?"
+      - id: 5
+        name: link_and_hypothesize
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Search for existing thoughts. Formulate hypotheses about what's
+          happening.
+      - id: 6
+        name: store_insights
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Store your signals as Thoughts and your hypotheses in Ariadne.
+  validator:
+    enabled: false
+    schedule: 0 2 * * *
+    model: haiku-3.5
+    budget_daily_tokens: 4000
+    timeout_minutes: 10
+    rules_file: ./agent-rules/validator.md
+    turns:
+      - id: 1
+        name: load_hypotheses
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - ariadne
+        prompt: Load all pending hypotheses from Ariadne that need evidence collection.
+      - id: 2
+        name: gather_evidence
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - satbase
+          - tesseract
+          - manifold
+        prompt: "Gather evidence for each hypothesis: news, prices, related thoughts."
+      - id: 3
+        name: validate
+        model: haiku-3.5
+        max_tokens: 3000
+        prompt: "Evaluate each hypothesis: Is it supported or contradicted? Confidence?"
+      - id: 4
+        name: store_evidence
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - ariadne
+        prompt: Store evidence and validation decisions in Ariadne.
+  trader:
+    enabled: false
+    schedule: 0 3 * * *
+    model: haiku-3.5
+    budget_daily_tokens: 8000
+    timeout_minutes: 12
+    rules_file: ./agent-rules/trader.md
+    turns:
+      - id: 1
+        name: load_patterns
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - ariadne
+        prompt: Load validated patterns (confidence >= 0.8) and current market regimes.
+      - id: 2
+        name: calculate_impact
+        model: haiku-3.5
+        max_tokens: 2000
+        mcps:
+          - ariadne
+          - satbase
+        prompt: "For each pattern: calculate impact on top 5 entities, get current
+          prices."
+      - id: 3
+        name: evaluate
+        model: haiku-3.5
+        max_tokens: 3000
+        mcps:
+          - manifold
+        prompt: "Evaluate trade feasibility: What's the risk/reward? Are there related
+          risks?"
+      - id: 4
+        name: formulate
+        model: haiku-3.5
+        max_tokens: 2000
+        prompt: Formulate trade ideas with entry, stop loss, take profit, and thesis.
+      - id: 5
+        name: store
+        model: haiku-3.5
+        max_tokens: 1500
+        mcps:
+          - manifold
+          - ariadne
+        prompt: Store trade ideas as Thoughts and link to underlying
+          patterns/hypotheses.
+  reflection:
+    enabled: false
+    schedule: 0 23 * * 0
+    model: haiku-3.5
+    budget_daily_tokens: 8000
+    timeout_minutes: 6
+    rules_file: ./agent-rules/reflection.md
+    turns:
+      - id: 1
+        name: load_trades
+        max_tokens: 2000
+        mcps:
+          - manifold
+        prompt: Load all trade ideas from the past week.
+      - id: 2
+        name: evaluate_accuracy
+        model: haiku-3.5
+        max_tokens: 3000
+        prompt: "Evaluate: Were the hypotheses correct? What was the accuracy?"
+      - id: 3
+        name: store_learnings
+        max_tokens: 1500
+        mcps:
+          - manifold
+        prompt: Store learnings as Reflection thoughts for next week.
