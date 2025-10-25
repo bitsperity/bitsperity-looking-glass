@@ -1,0 +1,143 @@
+const BASE_URL = import.meta.env.VITE_COALESCENCE_BASE || 'http://localhost:3100';
+
+export interface CoalescenceRun {
+  id: string;
+  agent: string;
+  status: string;
+  created_at: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  duration_seconds?: number;
+}
+
+export interface CoalescenceCost {
+  agent: string;
+  model?: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost: number;
+}
+
+export interface CoalescenceAgentStats {
+  name: string;
+  enabled: boolean;
+  model?: string;
+  schedule?: string;
+  total_runs: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  last_run_id?: string;
+  last_run_at?: string;
+}
+
+export interface CoalescenceCostBreakdown {
+  date: string;
+  total_cost: number;
+  by_agent: CoalescenceCost[];
+}
+
+export class CoalescenceClient {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = BASE_URL) {
+    this.baseUrl = baseUrl;
+  }
+
+  async health(): Promise<{ status: string; timestamp: string }> {
+    const res = await fetch(`${this.baseUrl}/health`);
+    if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
+    return res.json();
+  }
+
+  async getRuns(options?: { agent?: string; days?: number; status?: string }): Promise<{ runs: CoalescenceRun[]; count: number }> {
+    const params = new URLSearchParams();
+    if (options?.agent) params.set('agent', options.agent);
+    if (options?.days) params.set('days', String(options.days));
+    if (options?.status) params.set('status', options.status);
+
+    const res = await fetch(`${this.baseUrl}/api/runs?${params}`);
+    if (!res.ok) throw new Error(`Failed to fetch runs: ${res.statusText}`);
+    return res.json();
+  }
+
+  async getAgents(): Promise<{ agents: CoalescenceAgentStats[] }> {
+    const res = await fetch(`${this.baseUrl}/api/agents`);
+    if (!res.ok) throw new Error(`Failed to fetch agents: ${res.statusText}`);
+    return res.json();
+  }
+
+  async getCosts(date?: string): Promise<CoalescenceCostBreakdown> {
+    const params = new URLSearchParams();
+    if (date) params.set('date', date);
+
+    const res = await fetch(`${this.baseUrl}/api/costs?${params}`);
+    if (!res.ok) throw new Error(`Failed to fetch costs: ${res.statusText}`);
+    return res.json();
+  }
+
+  async getChat(runId: string): Promise<string> {
+    const res = await fetch(`${this.baseUrl}/api/chat/${runId}`);
+    if (!res.ok) throw new Error(`Failed to fetch chat: ${res.statusText}`);
+    return res.text();
+  }
+
+  async getConfigAgents(): Promise<{ content: string; parsed: any }> {
+    const res = await fetch(`${this.baseUrl}/api/config/agents`);
+    if (!res.ok) throw new Error(`Failed to fetch agents config: ${res.statusText}`);
+    return res.json();
+  }
+
+  async saveConfigAgents(yaml: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${this.baseUrl}/api/config/agents`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to save agents config: ${res.statusText}`);
+    }
+    return res.json();
+  }
+
+  async getConfigModels(): Promise<{ content: string; parsed: any }> {
+    const res = await fetch(`${this.baseUrl}/api/config/models`);
+    if (!res.ok) throw new Error(`Failed to fetch models config: ${res.statusText}`);
+    return res.json();
+  }
+
+  async saveConfigModels(yaml: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${this.baseUrl}/api/config/models`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'text/yaml' },
+      body: yaml
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to save models config: ${res.statusText}`);
+    }
+    return res.json();
+  }
+
+  async reloadAgents(): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${this.baseUrl}/api/agents/reload`, {
+      method: 'POST'
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to reload agents: ${res.statusText}`);
+    }
+    return res.json();
+  }
+
+  parseJsonLines(ndjson: string): any[] {
+    return ndjson
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line));
+  }
+}
+
+export const coalescenceClient = new CoalescenceClient();

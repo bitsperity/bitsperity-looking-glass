@@ -10,6 +10,7 @@ import { runAgent } from './agent-runner.js';
 import { logger } from './logger.js';
 import { createApiServer } from './api/server.js';
 import { OrchestrationDB } from './db/database.js';
+import { ConfigWatcher } from './config-watcher.js';
 import type { AgentsConfig } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,8 +18,84 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Load .env from project root (not orchestrator directory)
 dotenvConfig({ path: path.join(__dirname, '..', '..', '.env') });
 
+// Global state for live reload
+let currentCrons: Map<string, cron.ScheduledTask> = new Map();
+let mcpPool: MCPPool | null = null;
+let budget: TokenBudgetManager | null = null;
+let db: OrchestrationDB | null = null;
+
+async function scheduleAgents(config: AgentsConfig): Promise<void> {
+  logger.info('Scheduling agents...');
+
+  // Stop and remove existing crons
+  for (const [agentName, task] of currentCrons.entries()) {
+    logger.info({ agent: agentName }, 'Stopping existing cron');
+    task.stop();
+  }
+  currentCrons.clear();
+
+  // Schedule each agent
+  for (const [agentName, agentConfig] of Object.entries(config.agents)) {
+    if (!agentConfig.enabled) {
+      logger.info({ agent: agentName }, 'Agent disabled, skipping');
+      continue;
+    }
+
+    logger.info(
+      { agent: agentName, schedule: agentConfig.schedule, batch: agentConfig.batch },
+      'Scheduling agent'
+    );
+
+    const task = cron.schedule(agentConfig.schedule, async () => {
+      logger.info({ agent: agentName, batch: agentConfig.batch }, 'Starting agent run');
+      try {
+        if (!mcpPool || !budget) throw new Error('MCP Pool or Budget not initialized');
+        const result = await runAgent(agentName, agentConfig, mcpPool, budget);
+        logger.info(
+          {
+            agent: agentName,
+            tokens: result.tokens,
+            duration: result.duration_seconds,
+            status: result.status
+          },
+          'Agent run completed'
+        );
+      } catch (error) {
+        logger.error(error, 'Agent run failed');
+      }
+    });
+
+    currentCrons.set(agentName, task);
+  }
+
+  const enabledAgents = Object.entries(config.agents).filter(([_, cfg]) => cfg.enabled);
+  logger.info(
+    {
+      totalScheduled: enabledAgents.length,
+      schedules: enabledAgents.map(([name, cfg]) => `${name} @ ${cfg.schedule}`)
+    },
+    'Scheduler initialized'
+  );
+}
+
+async function reloadAgentsCallback(): Promise<void> {
+  logger.info('Live reload triggered for agents configuration');
+
+  try {
+    const configPath = process.env.ORCHESTRATOR_TEST_CONFIG || path.join(__dirname, '..', 'config', 'agents.yaml');
+    const configYaml = await fs.readFile(configPath, 'utf-8');
+    const config: AgentsConfig = yaml.parse(configYaml);
+
+    await scheduleAgents(config);
+    logger.info('Agents successfully reloaded');
+  } catch (error) {
+    logger.error({ error }, 'Failed to reload agents');
+    throw error;
+  }
+}
+
 async function main() {
-  logger.info('Starting Orchestrator...');
+  logger.info('Starting Orchestrator (Coalescence)...');
 
   try {
     // Load config
@@ -32,71 +109,43 @@ async function main() {
     );
 
     // Initialize MCP Pool
-    const mcpPool = new MCPPool(config.mcps);
+    mcpPool = new MCPPool(config.mcps);
     await mcpPool.initialize();
 
-    // Initialize database and logger
+    // Initialize database
     const dbPath = path.join(__dirname, '..', 'logs', 'orchestration.db');
-    const db = new OrchestrationDB(dbPath);
+    await fs.mkdir(path.dirname(dbPath), { recursive: true });
+    db = new OrchestrationDB(dbPath);
 
     // Initialize budget manager
-    const budget = new TokenBudgetManager(config.budget);
+    budget = new TokenBudgetManager(config.budget);
 
-    // Start API server
+    // Start API server with config
     const apiPort = parseInt(process.env.API_PORT || '3100');
-    createApiServer(db, apiPort);
+    const configDir = path.join(__dirname, '..', 'config');
+    createApiServer(db, apiPort, {
+      configDir,
+      onAgentReload: reloadAgentsCallback
+    });
+
+    // Start config watcher
+    const configWatcher = new ConfigWatcher({
+      configDir,
+      debounceMs: 1000,
+      onAgentsChange: reloadAgentsCallback
+    });
+    configWatcher.start();
 
     // Reset budget daily at midnight
     cron.schedule('0 0 * * *', () => {
       logger.info('Resetting daily token budget');
-      budget.resetDaily();
+      budget?.resetDaily();
     });
 
-    logger.info('Scheduling agents...');
+    // Schedule initial agents
+    await scheduleAgents(config);
 
-    // Schedule each agent individually (for debugging)
-    for (const [agentName, agentConfig] of Object.entries(config.agents)) {
-      if (!agentConfig.enabled) {
-        logger.info({ agent: agentName }, 'Agent disabled, skipping');
-        continue;
-      }
-
-      logger.info(
-        { agent: agentName, schedule: agentConfig.schedule, batch: agentConfig.batch },
-        'Scheduling agent'
-      );
-
-      cron.schedule(agentConfig.schedule, async () => {
-        logger.info({ agent: agentName, batch: agentConfig.batch }, 'Starting agent run');
-        try {
-          const result = await runAgent(agentName, agentConfig, mcpPool, budget);
-          logger.info(
-            {
-              agent: agentName,
-              tokens: result.tokens,
-              duration: result.duration_seconds,
-              status: result.status
-            },
-            'Agent run completed'
-          );
-        } catch (error) {
-          logger.error(error, 'Agent run failed');
-        }
-      });
-    }
-
-    // Log active schedules
-    const enabledAgents = Object.entries(config.agents).filter(([_, cfg]) => cfg.enabled);
-    logger.info(
-      {
-        totalScheduled: enabledAgents.length,
-        apiPort,
-        schedules: enabledAgents.map(([name, cfg]) => `${name} @ ${cfg.schedule}`)
-      },
-      'Scheduler initialized'
-    );
-
-    logger.info('Orchestrator running. Press Ctrl+C to exit.');
+    logger.info('Orchestrator (Coalescence) running. Press Ctrl+C to exit.');
   } catch (error) {
     logger.error(error, 'Orchestrator initialization failed');
     process.exit(1);
@@ -106,6 +155,10 @@ async function main() {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   logger.info('Shutting down gracefully...');
+  for (const task of currentCrons.values()) {
+    task.stop();
+  }
+  db?.close();
   process.exit(0);
 });
 

@@ -148,10 +148,11 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_ENV=production
+      - VITE_COALESCENCE_BASE=http://127.0.0.1:3100
     volumes:
       - ./orchestrator/logs:/app/logs
-      - ./orchestrator/config:/app/config:ro
-      - ./orchestrator/agent-rules:/app/agent-rules:ro
+      - ./orchestrator/config:/app/config
+      - ./orchestrator/agent-rules:/app/agent-rules
     depends_on:
       - satbase-api
       - tesseract-api
