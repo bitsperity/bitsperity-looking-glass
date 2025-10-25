@@ -142,12 +142,12 @@
     formData.turns = formData.turns; // Trigger reactivity
   }
 
-  function toggleRule(turn: any, rule: string) {
+  function toggleRule(turn: any, ruleId: string) {
     if (!turn.rules) turn.rules = [];
-    if (turn.rules.includes(rule)) {
-      turn.rules = turn.rules.filter((r: string) => r !== rule);
+    if (turn.rules.includes(ruleId)) {
+      turn.rules = turn.rules.filter((r: string) => r !== ruleId);
     } else {
-      turn.rules = [...turn.rules, rule];
+      turn.rules = [...turn.rules, ruleId];
     }
     formData.turns = formData.turns; // Trigger reactivity
   }
@@ -493,18 +493,22 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                     <div class="mb-4">
                       <label class="block text-xs font-semibold text-neutral-400 mb-2">Regeln (für diesen Turn)</label>
                       <div class="flex flex-wrap gap-2">
-                        {#each availableRules as rule}
+                        {#each availableRules as rule (rule.id)}
                           <button
-                            on:click={() => toggleRule(turn, rule.name)}
-                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all {turn.rules?.includes(rule.name) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
+                            type="button"
+                            on:click={() => toggleRule(turn, rule.id)}
+                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {turn.rules?.includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
                           >
-                            {turn.rules?.includes(rule.name) ? '✓' : '+'} {rule.name}
+                            {turn.rules?.includes(rule.id) ? '✓' : '+'} {rule.name}
                           </button>
                         {/each}
                       </div>
                       {#if turn.rules?.length > 0}
                         <div class="mt-2 text-xs text-neutral-500">
-                          Aktiv: {turn.rules.join(', ')}
+                          Aktiv: {turn.rules.map(ruleId => {
+                            const rule = availableRules.find(r => r.id === ruleId);
+                            return rule?.name || ruleId;
+                          }).join(', ')}
                         </div>
                       {/if}
                     </div>
