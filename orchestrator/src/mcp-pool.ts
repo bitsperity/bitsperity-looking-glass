@@ -60,6 +60,9 @@ export class MCPPool {
 
   async getTools(mcpNames: string[]): Promise<Record<string, any>> {
     const tools: Record<string, any> = {};
+    
+    logger.info({ mcpNames, count: mcpNames.length }, 'GET_TOOLS_CALLED');
+    console.log(`[DIRECT] getTools called with MCPs:`, mcpNames);
 
     for (const mcpName of mcpNames) {
       const client = this.clients.get(mcpName);
@@ -69,19 +72,99 @@ export class MCPPool {
       }
 
       const toolList = await client.listTools();
+      console.log(`[DIRECT] Got ${toolList.tools.length} tools from ${mcpName}`);
+      
       for (const tool of toolList.tools) {
         // Sanitize tool name: Anthropic only allows [a-zA-Z0-9_-]
         // Replace dots with underscores: satbase.list-news -> satbase_list_news
         const sanitizedToolName = `${mcpName}_${tool.name}`.replace(/\./g, '_').replace(/-/g, '_');
+        const originalToolName = tool.name;
         
-        // Ensure inputSchema is properly formatted
-        // MCP tools have inputSchema as part of their spec, convert to Zod-like format
-        const schema = tool.inputSchema || { type: 'object', properties: {} };
+        // Ensure inputSchema is properly formatted for Vercel AI SDK
+        // MUST have type field, properties, and required fields
+        const baseSchema = tool.inputSchema || {};
+        
+        // WORKAROUND: Satbase tools have empty properties in JSON schema conversion
+        // Populate known tool properties manually for testing
+        let properties = baseSchema.properties || {};
+        let required = baseSchema.required || [];
+        
+        if (mcpName === 'satbase' && Object.keys(properties).length === 0) {
+          // Map known satbase tool schemas
+          const toolSchemas: Record<string, any> = {
+            'fred-search': {
+              properties: { q: { type: 'string' }, limit: { type: 'number' } },
+              required: ['q', 'limit']
+            },
+            'list-news': {
+              properties: { symbols: { type: 'array' }, limit: { type: 'number' } },
+              required: ['symbols']
+            },
+            'get-watchlist': {
+              properties: {},
+              required: []
+            },
+            'list-prices': {
+              properties: { symbols: { type: 'array' } },
+              required: ['symbols']
+            }
+          };
+          const mapped = toolSchemas[originalToolName];
+          if (mapped) {
+            properties = mapped.properties;
+            required = mapped.required;
+            logger.info({ mcp: mcpName, tool: originalToolName }, 'Using fallback schema');
+          }
+        }
+        
+        const schema = {
+          type: baseSchema.type || 'object',
+          properties,
+          required
+        };
+        
+        // DEBUG: Log schema details for first satbase tool
+        if (mcpName === 'satbase' && tool.name === 'get_watchlist') {
+          logger.debug(
+            { 
+              tool: tool.name,
+              baseSchemaKeys: Object.keys(baseSchema).slice(0, 10),
+              baseSchemaType: typeof baseSchema,
+              hasType: 'type' in baseSchema,
+              typeValue: baseSchema.type,
+              finalType: schema.type
+            },
+            'SCHEMA_ANALYSIS'
+          );
+        }
         
         tools[sanitizedToolName] = {
           description: tool.description?.substring(0, 1024) || `${mcpName}: ${tool.name}`,
-          parameters: schema
+          parameters: schema, // JSON Schema (not Zod) - send as parameters
+          execute: async (args: any) => {
+            logger.debug({ mcp: mcpName, tool: originalToolName, args }, 'Executing MCP tool');
+            
+            const result = await client.callTool({
+              name: originalToolName,
+              arguments: args || {}
+            });
+            
+            logger.debug({ mcp: mcpName, tool: originalToolName, result: typeof result }, 'Tool execution completed');
+            
+            // Return content from MCP result
+            if (result.content && Array.isArray(result.content)) {
+              // Extract text from content array
+              return result.content.map((c: any) => c.text || JSON.stringify(c)).join('\n');
+            }
+            
+            return result;
+          }
         };
+        
+        // Debug: log first tool schema
+        if (sanitizedToolName.includes('satbase_get_watchlist')) {
+          logger.debug({ toolName: sanitizedToolName, schemaKeys: Object.keys(schema), schema: JSON.stringify(schema).substring(0, 200) }, 'SCHEMA DEBUG');
+        }
       }
     }
 

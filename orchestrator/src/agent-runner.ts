@@ -127,16 +127,21 @@ export async function runAgent(
       let tools: Record<string, any> = {};
       if (turn.mcps && turn.mcps.length > 0) {
         try {
-          for (const mcpName of turn.mcps) {
-            const mcpConfig = mcpPool.getConfig()[mcpName];
-            if (!mcpConfig) {
-              logger.warn({ agent: agentName, mcp: mcpName }, 'MCP config not found');
-              continue;
-            }
-
-            const client = await mcpPool.getClient(mcpName, mcpConfig.command, mcpConfig.args);
-            const mcpTools = await mcpPool.getTools(mcpName, client);
-            Object.assign(tools, mcpTools);
+          // Get tools for all MCPs needed by this turn
+          tools = await mcpPool.getTools(turn.mcps);
+          logger.debug({ agent: agentName, turn: turn.id, mcps: turn.mcps, toolCount: Object.keys(tools).length }, 'MCP tools loaded');
+          
+          // Log first tool schema for debug
+          const firstToolName = Object.keys(tools)[0];
+          if (firstToolName) {
+            const firstTool = tools[firstToolName];
+            console.log(`[AGENT] First tool schema: ${firstToolName}`, {
+              hasDescription: !!firstTool.description,
+              hasInputSchema: !!firstTool.inputSchema,
+              hasExecute: typeof firstTool.execute,
+              schemaType: firstTool.inputSchema?.type,
+              schemaPropsCount: Object.keys(firstTool.inputSchema?.properties || {}).length
+            });
           }
         } catch (error) {
           logger.error({ agent: agentName, turn: turn.id, error }, 'Failed to load MCP tools');

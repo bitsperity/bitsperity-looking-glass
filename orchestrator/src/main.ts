@@ -123,9 +123,27 @@ async function main() {
     // Start API server with config
     const apiPort = parseInt(process.env.API_PORT || '3100');
     const configDir = path.join(__dirname, '..', 'config');
+    
+    // Callback for manual agent triggering
+    const onRunAgent = async (agentName: string) => {
+      if (!mcpPool || !budget) throw new Error('MCP Pool or Budget not initialized');
+      const agentConfig = config.agents[agentName];
+      if (!agentConfig) throw new Error(`Agent ${agentName} not found`);
+      
+      logger.info({ agent: agentName }, 'Manual agent trigger started');
+      try {
+        const result = await runAgent(agentName, agentConfig, mcpPool, budget);
+        logger.info({ agent: agentName, status: result.status, tokens: result.tokens }, 'Manual trigger completed');
+      } catch (error) {
+        logger.error({ agent: agentName, error }, 'Manual trigger failed');
+        throw error;
+      }
+    };
+    
     await createApiServer(db, apiPort, {
       configDir,
-      onAgentReload: reloadAgentsCallback
+      onAgentReload: reloadAgentsCallback,
+      onRunAgent
     });
 
     // Start config watcher

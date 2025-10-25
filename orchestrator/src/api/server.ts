@@ -11,6 +11,7 @@ export interface ApiConfig {
   db: OrchestrationDB;
   configDir: string;
   onAgentReload?: () => Promise<void>;
+  onRunAgent?: (agentName: string) => Promise<void>;
 }
 
 export function createApiServer(db: OrchestrationDB, port: number, config?: Partial<ApiConfig>): Promise<Express> {
@@ -213,6 +214,23 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     } catch (error) {
       logger.error({ error }, 'Failed to reload agents');
       res.status(500).json({ error: 'Failed to reload agents' });
+    }
+  });
+
+  // POST /api/agents/:agentName/run - Trigger agent run immediately
+  app.post('/api/agents/:agentName/run', async (req: Request, res: Response) => {
+    try {
+      const agentName = req.params.agentName;
+      if (config?.onRunAgent) {
+        logger.info({ agent: agentName }, 'Manual agent trigger via API');
+        await config.onRunAgent(agentName);
+        res.json({ success: true, message: `Agent ${agentName} triggered` });
+      } else {
+        res.status(501).json({ error: 'Agent trigger not configured' });
+      }
+    } catch (error) {
+      logger.error({ error }, 'Failed to trigger agent');
+      res.status(500).json({ error: 'Failed to trigger agent' });
     }
   });
 

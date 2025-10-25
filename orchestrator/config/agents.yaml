@@ -67,7 +67,7 @@ mcps:
 agents:
   discovery:
     enabled: true
-    schedule: "0 * * * *"
+    schedule: "*/2 * * * *"  # Every 2 minutes for testing
     model: "haiku-3.5"
     budget_daily_tokens: 3000
     timeout_minutes: 5
@@ -92,7 +92,7 @@ agents:
         prompt: "Create Signal thoughts for the top 5 discoveries with confidence scores."
 
   analyst_tech:
-    enabled: true
+    enabled: false
     schedule: "0 1 * * *"
     batch: 1
     sector: "tech"
