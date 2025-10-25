@@ -113,6 +113,15 @@ export interface DashboardStats {
   }>;
 }
 
+export interface Rule {
+  id: string;
+  name: string;
+  content: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export class CoalescenceClient {
   private baseUrl: string;
 
@@ -238,6 +247,81 @@ export class CoalescenceClient {
       throw new Error(error.error || `Failed to reload agents: ${res.statusText}`);
     }
     return res.json();
+  }
+
+  // ============= RULES API METHODS =============
+
+  async getAllRules(): Promise<Rule[]> {
+    const res = await fetch(`${this.baseUrl}/api/rules`);
+    if (!res.ok) throw new Error(`Failed to fetch rules: ${res.statusText}`);
+    const data = await res.json();
+    return data.rules || [];
+  }
+
+  async getRule(id: string): Promise<Rule> {
+    const res = await fetch(`${this.baseUrl}/api/rules/${id}`);
+    if (!res.ok) throw new Error(`Failed to fetch rule: ${res.statusText}`);
+    const data = await res.json();
+    return data.rule;
+  }
+
+  async createRule(name: string, content: string, description?: string): Promise<Rule> {
+    const res = await fetch(`${this.baseUrl}/api/rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content, description })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to create rule: ${res.statusText}`);
+    }
+    const data = await res.json();
+    return data.rule;
+  }
+
+  async updateRule(id: string, updates: Partial<Omit<Rule, 'id' | 'created_at' | 'updated_at'>>): Promise<Rule> {
+    const res = await fetch(`${this.baseUrl}/api/rules/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to update rule: ${res.statusText}`);
+    }
+    const data = await res.json();
+    return data.rule;
+  }
+
+  async deleteRule(id: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/rules/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to delete rule: ${res.statusText}`);
+    }
+  }
+
+  async getTurnRules(turnId: number): Promise<Rule[]> {
+    const res = await fetch(`${this.baseUrl}/api/turns/${turnId}/rules`);
+    if (!res.ok) throw new Error(`Failed to fetch turn rules: ${res.statusText}`);
+    const data = await res.json();
+    return data.rules || [];
+  }
+
+  async setTurnRules(turnId: number, ruleIds: string[]): Promise<Rule[]> {
+    const res = await fetch(`${this.baseUrl}/api/turns/${turnId}/rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ruleIds })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to set turn rules: ${res.statusText}`);
+    }
+    const data = await res.json();
+    return data.rules || [];
   }
 
   parseJsonLines(ndjson: string): any[] {
