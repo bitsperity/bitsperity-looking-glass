@@ -155,8 +155,8 @@ export async function runAgent(
         throw error;
       }
 
-      totalInputTokens += result.usage.promptTokens;
-      totalOutputTokens += result.usage.completionTokens;
+      totalInputTokens += result.usage?.promptTokens ?? 0;
+      totalOutputTokens += result.usage?.completionTokens ?? 0;
 
       // Record chat
       chatHistory.push({
@@ -177,8 +177,8 @@ export async function runAgent(
         {
           agent: agentName,
           turn: turn.id,
-          inputTokens: result.usage.promptTokens,
-          outputTokens: result.usage.completionTokens,
+          inputTokens: result.usage?.promptTokens ?? 0,
+          outputTokens: result.usage?.completionTokens ?? 0,
           toolCalls: result.toolCalls?.length || 0
         },
         'Turn completed'
