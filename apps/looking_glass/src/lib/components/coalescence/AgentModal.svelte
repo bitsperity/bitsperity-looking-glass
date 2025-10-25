@@ -135,25 +135,31 @@
   }
   
   function toggleMCP(turn: any, mcp: string) {
-    if (!turn.mcps) turn.mcps = [];
-    if (turn.mcps.includes(mcp)) {
-      turn.mcps = turn.mcps.filter((m: string) => m !== mcp);
-    } else {
-      turn.mcps = [...turn.mcps, mcp];
+    const mcps = turn.mcps || [];
+    const newMcps = mcps.includes(mcp) 
+      ? mcps.filter((m: string) => m !== mcp) 
+      : [...mcps, mcp];
+    
+    // Create new turn object to trigger reactivity
+    const turnIndex = formData.turns.indexOf(turn);
+    if (turnIndex !== -1) {
+      formData.turns[turnIndex] = { ...turn, mcps: newMcps };
+      formData.turns = [...formData.turns];
     }
-    // Force reactivity
-    formData.turns = [...formData.turns];
   }
 
   function toggleRule(turn: any, ruleId: string) {
-    if (!turn.rules) turn.rules = [];
-    if (turn.rules.includes(ruleId)) {
-      turn.rules = turn.rules.filter((r: string) => r !== ruleId);
-    } else {
-      turn.rules = [...turn.rules, ruleId];
+    const rules = turn.rules || [];
+    const newRules = rules.includes(ruleId) 
+      ? rules.filter((r: string) => r !== ruleId) 
+      : [...rules, ruleId];
+    
+    // Create new turn object to trigger reactivity
+    const turnIndex = formData.turns.indexOf(turn);
+    if (turnIndex !== -1) {
+      formData.turns[turnIndex] = { ...turn, rules: newRules };
+      formData.turns = [...formData.turns];
     }
-    // Force reactivity
-    formData.turns = [...formData.turns];
   }
 </script>
 
