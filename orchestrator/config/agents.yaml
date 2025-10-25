@@ -94,7 +94,9 @@ agents:
         mcps: ["manifold"]
         prompt: |
           Create thoughts in the knowledge graph to capture your market signals.
-          Each thought should include: type (e.g., signal), title, and content.
+          Each thought must have a type that is one of: 'observation', 'hypothesis', 'analysis', 'decision', 'reflection', or 'question'.
+          Use 'observation' for market signals and data points you've discovered.
+          Include title, content, tickers, tags, and confidence_score.
           Focus on actionable insights you found in the data.
 
   analyst_tech:

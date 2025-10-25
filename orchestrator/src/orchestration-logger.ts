@@ -66,13 +66,27 @@ export class OrchestrationLogger {
     // For now, extract agent from first message we can
     this.currentTurnId = this.db.insertTurn(runId, '', turnNumber, turnName);
     
-    logger.debug({ runId, turnNumber, turnName }, 'Turn started');
+    logger.debug({ 
+      runId, 
+      turnNumber, 
+      turnName, 
+      currentTurnId: this.currentTurnId,
+      insertedTurnId: this.currentTurnId 
+    }, 'Turn started');
   }
 
   async logMessage(runId: string, turnId: number | string, role: string, content: string, tokens?: TokenUsage): Promise<void> {
-    if (!this.currentRunId || !this.currentTurnId) return;
+    if (!this.currentRunId || !this.currentTurnId) {
+      logger.warn({ 
+        hasCurrentRunId: !!this.currentRunId, 
+        hasCurrentTurnId: !!this.currentTurnId,
+        providedTurnId: turnId 
+      }, 'logMessage skipped - missing current IDs');
+      return;
+    }
 
-    const actualTurnId = typeof turnId === 'string' ? this.currentTurnId : turnId;
+    // Always use currentTurnId (the DB auto-increment ID), not the turnNumber
+    const actualTurnId = this.currentTurnId;
     
     this.db.insertMessage(
       actualTurnId,
@@ -83,15 +97,38 @@ export class OrchestrationLogger {
       tokens?.output
     );
 
-    logger.debug({ runId, turnId: actualTurnId, role, length: content.length }, 'Message logged');
+    logger.debug({ 
+      runId, 
+      actualTurnId, 
+      providedTurnId: turnId,
+      currentTurnId: this.currentTurnId,
+      role, 
+      length: content.length 
+    }, 'Message logged');
   }
 
   async logToolCall(runId: string, turnId: number | string, toolName: string, args: any): Promise<void> {
-    if (!this.currentRunId || !this.currentTurnId) return;
+    if (!this.currentRunId || !this.currentTurnId) {
+      logger.warn({ 
+        hasCurrentRunId: !!this.currentRunId, 
+        hasCurrentTurnId: !!this.currentTurnId,
+        providedTurnId: turnId,
+        toolName
+      }, 'logToolCall skipped - missing current IDs');
+      return;
+    }
 
-    const actualTurnId = typeof turnId === 'string' ? this.currentTurnId : turnId;
+    // Always use currentTurnId (the DB auto-increment ID), not the turnNumber
+    const actualTurnId = this.currentTurnId;
     
-    logger.debug({ toolName, argsType: typeof args, argsValue: args ? JSON.stringify(args).substring(0, 300) : 'undefined' }, 'logToolCall received args');
+    logger.debug({ 
+      toolName, 
+      actualTurnId,
+      providedTurnId: turnId,
+      currentTurnId: this.currentTurnId,
+      argsType: typeof args, 
+      argsValue: args ? JSON.stringify(args).substring(0, 300) : 'undefined' 
+    }, 'logToolCall received args');
     
     this.db.insertToolCall(
       actualTurnId,
@@ -101,7 +138,12 @@ export class OrchestrationLogger {
       JSON.stringify(args)
     );
 
-    logger.debug({ runId, turnId: actualTurnId, toolName }, 'Tool call logged');
+    logger.debug({ 
+      runId, 
+      actualTurnId, 
+      providedTurnId: turnId,
+      toolName 
+    }, 'Tool call logged');
   }
 
   async logToolResult(runId: string, turnId: number | string, toolName: string, result: any): Promise<void> {

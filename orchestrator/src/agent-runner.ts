@@ -301,8 +301,14 @@ export async function runAgent(
         }))
       });
 
-      // Handle tool calls
+      // Handle tool calls and results
       if (result.toolCalls && result.toolCalls.length > 0) {
+        // Log all tool results from AI SDK
+        logger.info({ 
+          toolResultsCount: result.toolResults?.length || 0,
+          toolResults: result.toolResults 
+        }, 'Tool results from AI SDK');
+
         for (const toolCall of result.toolCalls) {
           try {
             // Log complete tool call to see all available data
@@ -311,10 +317,41 @@ export async function runAgent(
             // Always log the tool call first, regardless of execution
             await orchestrationLogger.logToolCall(runId, turnNumber, toolCall.toolName, toolCall.args);
 
-            // If this tool has an execute handler (handled by AI SDK already), skip re-execution
+            // If this tool has an execute handler (handled by AI SDK already), use result from SDK
             const hasExecute = tools && (tools as any)[toolCall.toolName] && typeof (tools as any)[toolCall.toolName].execute === 'function';
             if (hasExecute) {
-              logger.debug({ tool: toolCall.toolName }, 'Skipping manual tool call (already executed by AI SDK)');
+              logger.debug({ tool: toolCall.toolName }, 'Tool was executed by AI SDK, fetching result');
+              
+              // Find the corresponding tool result from the AI SDK
+              const toolResult = result.toolResults?.find(tr => tr.toolCallId === toolCall.toolCallId);
+              
+              if (toolResult) {
+                // toolResult has 'output' field, not 'result' (per AI SDK docs)
+                const output = (toolResult as any).output;
+                
+                logger.info({ 
+                  tool: toolCall.toolName, 
+                  toolCallId: toolCall.toolCallId,
+                  output,
+                  isError: (toolResult as any).isError 
+                }, 'Tool result captured from AI SDK');
+                
+                // Log the result to database
+                await orchestrationLogger.logToolResult(runId, turnNumber, toolCall.toolName, output);
+                
+                // Safely stringify output for chat history
+                const outputStr = typeof output === 'string' 
+                  ? output 
+                  : JSON.stringify(output);
+                
+                chatHistory.push({
+                  role: 'user',
+                  content: `Tool ${toolCall.toolName} result: ${outputStr.substring(0, 1000)}`
+                });
+              } else {
+                logger.warn({ tool: toolCall.toolName, toolCallId: toolCall.toolCallId }, 'No tool result found in AI SDK response');
+              }
+              
               continue;
             }
 
@@ -334,9 +371,14 @@ export async function runAgent(
 
             await orchestrationLogger.logToolResult(runId, turnNumber, toolCall.toolName, toolResult);
 
+            // Safely stringify tool result for chat history
+            const resultStr = toolResult !== undefined && toolResult !== null
+              ? (typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult))
+              : 'null';
+
             chatHistory.push({
               role: 'user',
-              content: `Tool ${toolCall.toolName} result: ${JSON.stringify(toolResult).substring(0, 1000)}`
+              content: `Tool ${toolCall.toolName} result: ${resultStr.substring(0, 1000)}`
             });
 
             logger.debug({ agent: agentName, tool: toolCall.toolName }, 'Tool call succeeded');
