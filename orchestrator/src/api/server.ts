@@ -59,7 +59,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
         }))
       });
       const rulesPath = path.join(configDir, 'rules.yaml');
-      await fs.writeFile(rulesPath, rulesYaml, 'utf-8');
+      await fs.writeFile(rulesPath, rulesYaml, { encoding: 'utf-8' });
       logger.info({ path: rulesPath, count: rules.length }, 'Rules saved to disk');
     } catch (error: any) {
       const errorMsg = error?.message || String(error);
