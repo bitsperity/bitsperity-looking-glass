@@ -6,21 +6,22 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# Copy built app
-COPY dist ./dist
+# Copy source and config
+COPY src ./src
+COPY tsconfig.json ./tsconfig.json
 COPY config ./config
 COPY agent-rules ./agent-rules
 
-# Create logs directory
-RUN mkdir -p logs/runs
+# Create logs directories
+RUN mkdir -p logs/runs logs/chats
 
 # Set environment
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "console.log('ok')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:3100/health').then(r => r.status === 200 ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))" || exit 1
 
-# Start orchestrator
-CMD ["node", "dist/main.js"]
+# Start orchestrator with tsx
+CMD ["npx", "tsx", "src/main.ts"]
