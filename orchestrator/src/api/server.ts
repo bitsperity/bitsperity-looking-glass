@@ -496,40 +496,10 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     try {
       const days = parseInt(req.query.days as string) || 7;
       
-      const allStats = db.getAllAgentStats();
-      const costBreakdown = db.getCostBreakdown(days);
+      // Get stats directly from runs table (not agents table)
+      const dashboardStats = db.getDashboardStats(days);
       
-      const totalStats = {
-        agents: allStats.filter((a: any) => a.total_runs > 0).length,
-        runs: costBreakdown.reduce((sum: number, item: any) => sum + (item.numRuns || 0), 0),
-        tokens: costBreakdown.reduce((sum: number, item: any) => sum + (item.totalTokens || 0), 0),
-        cost: parseFloat(costBreakdown.reduce((sum: number, item: any) => sum + (item.totalCost || 0), 0).toFixed(4))
-      };
-
-      const byAgent = {} as Record<string, any>;
-      for (const agent of allStats) {
-        if (agent.total_runs > 0) {
-          byAgent[agent.name] = {
-            runs: agent.total_runs,
-            tokens: agent.total_tokens,
-            cost: parseFloat(agent.total_cost_usd.toFixed(4)),
-            lastRun: agent.last_run_at
-          };
-        }
-      }
-
-      res.json({
-        timeframe: `${days} days`,
-        total: totalStats,
-        byAgent,
-        byDate: costBreakdown.map((item: any) => ({
-          date: item.date,
-          runs: item.numRuns,
-          tokens: item.totalTokens,
-          cost: parseFloat(item.totalCost.toFixed(4)),
-          byAgent: item
-        }))
-      });
+      res.json(dashboardStats);
     } catch (error) {
       logger.error({ error }, 'Failed to fetch dashboard stats');
       res.status(500).json({ error: 'Failed to fetch dashboard stats' });

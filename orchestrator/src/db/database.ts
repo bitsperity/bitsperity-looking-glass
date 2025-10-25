@@ -662,6 +662,87 @@ export class OrchestrationDB {
     return row?.chat_file || null;
   }
 
+  // Get dashboard stats aggregated from runs table (not agents table)
+  getDashboardStats(days: number = 7): any {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffISO = cutoffDate.toISOString();
+
+    // Get all runs from the last N days
+    const runsStmt = this.db.prepare(`
+      SELECT 
+        agent,
+        COUNT(*) as num_runs,
+        SUM(total_tokens) as total_tokens,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        SUM(cost_usd) as total_cost,
+        MAX(created_at) as last_run_at
+      FROM runs
+      WHERE created_at > ?
+      GROUP BY agent
+      ORDER BY total_cost DESC
+    `);
+    const agentStats = runsStmt.all(cutoffISO) as any[];
+
+    // Get total stats across all agents
+    const totalStmt = this.db.prepare(`
+      SELECT 
+        COUNT(*) as num_runs,
+        COUNT(DISTINCT agent) as num_agents,
+        SUM(total_tokens) as total_tokens,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        SUM(cost_usd) as total_cost
+      FROM runs
+      WHERE created_at > ?
+    `);
+    const totals = totalStmt.get(cutoffISO) as any;
+
+    // Get daily breakdown
+    const dailyStmt = this.db.prepare(`
+      SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as num_runs,
+        SUM(total_tokens) as total_tokens,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        SUM(cost_usd) as total_cost
+      FROM runs
+      WHERE created_at > ?
+      GROUP BY DATE(created_at)
+      ORDER BY date DESC
+    `);
+    const dailyBreakdown = dailyStmt.all(cutoffISO) as any[];
+
+    return {
+      timeframe: `${days} days`,
+      total: {
+        agents: totals?.num_agents || 0,
+        runs: totals?.num_runs || 0,
+        tokens: totals?.total_tokens || 0,
+        cost: parseFloat((totals?.total_cost || 0).toFixed(4))
+      },
+      byAgent: Object.fromEntries(
+        (agentStats || []).map(stat => [
+          stat.agent,
+          {
+            runs: stat.num_runs,
+            tokens: stat.total_tokens || 0,
+            cost: parseFloat((stat.total_cost || 0).toFixed(4)),
+            lastRun: stat.last_run_at
+          }
+        ])
+      ),
+      byDate: (dailyBreakdown || []).map(day => ({
+        date: day.date,
+        runs: day.num_runs,
+        tokens: day.total_tokens || 0,
+        cost: parseFloat((day.total_cost || 0).toFixed(4))
+      }))
+    };
+  }
+
   // ============= RULES MANAGEMENT =============
 
   createRule(id: string, name: string, content: string, description?: string): void {
