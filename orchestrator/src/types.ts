@@ -9,9 +9,12 @@ export interface TurnConfig {
 }
 
 export interface AgentConfig {
+  agent?: string;  // Agent name
   enabled: boolean;
   schedule: string;  // cron expression
-  model: string;  // CUSTOMIZABLE: haiku-3, haiku-3.5, haiku-4.5, sonnet-3.7, sonnet-4.5, opus-4.1
+  model: string;  // CUSTOMIZABLE: haiku-3.5, haiku-4.5, sonnet-4.5, opus-4.1
+  system_prompt?: string;  // System prompt with step-control guidance
+  max_tokens_per_turn?: number;  // Default max tokens per turn (4000)
   rules_file?: string;  // Optional agent rules
   budget_daily_tokens: number;
   timeout_minutes: number;
@@ -21,9 +24,9 @@ export interface AgentConfig {
 }
 
 export interface MCPServerConfig {
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
+  type: 'http';  // Only HTTP now
+  url: string;  // e.g., http://localhost:3001/mcp
+  description?: string;
 }
 
 export interface AgentsConfig {
@@ -45,17 +48,10 @@ export interface ChatMessage {
 }
 
 export interface AgentRun {
-  agent: string;
   runId: string;
-  status: 'completed' | 'failed';
-  tokens: {
-    input: number;
-    output: number;
-    total: number;
-    cost_usd: number;
-  };
-  duration: number;
-  turns_completed: number;
+  status: 'success' | 'error';
+  totalTokens: number;
+  cost: number;
 }
 
 // Re-export from database module

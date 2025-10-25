@@ -48,19 +48,24 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
     const task = cron.schedule(agentConfig.schedule, async () => {
       logger.info({ agent: agentName, batch: agentConfig.batch }, 'Starting agent run');
       try {
-        if (!mcpServersConfig || !budget) throw new Error('MCP config or Budget not initialized');
-        const result = await runAgent(agentName, agentConfig, mcpServersConfig, budget);
+        if (!mcpServersConfig || !db) throw new Error('MCP config or Database not initialized');
+        
+        // Set agent name in config for logging
+        const configWithAgent = { ...agentConfig, agent: agentName };
+        
+        const result = await runAgent(configWithAgent, mcpServersConfig, db, budget);
         logger.info(
           {
             agent: agentName,
-            tokens: result.tokens,
-            duration: result.duration,
+            runId: result.runId,
+            tokens: result.totalTokens,
+            cost: result.cost,
             status: result.status
           },
           'Agent run completed'
         );
       } catch (error) {
-        logger.error(error, 'Agent run failed');
+        logger.error({ agent: agentName, error }, 'Agent run failed');
       }
     });
 
@@ -102,13 +107,18 @@ async function main() {
     const configYaml = await fs.readFile(configPath, 'utf-8');
     const config: AgentsConfig = yaml.parse(configYaml);
 
+    // Load MCP configuration
+    const mcpConfigPath = path.join(__dirname, '..', 'config', 'mcps.yaml');
+    const mcpConfigYaml = await fs.readFile(mcpConfigPath, 'utf-8');
+    const mcpConfig = yaml.parse(mcpConfigYaml);
+
     logger.info(
-      { agentCount: Object.keys(config.agents).length, budget: config.budget },
+      { agentCount: Object.keys(config.agents).length, mcpCount: Object.keys(mcpConfig.mcps).length },
       'Configuration loaded'
     );
 
-    // Store MCP server configs - Claude Agent SDK will handle connections directly
-    mcpServersConfig = config.mcps;
+    // Store MCP server configs - Claude Agent SDK will handle connections directly via HTTP
+    mcpServersConfig = mcpConfig.mcps;
 
     // Initialize database
     const dbPath = path.join(__dirname, '..', 'logs', 'orchestration.db');
@@ -124,14 +134,15 @@ async function main() {
     
     // Callback for manual agent triggering
     const onRunAgent = async (agentName: string) => {
-      if (!mcpServersConfig || !budget) throw new Error('MCP config or Budget not initialized');
+      if (!mcpServersConfig || !db) throw new Error('MCP config or Database not initialized');
       const agentConfig = config.agents[agentName];
       if (!agentConfig) throw new Error(`Agent ${agentName} not found`);
       
       logger.info({ agent: agentName }, 'Manual agent trigger started');
       try {
-        const result = await runAgent(agentName, agentConfig, mcpServersConfig, budget);
-        logger.info({ agent: agentName, status: result.status, tokens: result.tokens }, 'Manual trigger completed');
+        const configWithAgent = { ...agentConfig, agent: agentName };
+        const result = await runAgent(configWithAgent, mcpServersConfig, db, budget);
+        logger.info({ agent: agentName, status: result.status, tokens: result.totalTokens, cost: result.cost }, 'Manual trigger completed');
       } catch (error) {
         logger.error({ agent: agentName, error }, 'Manual trigger failed');
         throw error;

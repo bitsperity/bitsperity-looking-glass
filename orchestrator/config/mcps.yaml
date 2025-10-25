@@ -1,0 +1,23 @@
+# HTTP MCP Server Configuration
+# All MCPs are exposed via HTTP for Claude Agent SDK integration
+
+mcps:
+  satbase:
+    type: http
+    url: http://localhost:3001/mcp
+    description: "Market data, news, macro indicators"
+    
+  manifold:
+    type: http
+    url: http://localhost:3002/mcp
+    description: "Knowledge graph for thoughts and hypotheses"
+    
+  ariadne:
+    type: http
+    url: http://localhost:3003/mcp
+    description: "Event detection, pattern analysis, relationships"
+    
+  tesseract:
+    type: http
+    url: http://localhost:3004/mcp
+    description: "Semantic search and text analysis"

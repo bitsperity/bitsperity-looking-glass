@@ -80,6 +80,111 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     }
   });
 
+  // GET /api/runs/:id/chat - Complete chat history with prompts, responses, tools
+  app.get('/api/runs/:id/chat', (req: Request, res: Response) => {
+    try {
+      const chat = db.getChatHistoryComplete(req.params.id);
+      if (!chat) {
+        return res.status(404).json({ error: 'Run not found' });
+      }
+      res.json(chat);
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch complete chat history');
+      res.status(500).json({ error: 'Failed to fetch chat history' });
+    }
+  });
+
+  // GET /api/runs/:id/tools - All tool calls with args and results
+  app.get('/api/runs/:id/tools', (req: Request, res: Response) => {
+    try {
+      const chat = db.getChatHistoryComplete(req.params.id);
+      if (!chat) {
+        return res.status(404).json({ error: 'Run not found' });
+      }
+
+      const toolCalls = chat.turns.flatMap((turn: any, turnIdx: number) =>
+        turn.toolCalls.map((tool: any, toolIdx: number) => ({
+          turnNumber: turn.turnNumber,
+          turnName: turn.turnName,
+          toolIndex: toolIdx,
+          toolName: tool.tool_name,
+          input: tool.tool_input ? JSON.parse(tool.tool_input) : null,
+          output: tool.tool_output ? JSON.parse(tool.tool_output) : null,
+          durationMs: tool.duration_ms,
+          status: tool.status,
+          error: tool.error,
+          createdAt: tool.created_at
+        }))
+      );
+
+      res.json({
+        runId: chat.runId,
+        totalToolCalls: toolCalls.length,
+        toolCalls
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch tool calls');
+      res.status(500).json({ error: 'Failed to fetch tool calls' });
+    }
+  });
+
+  // GET /api/stats/agent/:name - Agent statistics summary
+  app.get('/api/stats/agent/:name', (req: Request, res: Response) => {
+    try {
+      const days = parseInt(req.query.days as string) || 7;
+      const stats = db.getAgentStatsSummary(req.params.name, days);
+      res.json(stats);
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch agent stats');
+      res.status(500).json({ error: 'Failed to fetch agent stats' });
+    }
+  });
+
+  // GET /api/stats/costs - Cost breakdown by agent and date
+  app.get('/api/stats/costs', (req: Request, res: Response) => {
+    try {
+      const days = parseInt(req.query.days as string) || 7;
+      const breakdown = db.getCostBreakdown(days);
+      res.json({
+        timeframe: `${days} days`,
+        breakdown,
+        totalCost: breakdown.reduce((sum: number, item: any) => sum + item.totalCost, 0),
+        totalTokens: breakdown.reduce((sum: number, item: any) => sum + item.totalTokens, 0)
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch cost breakdown');
+      res.status(500).json({ error: 'Failed to fetch cost breakdown' });
+    }
+  });
+
+  // GET /api/stats/tokens - Token usage analytics
+  app.get('/api/stats/tokens', (req: Request, res: Response) => {
+    try {
+      const days = parseInt(req.query.days as string) || 7;
+      const breakdown = db.getCostBreakdown(days);
+      
+      const tokenStats = {
+        timeframe: `${days} days`,
+        totalTokens: breakdown.reduce((sum: number, item: any) => sum + item.totalTokens, 0),
+        byAgent: breakdown.reduce((acc: any, item: any) => {
+          if (!acc[item.agent]) {
+            acc[item.agent] = { tokens: 0, runs: 0, cost: 0 };
+          }
+          acc[item.agent].tokens += item.totalTokens;
+          acc[item.agent].runs += item.numRuns;
+          acc[item.agent].cost += item.totalCost;
+          return acc;
+        }, {}),
+        byDate: breakdown
+      };
+
+      res.json(tokenStats);
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch token stats');
+      res.status(500).json({ error: 'Failed to fetch token stats' });
+    }
+  });
+
   // GET /api/logs/agents - Get all agent stats
   app.get('/api/logs/agents', (req: Request, res: Response) => {
     try {

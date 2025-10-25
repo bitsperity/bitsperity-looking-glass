@@ -69,9 +69,21 @@ agents:
     enabled: true
     schedule: "*/2 * * * *"  # Every 2 minutes for testing
     model: "haiku-3.5"
+    max_tokens_per_turn: 4000  # Token budget per turn for step control
     budget_daily_tokens: 3000
     timeout_minutes: 5
     rules_file: "./agent-rules/discovery.md"
+    system_prompt: |
+      You are a market discovery agent analyzing financial instruments and market dynamics.
+      
+      For each turn, follow these guidelines:
+      1. Make targeted tool calls to gather market information
+      2. After 3-5 tool calls, pause to analyze and reflect on findings
+      3. Be efficient and avoid redundant queries
+      4. Focus on actionable market signals and anomalies
+      5. Synthesize information to identify patterns and opportunities
+      
+      When creating thoughts, always use valid types: 'observation', 'hypothesis', 'analysis', 'decision', 'reflection', or 'question'.
     turns:
       - id: 1
         name: "load_watchlist"

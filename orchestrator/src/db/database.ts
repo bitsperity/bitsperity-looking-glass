@@ -299,6 +299,186 @@ export class OrchestrationDB {
     stmt.run(...values);
   }
 
+  // Insert complete tool call with input/output and timing
+  insertToolCallComplete(
+    runId: string,
+    turnNumber: number,
+    toolName: string,
+    toolInput: any,
+    toolOutput: any,
+    durationMs: number,
+    status: 'success' | 'error' = 'success',
+    error?: string
+  ): void {
+    const turn = this.db.prepare('SELECT id FROM turns WHERE run_id = ? AND turn_number = ?').get(runId, turnNumber) as any;
+    if (!turn) return;
+
+    const stmt = this.db.prepare(`
+      INSERT INTO tool_calls (
+        turn_id, run_id, tool_name, tool_input, tool_output, 
+        duration_ms, status, error, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    stmt.run(
+      turn.id,
+      runId,
+      toolName,
+      JSON.stringify(toolInput),
+      JSON.stringify(toolOutput),
+      durationMs,
+      status,
+      error || null
+    );
+  }
+
+  // Get complete chat history for a run
+  getChatHistoryComplete(runId: string): any {
+    const run = this.db.prepare('SELECT * FROM runs WHERE id = ?').get(runId) as any;
+    if (!run) return null;
+
+    const turns = this.db.prepare(`
+      SELECT * FROM turn_details WHERE run_id = ? ORDER BY turn_number ASC
+    `).all(runId) as any[];
+
+    return {
+      runId: run.id,
+      agent: run.agent,
+      model: run.model_used,
+      status: run.status,
+      createdAt: run.created_at,
+      finishedAt: run.finished_at,
+      durationSeconds: run.duration_seconds,
+      totalTokens: run.total_tokens,
+      inputTokens: run.input_tokens,
+      outputTokens: run.output_tokens,
+      costUsd: run.cost_usd,
+      turnsTotal: run.turns_total,
+      turnsCompleted: run.turns_completed,
+      turns: turns.map((turn: any) => ({
+        turnNumber: turn.turn_number,
+        turnName: turn.turn_name,
+        startedAt: turn.started_at,
+        finishedAt: turn.finished_at,
+        durationMs: turn.duration_ms,
+        inputTokens: turn.input_tokens,
+        outputTokens: turn.output_tokens,
+        totalTokens: turn.total_tokens,
+        costUsd: turn.cost_usd,
+        numToolCalls: turn.num_tool_calls,
+        status: turn.status,
+        messages: this.db.prepare(`
+          SELECT role, content, created_at FROM messages 
+          WHERE run_id = ? AND turn_id = (SELECT id FROM turns WHERE run_id = ? AND turn_number = ?)
+          ORDER BY created_at ASC
+        `).all(runId, runId, turn.turn_number) as any[],
+        toolCalls: this.db.prepare(`
+          SELECT 
+            tool_name, tool_input, tool_output, duration_ms, status, error, created_at
+          FROM tool_calls 
+          WHERE run_id = ? AND turn_id = (SELECT id FROM turns WHERE run_id = ? AND turn_number = ?)
+          ORDER BY created_at ASC
+        `).all(runId, runId, turn.turn_number) as any[]
+      }))
+    };
+  }
+
+  // Get aggregated stats for an agent
+  getAgentStatsSummary(agentName: string, days: number = 7): any {
+    const runs = this.db.prepare(`
+      SELECT 
+        COUNT(*) as totalRuns,
+        SUM(total_tokens) as totalTokens,
+        SUM(cost_usd) as totalCost,
+        AVG(total_tokens) as avgTokensPerRun,
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successfulRuns
+      FROM runs 
+      WHERE agent = ? AND created_at >= datetime('now', '-' || ? || ' days')
+    `).get(agentName, days) as any;
+
+    return {
+      agentName,
+      timeframe: `${days} days`,
+      totalRuns: runs.totalRuns || 0,
+      totalTokens: runs.totalTokens || 0,
+      totalCost: (runs.totalCost || 0).toFixed(4),
+      avgTokensPerRun: Math.round(runs.avgTokensPerRun || 0),
+      successRate: runs.totalRuns > 0 ? ((runs.successfulRuns / runs.totalRuns) * 100).toFixed(1) : '0'
+    };
+  }
+
+  // Get cost breakdown by agent and date
+  getCostBreakdown(days: number = 7): any[] {
+    return this.db.prepare(`
+      SELECT 
+        DATE(created_at) as date,
+        agent,
+        SUM(cost_usd) as totalCost,
+        SUM(total_tokens) as totalTokens,
+        COUNT(*) as numRuns
+      FROM runs 
+      WHERE created_at >= datetime('now', '-' || ? || ' days')
+      GROUP BY DATE(created_at), agent
+      ORDER BY date DESC, agent ASC
+    `).all(days) as any[];
+  }
+
+  // Insert turn details for comprehensive tracking
+  insertTurnDetails(
+    runId: string,
+    turnNumber: number,
+    turnName: string,
+    status: 'pending' | 'success' | 'error' = 'pending',
+    errorMessage?: string
+  ): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO turn_details (
+        run_id, turn_number, turn_name, status, error_message, started_at
+      ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    stmt.run(runId, turnNumber, turnName, status, errorMessage || null);
+  }
+
+  // Update turn details with completion info
+  completeTurnDetails(
+    runId: string,
+    turnNumber: number,
+    inputTokens: number,
+    outputTokens: number,
+    costUsd: number,
+    numToolCalls: number,
+    status: 'success' | 'error' = 'success',
+    errorMessage?: string
+  ): void {
+    const stmt = this.db.prepare(`
+      UPDATE turn_details 
+      SET finished_at = CURRENT_TIMESTAMP,
+          duration_ms = CAST((julianday(CURRENT_TIMESTAMP) - julianday(started_at)) * 86400000 AS INTEGER),
+          input_tokens = ?,
+          output_tokens = ?,
+          total_tokens = ? + ?,
+          cost_usd = ?,
+          num_tool_calls = ?,
+          status = ?,
+          error_message = ?
+      WHERE run_id = ? AND turn_number = ?
+    `);
+
+    stmt.run(
+      inputTokens,
+      outputTokens,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      numToolCalls,
+      status,
+      errorMessage || null,
+      runId,
+      turnNumber
+    );
+  }
+
   getRuns(filters: RunFilters = {}): RunRecord[] {
     let query = 'SELECT * FROM runs WHERE 1=1';
     const params: any[] = [];

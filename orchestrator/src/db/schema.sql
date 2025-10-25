@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   tool_name TEXT NOT NULL,
   input_schema TEXT,
   args TEXT,
+  tool_input TEXT,  -- Full JSON arguments passed to tool
+  tool_output TEXT,  -- Full JSON result from tool
+  duration_ms INTEGER,  -- Tool execution time
+  status TEXT DEFAULT 'pending',  -- 'success', 'error', 'timeout'
+  error TEXT,  -- Error message if failed
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (turn_id) REFERENCES turns(id) ON DELETE CASCADE,
   FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
@@ -66,6 +71,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 
 CREATE INDEX IF NOT EXISTS idx_tool_calls_turn_id ON tool_calls(turn_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run_id ON tool_calls(run_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_tool_name ON tool_calls(tool_name);
 
 CREATE TABLE IF NOT EXISTS tool_results (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -131,3 +137,26 @@ CREATE TABLE IF NOT EXISTS costs (
 
 CREATE INDEX IF NOT EXISTS idx_costs_agent ON costs(agent);
 CREATE INDEX IF NOT EXISTS idx_costs_daily_date ON costs(daily_date);
+
+CREATE TABLE IF NOT EXISTS turn_details (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL,
+  turn_number INTEGER NOT NULL,
+  turn_name TEXT,
+  started_at DATETIME,
+  finished_at DATETIME,
+  duration_ms INTEGER,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  total_tokens INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0,
+  num_tool_calls INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'pending',  -- 'success', 'error', 'timeout', 'pending'
+  error_message TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE,
+  UNIQUE(run_id, turn_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_turn_details_run_id ON turn_details(run_id);
+CREATE INDEX IF NOT EXISTS idx_turn_details_status ON turn_details(status);
