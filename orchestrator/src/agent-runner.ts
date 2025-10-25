@@ -11,6 +11,7 @@ import { TokenBudgetManager } from './token-budget.js';
 import type { AgentConfig, TurnConfig, ChatMessage, AgentRun } from './types.js';
 import { MCPHandler } from './mcp-handler.js';
 import { getModelId, getModelProvider } from './model-mapper.js';
+import { OrchestrationLogger } from './orchestration-logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -76,16 +77,6 @@ async function buildTurnPrompt(
   return prompt;
 }
 
-async function saveRunLog(run: AgentRun): Promise<void> {
-  const date = new Date().toISOString().split('T')[0];
-  const logDir = path.join(__dirname, '..', 'logs', 'runs', date);
-  await fs.mkdir(logDir, { recursive: true });
-
-  const logFile = path.join(logDir, `${run.run_id}.jsonl`);
-  await fs.appendFile(logFile, JSON.stringify(run) + '\n');
-  logger.debug({ file: logFile }, 'Run log saved');
-}
-
 export async function runAgent(
   agentName: string,
   config: AgentConfig,
@@ -94,6 +85,13 @@ export async function runAgent(
 ): Promise<AgentRun> {
   const startTime = Date.now();
   const runId = `${agentName}__${new Date().toISOString().replace(/[:.]/g, '-')}__${randomUUID().substring(0, 8)}`;
+
+  // Initialize new logging system
+  const dbPath = path.join(__dirname, '..', 'logs', 'orchestration.db');
+  const chatDir = path.join(__dirname, '..', 'logs', 'chats');
+  const orchestrationLogger = new OrchestrationLogger(dbPath, chatDir);
+
+  await orchestrationLogger.logRunStart(agentName, runId);
 
   logger.info({ agent: agentName, runId }, 'Starting agent run');
 
@@ -110,6 +108,8 @@ export async function runAgent(
     for (const turn of config.turns) {
       logger.info({ agent: agentName, turn: turn.id, name: turn.name }, 'Starting turn');
 
+      await orchestrationLogger.logTurnStart(runId, turn.id, turn.name);
+
       // Build turn prompt
       const turnPrompt = await buildTurnPrompt(turn, rulesContent, chatHistory, agentName);
 
@@ -123,7 +123,7 @@ export async function runAgent(
         break;
       }
 
-      // Get tools for this turn using Schema Definition Mode
+      // Get tools for this turn
       let tools: Record<string, any> = {};
       if (turn.mcps && turn.mcps.length > 0) {
         try {
@@ -148,7 +148,7 @@ export async function runAgent(
         'Tools loaded via Schema Definition Mode'
       );
 
-      // LLM call with tools using Schema Definition Mode
+      // LLM call
       let result;
       try {
         result = await generateText({
@@ -171,7 +171,7 @@ export async function runAgent(
           errorInfo['errorMessage'] = error.message;
           errorInfo['errorStack'] = error.stack;
         } else {
-          errorInfo['error'] = String(error);
+          errorInfo['errorObj'] = error;
         }
         logger.error(errorInfo, 'LLM call failed');
         throw error;
@@ -179,6 +179,13 @@ export async function runAgent(
 
       totalInputTokens += result.usage?.inputTokens ?? 0;
       totalOutputTokens += result.usage?.outputTokens ?? 0;
+
+      // Log user message and assistant response
+      await orchestrationLogger.logMessage(runId, turn.id, 'user', turnPrompt);
+      await orchestrationLogger.logMessage(runId, turn.id, 'assistant', result.text, {
+        input: result.usage?.inputTokens ?? 0,
+        output: result.usage?.outputTokens ?? 0
+      });
 
       logger.info(
         {
@@ -210,23 +217,17 @@ export async function runAgent(
         }))
       });
 
-      logger.info(
-        {
-          agent: agentName,
-          turn: turn.id,
-          inputTokens: result.usage?.promptTokens ?? 0,
-          outputTokens: result.usage?.completionTokens ?? 0,
-          toolCalls: result.toolCalls?.length || 0
-        },
-        'Turn completed'
-      );
-
       // Handle tool calls
       if (result.toolCalls && result.toolCalls.length > 0) {
         for (const toolCall of result.toolCalls) {
           try {
             logger.debug({ agent: agentName, tool: toolCall.toolName }, 'Calling tool');
+            
+            await orchestrationLogger.logToolCall(runId, turn.id, toolCall.toolName, toolCall.args);
+            
             const toolResult = await mcpPool.callTool(toolCall.toolName, toolCall.args);
+
+            await orchestrationLogger.logToolResult(runId, turn.id, toolCall.toolName, toolResult);
 
             chatHistory.push({
               role: 'user',
@@ -255,12 +256,19 @@ export async function runAgent(
   const cost = await budget.calculateCost(totalInputTokens, totalOutputTokens, config.model);
   const durationSeconds = (Date.now() - startTime) / 1000;
 
-  // Save run log
+  // Log run end
+  const status = chatHistory.length > 1 ? 'completed' : 'failed';
+  await orchestrationLogger.logRunEnd(runId, agentName, status, {
+    input: totalInputTokens,
+    output: totalOutputTokens
+  }, cost, durationSeconds);
+
+  // Compatibility: still return AgentRun for other code
   const run: AgentRun = {
     run_id: runId,
     agent: agentName,
     timestamp: new Date().toISOString(),
-    status: chatHistory.length > 1 ? 'completed' : 'failed',  // If there's at least 1 exchange (user + assistant), it's completed
+    status: status as any,
     duration_seconds: durationSeconds,
     chat_history: chatHistory,
     outputs: {},
@@ -272,7 +280,7 @@ export async function runAgent(
     }
   };
 
-  await saveRunLog(run);
+  await orchestrationLogger.close();
 
   logger.info(
     {

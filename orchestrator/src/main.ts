@@ -8,6 +8,8 @@ import { MCPPool } from './mcp-pool.js';
 import { TokenBudgetManager } from './token-budget.js';
 import { runAgent } from './agent-runner.js';
 import { logger } from './logger.js';
+import { createApiServer } from './api/server.js';
+import { OrchestrationDB } from './db/database.js';
 import type { AgentsConfig } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,7 +22,7 @@ async function main() {
 
   try {
     // Load config
-    const configPath = path.join(__dirname, '..', 'config', 'agents.yaml');
+    const configPath = process.env.ORCHESTRATOR_TEST_CONFIG || path.join(__dirname, '..', 'config', 'agents.yaml');
     const configYaml = await fs.readFile(configPath, 'utf-8');
     const config: AgentsConfig = yaml.parse(configYaml);
 
@@ -33,8 +35,16 @@ async function main() {
     const mcpPool = new MCPPool(config.mcps);
     await mcpPool.initialize();
 
+    // Initialize database and logger
+    const dbPath = path.join(__dirname, '..', 'logs', 'orchestration.db');
+    const db = new OrchestrationDB(dbPath);
+
     // Initialize budget manager
     const budget = new TokenBudgetManager(config.budget);
+
+    // Start API server
+    const apiPort = parseInt(process.env.API_PORT || '3100');
+    createApiServer(db, apiPort);
 
     // Reset budget daily at midnight
     cron.schedule('0 0 * * *', () => {
@@ -43,9 +53,6 @@ async function main() {
     });
 
     logger.info('Scheduling agents...');
-
-    // Track which crons are registered to avoid duplicates
-    const registeredCrons = new Set<string>();
 
     // Schedule each agent individually (for debugging)
     for (const [agentName, agentConfig] of Object.entries(config.agents)) {
@@ -73,7 +80,7 @@ async function main() {
             'Agent run completed'
           );
         } catch (error) {
-          logger.error({ agent: agentName, error }, 'Agent run failed');
+          logger.error(error, 'Agent run failed');
         }
       });
     }
@@ -83,6 +90,7 @@ async function main() {
     logger.info(
       {
         totalScheduled: enabledAgents.length,
+        apiPort,
         schedules: enabledAgents.map(([name, cfg]) => `${name} @ ${cfg.schedule}`)
       },
       'Scheduler initialized'
