@@ -1,7 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
-import fs from 'fs/promises';
-import fss from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { OrchestrationDB } from '../db/database.js';
 import { logger } from '../logger.js';
@@ -21,55 +20,6 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
 
   app.use(cors());
   app.use(express.json());
-
-  // ============= HELPER FUNCTIONS FOR RULES PERSISTENCE =============
-
-  async function loadRulesFromDisk(): Promise<void> {
-    try {
-      const rulesPath = path.join(configDir, 'rules.yaml');
-      if (fss.existsSync(rulesPath)) {
-        const rulesYaml = await fs.readFile(rulesPath, 'utf-8');
-        const rulesData = yaml.parse(rulesYaml);
-        if (rulesData?.rules && Array.isArray(rulesData.rules)) {
-          for (const rule of rulesData.rules) {
-            try {
-              db.getRule(rule.id) || db.createRule(rule.id, rule.name, rule.content, rule.description);
-            } catch (e) {
-              // Rule might already exist
-            }
-          }
-          logger.info({ count: rulesData.rules.length }, 'Rules loaded from disk');
-        }
-      }
-    } catch (error) {
-      logger.warn({ error }, 'Failed to load rules from disk');
-    }
-  }
-
-  async function saveRulesToDisk(): Promise<void> {
-    try {
-      const rules = db.getAllRules();
-      const rulesYaml = yaml.stringify({
-        rules: rules.map(r => ({
-          id: r.id,
-          name: r.name,
-          content: r.content,
-          description: r.description,
-          created_at: r.created_at,
-          updated_at: r.updated_at
-        }))
-      });
-      const rulesPath = path.join(configDir, 'rules.yaml');
-      await fs.writeFile(rulesPath, rulesYaml, { encoding: 'utf-8' });
-      logger.info({ path: rulesPath, count: rules.length }, 'Rules saved to disk');
-    } catch (error: any) {
-      const errorMsg = error?.message || String(error);
-      logger.error({ error: errorMsg, stack: error?.stack }, 'Failed to save rules to disk');
-    }
-  }
-
-  // Load rules from disk on startup
-  loadRulesFromDisk().catch(e => logger.error({ error: e }, 'Failed to initialize rules'));
 
   // Health check
   app.get('/health', (req: Request, res: Response) => {
@@ -261,7 +211,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   app.get('/api/config/agents', (req: Request, res: Response) => {
     try {
       const agentsPath = path.join(configDir, 'agents.yaml');
-      const content = fss.readFileSync(agentsPath, 'utf-8');
+      const content = fs.readFileSync(agentsPath, 'utf-8');
       const parsed = yaml.parse(content);
       res.json({ content, parsed, path: agentsPath });
     } catch (error) {
@@ -315,7 +265,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       const agentsPath = path.join(configDir, 'agents.yaml');
-      fss.writeFileSync(agentsPath, yamlContent, 'utf-8');
+      fs.writeFileSync(agentsPath, yamlContent, 'utf-8');
 
       logger.info({ path: agentsPath }, 'Agents config updated');
       res.json({ success: true, message: 'Agents config saved' });
@@ -329,7 +279,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   app.get('/api/config/models', (req: Request, res: Response) => {
     try {
       const modelsPath = path.join(configDir, 'models.yaml');
-      const content = fss.readFileSync(modelsPath, 'utf-8');
+      const content = fs.readFileSync(modelsPath, 'utf-8');
       const parsed = yaml.parse(content);
       res.json({ content, parsed, path: modelsPath });
     } catch (error) {
@@ -370,7 +320,7 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       const modelsPath = path.join(configDir, 'models.yaml');
-      fss.writeFileSync(modelsPath, yamlContent, 'utf-8');
+      fs.writeFileSync(modelsPath, yamlContent, 'utf-8');
 
       logger.info({ path: modelsPath }, 'Models config updated');
       res.json({ success: true, message: 'Models config saved' });
@@ -630,7 +580,6 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
 
       const id = `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       db.createRule(id, name, content, description);
-      await saveRulesToDisk();
 
       const rule = db.getRule(id);
       res.status(201).json({ rule, timestamp: new Date().toISOString() });
@@ -651,7 +600,6 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       db.updateRule(req.params.id, name, content, description);
-      await saveRulesToDisk();
 
       const updated = db.getRule(req.params.id);
       res.json({ rule: updated, timestamp: new Date().toISOString() });
@@ -670,7 +618,6 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       }
 
       db.deleteRule(req.params.id);
-      await saveRulesToDisk();
       res.json({ message: 'Rule deleted', timestamp: new Date().toISOString() });
     } catch (error) {
       logger.error({ error }, 'Failed to delete rule');
