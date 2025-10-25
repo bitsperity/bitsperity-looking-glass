@@ -157,17 +157,41 @@
           <div class="separator-label">
             <span class="turn-number">Turn {turn.number}</span>
             <span class="turn-name">{turn.name || 'Turn'}</span>
-            <span class="turn-meta">
+            
+            <!-- Expanded metadata display like dashboard -->
+            <div class="turn-metadata">
               {#if turn.duration?.ms}
-                <span class="meta-badge">⏱️ {formatTime(turn.duration.ms)}</span>
+                <div class="metadata-badge">
+                  <span class="metadata-icon">⏱️</span>
+                  <span class="metadata-label">Duration</span>
+                  <span class="metadata-value">{formatTime(turn.duration.ms)}</span>
+                </div>
               {/if}
-              {#if turn.tokens}
-                <span class="meta-badge">📊 {formatTokens(turn.tokens.input)}/{formatTokens(turn.tokens.output)}</span>
+              
+              {#if turn.tokens?.input !== undefined}
+                <div class="metadata-badge">
+                  <span class="metadata-icon">📊</span>
+                  <span class="metadata-label">Input</span>
+                  <span class="metadata-value">{formatTokens(turn.tokens.input)}</span>
+                </div>
               {/if}
+              
+              {#if turn.tokens?.output !== undefined}
+                <div class="metadata-badge">
+                  <span class="metadata-icon">📤</span>
+                  <span class="metadata-label">Output</span>
+                  <span class="metadata-value">{formatTokens(turn.tokens.output)}</span>
+                </div>
+              {/if}
+              
               {#if turn.cost !== undefined && turn.cost !== null}
-                <span class="meta-badge">💵 ${turn.cost.toFixed(4)}</span>
+                <div class="metadata-badge">
+                  <span class="metadata-icon">💵</span>
+                  <span class="metadata-label">Cost</span>
+                  <span class="metadata-value">${turn.cost.toFixed(4)}</span>
+                </div>
               {/if}
-            </span>
+            </div>
           </div>
           <div class="separator-line"></div>
         </div>
@@ -787,5 +811,47 @@
   .detail-content::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
+  }
+
+  /* New styles for turn metadata */
+  .turn-metadata {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-left: 0.75rem;
+    padding-left: 0.75rem;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .metadata-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 0.4rem;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: white;
+    backdrop-filter: blur(5px);
+  }
+
+  .metadata-icon {
+    font-size: 0.8rem;
+  }
+
+  .metadata-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  .metadata-value {
+    font-family: 'Monaco', monospace;
+    font-size: 0.9rem;
+    color: white;
+    font-weight: 600;
   }
 </style>
