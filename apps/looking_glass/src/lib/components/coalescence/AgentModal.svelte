@@ -130,67 +130,11 @@
   
   function removeTurn(index: number) {
     formData.turns = formData.turns.filter((_, i) => i !== index);
-    // CRITICAL: Create a new object to trigger reactivity
     formData = { ...formData };
   }
   
-  function toggleMCP(turnIndex: number, mcp: string) {
-    console.log('🔥 toggleMCP CALLED!', { turnIndex, mcp, currentMcps: formData.turns[turnIndex]?.mcps });
-    
-    // Clone the entire turns array with the updated turn
-    formData.turns = formData.turns.map((turn, idx) => {
-      if (idx !== turnIndex) return turn;
-      
-      const mcps = turn.mcps || [];
-      const newMcps = mcps.includes(mcp) 
-        ? mcps.filter((m: string) => m !== mcp) 
-        : [...mcps, mcp];
-      
-      console.log('🔥 Updated MCPs:', { old: mcps, new: newMcps });
-      return { ...turn, mcps: newMcps };
-    });
-    
-    // CRITICAL: Force Svelte reactivity by creating a NEW object
-    formData = { ...formData };
-    
-    console.log('🔥 formData.turns after update:');
-    formData.turns.forEach((t, idx) => {
-      console.log(`  Turn ${idx}: ${t.name}, MCPs:`, t.mcps);
-    });
-  }
-
-  function toggleRule(turnIndex: number, ruleId: string) {
-    console.log('🔥 toggleRule CALLED!', { turnIndex, ruleId, currentRules: formData.turns[turnIndex]?.rules });
-    
-    // Clone the entire turns array with the updated turn
-    formData.turns = formData.turns.map((turn, idx) => {
-      if (idx !== turnIndex) return turn;
-      
-      const rules = turn.rules || [];
-      const newRules = rules.includes(ruleId) 
-        ? rules.filter((r: string) => r !== ruleId) 
-        : [...rules, ruleId];
-      
-      console.log('🔥 Updated Rules:', { old: rules, new: newRules });
-      return { ...turn, rules: newRules };
-    });
-    
-    // CRITICAL: Force Svelte reactivity by creating a NEW object
-    formData = { ...formData };
-    
-    console.log('🔥 formData.turns after update:');
-    formData.turns.forEach((t, idx) => {
-      console.log(`  Turn ${idx}: ${t.name}, Rules:`, t.rules);
-    });
-  }
-
   // REACTIVE: Re-evaluate turn display when formData changes
   $: turnsForDisplay = formData.turns;
-
-  // CRITICAL: Compute selectedMCPs and selectedRules for each turn
-  // This ensures template re-evaluation whenever formData changes
-  $: selectedMCPsByTurn = formData.turns.map(turn => new Set(turn.mcps || []));
-  $: selectedRulesByTurn = formData.turns.map(turn => new Set(turn.rules || []));
 </script>
 
 {#if isOpen}
@@ -514,16 +458,27 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       <label class="block text-xs font-semibold text-neutral-400 mb-2">MCPs (Multi-Channel Protocols)</label>
                       <div class="flex flex-wrap gap-2">
                         {#each availableMCPs as mcp}
-                          <button
-                            type="button"
-                            on:click={() => toggleMCP(i, mcp)}
-                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {selectedMCPsByTurn[i]?.has(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
-                          >
-                            {selectedMCPsByTurn[i]?.has(mcp) ? '✓' : '+'} {mcp}
-                          </button>
+                          <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all {(formData.turns[i]?.mcps || []).includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-neutral-700'}">
+                            <input
+                              type="checkbox"
+                              checked={(formData.turns[i]?.mcps || []).includes(mcp)}
+                              on:change={(e) => {
+                                const isChecked = e.currentTarget.checked;
+                                const mcps = formData.turns[i].mcps || [];
+                                if (isChecked && !mcps.includes(mcp)) {
+                                  formData.turns[i].mcps = [...mcps, mcp];
+                                } else if (!isChecked && mcps.includes(mcp)) {
+                                  formData.turns[i].mcps = mcps.filter(m => m !== mcp);
+                                }
+                                formData.turns = [...formData.turns];
+                              }}
+                              class="w-4 h-4 cursor-pointer"
+                            />
+                            <span class="text-sm font-medium">{mcp}</span>
+                          </label>
                         {/each}
                       </div>
-                      {#if formData.turns[i].mcps?.length > 0}
+                      {#if formData.turns[i]?.mcps?.length > 0}
                         <div class="mt-2 text-xs text-neutral-500">
                           Aktiv: {formData.turns[i].mcps.join(', ')}
                         </div>
@@ -535,16 +490,27 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       <label class="block text-xs font-semibold text-neutral-400 mb-2">Regeln (für diesen Turn)</label>
                       <div class="flex flex-wrap gap-2">
                         {#each availableRules as rule (rule.id)}
-                          <button
-                            type="button"
-                            on:click={() => toggleRule(i, rule.id)}
-                            class="px-4 py-2 rounded-lg font-medium text-sm transition-all cursor-pointer {selectedRulesByTurn[i]?.has(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-700'}"
-                          >
-                            {selectedRulesByTurn[i]?.has(rule.id) ? '✓' : '+'} {rule.name}
-                          </button>
+                          <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all {(formData.turns[i]?.rules || []).includes(rule.id) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-neutral-700'}">
+                            <input
+                              type="checkbox"
+                              checked={(formData.turns[i]?.rules || []).includes(rule.id)}
+                              on:change={(e) => {
+                                const isChecked = e.currentTarget.checked;
+                                const rules = formData.turns[i].rules || [];
+                                if (isChecked && !rules.includes(rule.id)) {
+                                  formData.turns[i].rules = [...rules, rule.id];
+                                } else if (!isChecked && rules.includes(rule.id)) {
+                                  formData.turns[i].rules = rules.filter(r => r !== rule.id);
+                                }
+                                formData.turns = [...formData.turns];
+                              }}
+                              class="w-4 h-4 cursor-pointer"
+                            />
+                            <span class="text-sm font-medium">{rule.name}</span>
+                          </label>
                         {/each}
                       </div>
-                      {#if formData.turns[i].rules?.length > 0}
+                      {#if formData.turns[i]?.rules?.length > 0}
                         <div class="mt-2 text-xs text-neutral-500">
                           Aktiv: {formData.turns[i].rules.map(ruleId => {
                             const rule = availableRules.find(r => r.id === ruleId);
