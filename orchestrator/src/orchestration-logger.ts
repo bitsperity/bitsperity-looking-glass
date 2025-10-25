@@ -109,6 +109,14 @@ export class OrchestrationLogger {
 
     const actualTurnId = typeof turnId === 'string' ? this.currentTurnId : turnId;
     
+    logger.debug({ 
+      runId, 
+      turnId: actualTurnId, 
+      toolName, 
+      resultType: typeof result,
+      resultValue: result ? JSON.stringify(result).substring(0, 500) : 'undefined'
+    }, 'logToolResult received');
+    
     // Get the last tool call for this turn
     const toolCalls = this.db.db.prepare(`
       SELECT id FROM tool_calls 

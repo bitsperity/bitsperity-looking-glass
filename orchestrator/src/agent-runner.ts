@@ -305,6 +305,9 @@ export async function runAgent(
       if (result.toolCalls && result.toolCalls.length > 0) {
         for (const toolCall of result.toolCalls) {
           try {
+            // Log complete tool call to see all available data
+            logger.info({ toolCall }, 'toolCall details from AI SDK result');
+            
             // Always log the tool call first, regardless of execution
             await orchestrationLogger.logToolCall(runId, turnNumber, toolCall.toolName, toolCall.args);
 

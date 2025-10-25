@@ -241,10 +241,12 @@ export class MCPPool {
 
       logger.debug({ tool: toolName, resultType: typeof result, hasContent: !!result }, 'Tool call completed');
 
-      // Log full result for thought-creating tools
-      if (toolName.includes('create_thought') && result) {
-        logger.info({ tool: toolName, resultId: result.id, result }, 'Thought created successfully');
-      }
+      // Log full result for all tool calls - especially important for returning IDs
+      logger.info({ 
+        tool: toolName, 
+        resultType: typeof result,
+        result: result ? (typeof result === 'object' ? JSON.stringify(result) : String(result)) : 'null'
+      }, 'MCP tool returned result');
 
       return result;
     } catch (error) {
