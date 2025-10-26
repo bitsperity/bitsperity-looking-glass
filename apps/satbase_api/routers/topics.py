@@ -93,7 +93,8 @@ def get_all_topics(
     # Collect and aggregate topics using Polars
     all_dfs = []
     
-    for source in ["gdelt", "news_rss", "mediastack"]:
+    # Mediastack ONLY (GDELT and RSS are removed)
+    for source in ["mediastack"]:
         try:
             lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
             df = lf.collect()
@@ -180,7 +181,8 @@ def get_topic_summary(limit: int = Query(10, ge=1, le=100), days: int = Query(30
     # Quick aggregation on limited date range
     all_dfs = []
     
-    for source in ["gdelt", "news_rss", "mediastack"]:
+    # Mediastack ONLY (GDELT and RSS are removed)
+    for source in ["mediastack"]:
         try:
             lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
             df = lf.collect()
@@ -262,7 +264,8 @@ def get_topic_stats(
     period_topic_counts = defaultdict(lambda: defaultdict(int))
     all_periods = set()
     
-    for source in ["gdelt", "news_rss", "mediastack"]:
+    # Mediastack ONLY (GDELT and RSS are removed)
+    for source in ["mediastack"]:
         try:
             lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
             df = lf.collect()
@@ -355,7 +358,8 @@ def get_topic_coverage(
     period_topic_counts = defaultdict(lambda: defaultdict(int))
     all_periods = set()
     
-    for source in ["gdelt", "news_rss", "mediastack"]:
+    # Mediastack ONLY (GDELT and RSS are removed)
+    for source in ["mediastack"]:
         try:
             lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
             df = lf.collect()
