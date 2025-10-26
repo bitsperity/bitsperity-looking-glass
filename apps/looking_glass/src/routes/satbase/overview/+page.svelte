@@ -44,16 +44,21 @@
 				);
 
 				// Transform matrix format to {topic: {month_index: count}}
+				// Handle sparse periods (e.g., only Sept & Oct, not all 12 months)
 				if (response?.matrix && response?.topics && response?.periods) {
-					const transformed: Record<string, Record<string, number>> = {};
+					const transformed: Record<string, Record<number, number>> = {};
 					response.topics.forEach((topic: string) => {
 						transformed[topic] = {};
 					});
 
-					response.matrix.forEach((row: number[], periodIdx: number) => {
+					// Map each period to its actual month index (0-11)
+					response.matrix.forEach((row: number[], rowIdx: number) => {
+						const period = response.periods[rowIdx]; // e.g., "2025-09"
+						const monthIndex = parseInt(period.split('-')[1]) - 1; // Extract month (1-12) → (0-11)
+						
 						row.forEach((count: number, topicIdx: number) => {
 							const topic = response.topics[topicIdx];
-							transformed[topic][periodIdx] = count;
+							transformed[topic][monthIndex] = count;
 						});
 					});
 
@@ -118,16 +123,21 @@
 				);
 
 				// Transform matrix format to {topic: {month_index: count}}
+				// Handle sparse periods (e.g., only Sept & Oct, not all 12 months)
 				if (response?.matrix && response?.topics && response?.periods) {
-					const transformed: Record<string, Record<string, number>> = {};
+					const transformed: Record<string, Record<number, number>> = {};
 					response.topics.forEach((topic: string) => {
 						transformed[topic] = {};
 					});
 
-					response.matrix.forEach((row: number[], periodIdx: number) => {
+					// Map each period to its actual month index (0-11)
+					response.matrix.forEach((row: number[], rowIdx: number) => {
+						const period = response.periods[rowIdx]; // e.g., "2025-09"
+						const monthIndex = parseInt(period.split('-')[1]) - 1; // Extract month (1-12) → (0-11)
+						
 						row.forEach((count: number, topicIdx: number) => {
 							const topic = response.topics[topicIdx];
-							transformed[topic][periodIdx] = count;
+							transformed[topic][monthIndex] = count;
 						});
 					});
 
