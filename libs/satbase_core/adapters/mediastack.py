@@ -184,6 +184,17 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
             
             # Upsert to SQLite with topic merge
             db.upsert_article(doc, topics=doc.topics, tickers=doc.tickers)
+            
+            # Log to audit trail
+            topics_str = ",".join(doc.topics) if doc.topics else None
+            db.log_audit(
+                action="ingested",
+                article_id=doc.id,
+                article_url=doc.url,
+                topic=topics_str,
+                details=f"title: {doc.title[:50]}"
+            )
+            
             success_count += 1
             
         except Exception as e:

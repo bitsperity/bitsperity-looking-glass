@@ -82,6 +82,21 @@ class NewsDB:
                 
                 CREATE INDEX IF NOT EXISTS idx_news_tickers_ticker ON news_tickers(ticker);
                 CREATE INDEX IF NOT EXISTS idx_news_tickers_article ON news_tickers(article_id);
+                
+                CREATE TABLE IF NOT EXISTS news_audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    action TEXT NOT NULL,
+                    article_id TEXT,
+                    article_url TEXT,
+                    topic TEXT,
+                    details TEXT,
+                    FOREIGN KEY (article_id) REFERENCES news_articles(id) ON DELETE SET NULL
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON news_audit_log(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_audit_article ON news_audit_log(article_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_action ON news_audit_log(action);
             """)
     
     def upsert_article(
@@ -585,3 +600,93 @@ class NewsDB:
             
             article_ids = [row[0] for row in ids]
             return self.delete_articles_batch(article_ids)
+    
+    def log_audit(
+        self,
+        action: str,
+        article_id: str | None = None,
+        article_url: str | None = None,
+        topic: str | None = None,
+        details: str | None = None
+    ) -> None:
+        """Log an action to audit trail."""
+        with self.conn() as conn:
+            conn.execute("""
+                INSERT INTO news_audit_log 
+                (action, article_id, article_url, topic, details)
+                VALUES (?, ?, ?, ?, ?)
+            """, (action, article_id, article_url, topic, details))
+    
+    def get_audit_log(
+        self,
+        article_id: str | None = None,
+        action: str | None = None,
+        days: int | None = None,
+        limit: int = 1000
+    ) -> list[dict]:
+        """Query audit log with optional filters."""
+        where_parts = ["1=1"]
+        params: list[Any] = []
+        
+        if article_id:
+            where_parts.append("article_id = ?")
+            params.append(article_id)
+        
+        if action:
+            where_parts.append("action = ?")
+            params.append(action)
+        
+        if days:
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            where_parts.append("timestamp >= ?")
+            params.append(cutoff)
+        
+        where_clause = " AND ".join(where_parts)
+        
+        with self.conn() as conn:
+            rows = conn.execute(f"""
+                SELECT id, timestamp, action, article_id, article_url, topic, details
+                FROM news_audit_log
+                WHERE {where_clause}
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, params + [limit]).fetchall()
+            
+            return [
+                {
+                    "id": row[0],
+                    "timestamp": row[1],
+                    "action": row[2],
+                    "article_id": row[3],
+                    "article_url": row[4],
+                    "topic": row[5],
+                    "details": row[6]
+                }
+                for row in rows
+            ]
+    
+    def get_audit_stats(self, days: int = 30) -> dict:
+        """Get audit statistics for operational reporting."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        
+        with self.conn() as conn:
+            # Action counts
+            actions = conn.execute("""
+                SELECT action, COUNT(*) as count
+                FROM news_audit_log
+                WHERE timestamp >= ?
+                GROUP BY action
+                ORDER BY count DESC
+            """, (cutoff,)).fetchall()
+            
+            # Total entries
+            total = conn.execute(
+                "SELECT COUNT(*) FROM news_audit_log WHERE timestamp >= ?",
+                (cutoff,)
+            ).fetchone()[0]
+            
+            return {
+                "period_days": days,
+                "total_events": total,
+                "actions": {action[0]: action[1] for action in actions}
+            }

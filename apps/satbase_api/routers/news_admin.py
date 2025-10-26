@@ -229,6 +229,15 @@ def delete_articles_batch(
         # Delete specific articles
         ids = [id.strip() for id in article_ids.split(",") if id.strip()]
         deleted_count = db.delete_articles_batch(ids)
+        
+        # Log each deletion
+        for article_id in ids:
+            db.log_audit(
+                action="deleted",
+                article_id=article_id,
+                details="manual_batch_delete"
+            )
+    
     elif topic:
         # Delete by topic
         before_date = None
@@ -241,6 +250,13 @@ def delete_articles_batch(
                     status_code=400
                 )
         deleted_count = db.delete_articles_by_topic(topic, before_date)
+        
+        # Log the batch operation
+        db.log_audit(
+            action="deleted_batch",
+            topic=topic,
+            details=f"topic_cleanup before_date={before_date}"
+        )
     else:
         return JSONResponse(
             {"error": "Specify either article_ids or topic parameter"},
@@ -265,5 +281,53 @@ def get_duplicate_articles():
     return {
         "total_duplicates": len(duplicates),
         "duplicates": duplicates,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.get("/admin/audit")
+def get_audit_log(
+    article_id: str | None = Query(None),
+    action: str | None = Query(None, description="ingested, deleted, tagged_topic"),
+    days: int | None = Query(None, ge=1, le=365),
+    limit: int = Query(1000, ge=1, le=10000)
+):
+    """
+    Get audit trail of all operations.
+    Filter by article_id, action, or time period.
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    logs = db.get_audit_log(
+        article_id=article_id,
+        action=action,
+        days=days,
+        limit=limit
+    )
+    
+    return {
+        "entries": logs,
+        "total": len(logs),
+        "filters": {
+            "article_id": article_id,
+            "action": action,
+            "days": days,
+            "limit": limit
+        },
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.get("/admin/audit/stats")
+def get_audit_stats(days: int = Query(30, ge=1, le=365)):
+    """Get audit statistics (action counts by type)."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    stats = db.get_audit_stats(days=days)
+    
+    return {
+        "stats": stats,
         "timestamp": datetime.utcnow().isoformat()
     }
