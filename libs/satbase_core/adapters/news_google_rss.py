@@ -28,7 +28,7 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
     return feed.entries or []
 
 
-def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
+def normalize(entries: Iterable[dict], topic: str | None = None) -> Iterable[NewsDoc]:
     for raw in entries:
         title = raw.get("title", "")
         link = raw.get("link", "")
@@ -52,6 +52,9 @@ def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
         except Exception:
             pass
         
+        # Initialize topics from parameter if provided
+        topics = [topic] if topic else []
+        
         doc = NewsDoc(
             id=nid,
             source="google_rss",
@@ -62,14 +65,24 @@ def normalize(entries: Iterable[dict]) -> Iterable[NewsDoc]:
             tickers=tickers,  # Always list, never None
             regions=[],  # Always list, never None
             themes=[],  # Always list, never None
+            topics=topics,
         )
         yield doc
 
 
-def sink(models: Iterable[NewsDoc], partition_dt: date) -> dict:
+def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None) -> dict:
     rows = [m.model_dump() for m in models]
     if not rows:
         return {"path": None, "count": 0}
+    
+    # Ensure all rows have topic (in case normalize wasn't called with topic param)
+    if topic:
+        for row in rows:
+            if "topics" not in row:
+                row["topics"] = []
+            if isinstance(row["topics"], list) and topic not in row["topics"]:
+                row["topics"].append(topic)
+    
     p = write_parquet(load_settings().stage_dir, "news_rss", partition_dt, "news_docs", rows)
     return {"path": str(p), "count": len(rows)}
 

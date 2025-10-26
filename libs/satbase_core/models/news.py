@@ -14,6 +14,7 @@ class NewsDoc(BaseModel):
     tickers: list[str] | None = None
     regions: list[str] | None = None
     themes: list[str] | None = None
+    topics: list[str] = []  # Topics this article was ingested/matched against
 
 
 class NewsBody(BaseModel):

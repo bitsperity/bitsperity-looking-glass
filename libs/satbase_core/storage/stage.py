@@ -25,17 +25,38 @@ def upsert_parquet_by_id(base: Path, source: str, dt: date, table: str, id_field
 
     If the destination file exists, it will be loaded, concatenated with new_rows,
     unique rows will be kept based on id_field, and the file will be overwritten.
+    
+    For news articles (table='news_docs'), topics lists are merged (union).
     """
     p = partition_path(base, source, dt)
     p.mkdir(parents=True, exist_ok=True)
     out = p / f"{table}.parquet"
     new_df = pl.from_dicts(list(new_rows)) if not isinstance(new_rows, pl.DataFrame) else new_rows
+    
     if out.exists():
         try:
             existing = pl.read_parquet(out)
             combined = pl.concat([existing, new_df], how="vertical_relaxed")
+            
             if id_field in combined.columns:
-                combined = combined.unique(subset=[id_field], keep="last")
+                # For news_docs, merge topics when deduplicating
+                if table == "news_docs" and "topics" in combined.columns:
+                    # Group by id, merge topics lists, keep last for other fields
+                    def merge_topics(group):
+                        # Collect all unique topics across rows with same ID
+                        all_topics = set()
+                        for topics_list in group["topics"]:
+                            if isinstance(topics_list, list):
+                                all_topics.update(topics_list)
+                        # Keep last row, update topics
+                        result = group[-1:].clone()
+                        result["topics"] = [list(all_topics)]
+                        return result
+                    
+                    combined = combined.group_by(id_field).map_groups(merge_topics)
+                else:
+                    combined = combined.unique(subset=[id_field], keep="last")
+            
             combined.write_parquet(out)
             return out
         except Exception:

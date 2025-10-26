@@ -157,7 +157,7 @@ def _run_macro_fred(job_id: str, series: list[str]) -> None:
         _persist_job(job_id)
 
 
-def _run_news(job_id: str, query: str, hours: int | None = None) -> None:
+def _run_news(job_id: str, query: str, topic: str | None = None, hours: int | None = None) -> None:
     _JOBS[job_id]["status"] = "running"
     _persist_job(job_id)
     
@@ -171,16 +171,16 @@ def _run_news(job_id: str, query: str, hours: int | None = None) -> None:
             if hours is not None:
                 params["window_hours"] = hours
             raw = fetch(params)
-            models = list(normalize(raw))
-            info = sink(models, date.today())
+            models = list(normalize(raw, topic))  # NEW: pass topic
+            info = sink(models, date.today(), topic)  # NEW: pass topic
             results["gdelt_doc_v2"] = info
         # Google RSS
         if "news_google_rss" in reg:
             fetch, normalize, sink = reg["news_google_rss"]
             params = {"query": query}
             raw = fetch(params)
-            models = list(normalize(raw))
-            info = sink(models, date.today())
+            models = list(normalize(raw, topic))  # NEW: pass topic
+            info = sink(models, date.today(), topic)  # NEW: pass topic
             results["news_google_rss"] = info
         _JOBS[job_id].update({"status": "done", "result": results})
         _persist_job(job_id)
@@ -288,9 +288,10 @@ def ingest_macro_fred(body: dict[str, Any]):
 @router.post("/ingest/news", status_code=status.HTTP_202_ACCEPTED)
 def ingest_news(body: dict[str, Any]):
     query: str = body.get("query", "")
+    topic: str | None = body.get("topic")  # NEW: optional topic parameter
     hours: int | None = body.get("hours")
-    job_id = _new_job("news", {"query": query, "hours": hours})
-    _start_thread(_run_news, job_id, query, hours)
+    job_id = _new_job("news", {"query": query, "topic": topic, "hours": hours})
+    _start_thread(_run_news, job_id, query, topic, hours)
     return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
 
 

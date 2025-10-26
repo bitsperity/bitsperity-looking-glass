@@ -16,7 +16,7 @@ from ..resolver.watcher import load_watchlist_symbols, match_text_to_symbols
 BASE = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 
-def _normalize(rec: dict[str, Any]) -> NewsDoc | None:
+def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
     url = rec.get("url") or rec.get("DocumentIdentifier")
     if not url:
         return None
@@ -47,6 +47,9 @@ def _normalize(rec: dict[str, Any]) -> NewsDoc | None:
     except Exception:
         pass
     
+    # Initialize topics from parameter if provided
+    topics = [topic] if topic else []
+    
     doc = NewsDoc(
         id=nid,
         source="gdelt",
@@ -57,6 +60,7 @@ def _normalize(rec: dict[str, Any]) -> NewsDoc | None:
         tickers=tickers,  # Always list, never None
         regions=[],  # Always list, never None
         themes=[],  # Always list, never None
+        topics=topics,
     )
     return doc
 
@@ -115,17 +119,26 @@ def fetch(params: dict[str, Any]) -> List[dict]:
     return out
 
 
-def normalize(raw: List[dict]) -> Iterable[NewsDoc]:
+def normalize(raw: List[dict], topic: str | None = None) -> Iterable[NewsDoc]:
     for r in raw:
-        doc = _normalize(r)
+        doc = _normalize(r, topic)
         if doc:
             yield doc
 
 
-def sink(models: Iterable[NewsDoc], partition_dt: date) -> dict:
+def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None) -> dict:
     rows = [m.model_dump() for m in models]
     if not rows:
         return {"path": None, "count": 0}
+    
+    # Ensure all rows have topic (in case normalize wasn't called with topic param)
+    if topic:
+        for row in rows:
+            if "topics" not in row:
+                row["topics"] = []
+            if isinstance(row["topics"], list) and topic not in row["topics"]:
+                row["topics"].append(topic)
+    
     p = write_parquet(load_settings().stage_dir, "gdelt", partition_dt, "news_docs", rows)
     return {"path": str(p), "count": len(rows)}
 
