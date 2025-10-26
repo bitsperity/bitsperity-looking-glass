@@ -1,517 +1,851 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { listNews, backfillBodies, backfillHistorical, deleteNews, listAdapters, type NewsItem, type NewsAdapter } from '$lib/api/news';
-  import { validateNewsBatch, recheckNewsUrl } from '$lib/api/satbase';
-  import { apiPost } from '$lib/api/client';
-  import NewsCard from '$lib/components/news/NewsCard.svelte';
-  import Button from '$lib/components/shared/Button.svelte';
-  import Input from '$lib/components/shared/Input.svelte';
-  import Badge from '$lib/components/shared/Badge.svelte';
-  import Pagination from '$lib/components/shared/Pagination.svelte';
-  import Card from '$lib/components/shared/Card.svelte';
-  
-  let items: NewsItem[] = [];
-  let include_body = true;
-  const today = new Date().toISOString().slice(0,10);
-  const yest = new Date(Date.now() - 86400000*2).toISOString().slice(0,10);
-  let from = yest; let to = today; let q = '';
-  let tickers = '';
-  let loading = false; let err: string | null = null;
-  
-  // Tab state
-  let activeTab: 'browse' | 'quality' = 'browse';
-  
-  // Pagination
-  let currentPage = 1;
-  let pageSize = 100;
-  let totalItems = 0;
-  
-  // Backfill state
-  let showBackfill = false;
-  let backfillQuery = 'semiconductor OR chip OR foundry';
-  let backfillFrom = new Date(Date.now() - 86400000*30).toISOString().slice(0,10);
-  let backfillTo = today;
-  let backfilling = false;
-  let backfillMsg: string | null = null;
-  let adapters: NewsAdapter[] = [];
+	import { onMount } from 'svelte';
+	import * as satbaseApi from '$lib/api/satbase';
+	import Button from '$lib/components/shared/Button.svelte';
+	import Input from '$lib/components/shared/Input.svelte';
 
-  // Quality Tab State
-  let qualityValidating = false;
-  let qualityResults: any = null;
-  let selectedBrokenIds: Set<string> = new Set();
-  let bulkRecheckLoading = false;
-  let bulkDeleteLoading = false;
-  let qualityMessage: string | null = null;
+	// Article data
+	let articles: any[] = [];
+	let loading = true;
+	let error = '';
 
-  async function load() {
-    loading = true; err = null;
-    try {
-      const offset = (currentPage - 1) * pageSize;
-      const res = await listNews({ from, to, q, tickers, limit: pageSize, offset, include_body });
-      items = res.items;
-      totalItems = res.total;
-    } catch (e: any) {
-      err = String(e);
-    } finally { loading = false; }
-  }
-  
-  function handlePageChange(event: CustomEvent<{ page: number }>) {
-    currentPage = event.detail.page;
-    load();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-  
-  function resetPagination() {
-    currentPage = 1;
-    load();
-  }
+	// Filters
+	let searchQuery = '';
+	let selectedTopics: string[] = [];
+	let selectedTickers = '';
+	let fromDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	let toDate = new Date().toISOString().slice(0, 10);
+	let sortBy: 'date' | 'relevance' = 'date';
+	let sortDir: 'asc' | 'desc' = 'desc';
 
-  async function fetchBodies() {
-    try {
-      await backfillBodies(from, to);
-    } catch (e) {}
-  }
-  
-  async function handleDelete(event: CustomEvent<{ id: string }>) {
-    try {
-      await deleteNews(event.detail.id);
-      items = items.filter(it => it.id !== event.detail.id);
-    } catch (e) {
-      err = `Failed to delete: ${e}`;
-    }
-  }
-  
-  async function startBackfill() {
-    backfilling = true;
-    backfillMsg = null;
-    try {
-      const res = await backfillHistorical(backfillQuery, backfillFrom, backfillTo);
-      backfillMsg = `✓ Backfill job started: ${res.job_id}\nUsing adapters: ${res.adapters.join(', ')}`;
-      setTimeout(() => load(), 3000);
-    } catch (e) {
-      backfillMsg = `✗ Error: ${e}`;
-    } finally {
-      backfilling = false;
-    }
-  }
-  
-  async function loadAdapters() {
-    try {
-      const res = await listAdapters('news');
-      adapters = res.adapters;
-    } catch (e) {}
-  }
+	// Pagination
+	let currentPage = 1;
+	let pageSize = 50;
+	let totalArticles = 0;
 
-  // Quality Tab Functions
-  async function validateQuality() {
-    qualityValidating = true;
-    qualityMessage = null;
-    try {
-      const articleIds = items.map(it => it.id);
-      const res = await validateNewsBatch(articleIds);
-      qualityResults = res;
-    } catch (e) {
-      qualityMessage = `✗ Validation failed: ${String(e)}`;
-    } finally {
-      qualityValidating = false;
-    }
-  }
+	// Stats & Status
+	let healthStatus: any = null;
+	let jobStats: any = null;
+	let activeJob: any = null;
+	let allTopics: any[] = [];
 
-  function toggleBrokenSelection(id: string) {
-    if (selectedBrokenIds.has(id)) {
-      selectedBrokenIds.delete(id);
-    } else {
-      selectedBrokenIds.add(id);
-    }
-    selectedBrokenIds = selectedBrokenIds;
-  }
+	// UI State
+	let activeTab: 'browse' | 'analytics' | 'backfill' | 'quality' = 'browse';
+	let showBackfillForm = false;
+	let backfillQuery = '';
+	let backfillFrom = fromDate;
+	let backfillTo = toDate;
+	let backfillMaxPerDay = 100;
+	let backfilling = false;
+	let backfillMessage = '';
 
-  function selectAllBroken() {
-    if (qualityResults?.errors) {
-      qualityResults.errors.forEach((err: any) => selectedBrokenIds.add(err.id));
-      selectedBrokenIds = selectedBrokenIds;
-    }
-  }
+	// Bulk operations
+	let selectedArticleIds: Set<string> = new Set();
 
-  function deselectAllBroken() {
-    selectedBrokenIds.clear();
-    selectedBrokenIds = selectedBrokenIds;
-  }
+	let jobPollingInterval: any;
 
-  async function bulkRecheck() {
-    if (selectedBrokenIds.size === 0) {
-      qualityMessage = 'Please select articles to re-check';
-      return;
-    }
+	onMount(() => {
+		loadData();
+		startJobPolling();
+		return () => {
+			if (jobPollingInterval) clearInterval(jobPollingInterval);
+		};
+	});
 
-    bulkRecheckLoading = true;
-    qualityMessage = null;
-    let successCount = 0;
-    let failCount = 0;
+	async function loadData() {
+		loading = true;
+		error = '';
+		try {
+			// Load in parallel
+			const [articlesRes, healthRes, jobsRes, topicsRes] = await Promise.all([
+				satbaseApi.listNews({
+					from: fromDate,
+					to: toDate,
+					q: searchQuery || undefined,
+					tickers: selectedTickers || undefined,
+					limit: pageSize,
+					offset: (currentPage - 1) * pageSize,
+					include_body: true
+				}).catch(() => ({ items: [], total: 0 })),
+				satbaseApi.getNewsHealth().catch(() => null),
+				satbaseApi.getJobStats().catch(() => null),
+				satbaseApi.getTopicsAll().catch(() => ({ topics: [] }))
+			]);
 
-    for (const id of Array.from(selectedBrokenIds)) {
-      try {
-        await recheckNewsUrl(id);
-        successCount++;
-      } catch (e) {
-        failCount++;
-      }
-    }
+			articles = articlesRes.items || [];
+			totalArticles = articlesRes.total || 0;
+			healthStatus = healthRes;
+			jobStats = jobsRes;
+			allTopics = (topicsRes.topics || []).map((t: any) => t.name);
+		} catch (err) {
+			error = `Failed to load data: ${err}`;
+		} finally {
+			loading = false;
+		}
+	}
 
-    qualityMessage = `✓ Re-check complete: ${successCount} succeeded, ${failCount} failed`;
-    bulkRecheckLoading = false;
-    selectedBrokenIds.clear();
-    setTimeout(() => validateQuality(), 2000);
-  }
+	async function startJobPolling() {
+		jobPollingInterval = setInterval(async () => {
+			try {
+				const jobs = await satbaseApi.getJobsList();
+				activeJob = jobs.jobs?.find((j: any) => j.status === 'running');
+				if (activeJob && activeJob.progress_total && activeJob.progress_total > 0) {
+					activeJob.progress_pct = Math.round((activeJob.progress_current / activeJob.progress_total) * 100);
+				}
+			} catch (e) {
+				// Silent fail
+			}
+		}, 2000);
+	}
 
-  async function bulkDelete() {
-    if (selectedBrokenIds.size === 0) {
-      qualityMessage = 'Please select articles to delete';
-      return;
-    }
+	async function handleSearch() {
+		currentPage = 1;
+		await loadData();
+	}
 
-    if (!confirm(`Delete ${selectedBrokenIds.size} articles?`)) return;
+	async function handleBackfill() {
+		backfilling = true;
+		backfillMessage = '';
+		try {
+			const response = await fetch('http://localhost:8080/v1/ingest/news/backfill', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					query: backfillQuery,
+					from: backfillFrom,
+					to: backfillTo,
+					topic: backfillQuery,
+					max_articles_per_day: backfillMaxPerDay
+				})
+			});
 
-    bulkDeleteLoading = true;
-    qualityMessage = null;
-    let successCount = 0;
-    let failCount = 0;
+			const data = await response.json();
+			backfillMessage = `✅ Backfill started! Job ID: ${data.job_id}`;
+			showBackfillForm = false;
+			setTimeout(() => loadData(), 1000);
+		} catch (e) {
+			backfillMessage = `❌ Error: ${e}`;
+		} finally {
+			backfilling = false;
+		}
+	}
 
-    for (const id of Array.from(selectedBrokenIds)) {
-      try {
-        await deleteNews(id);
-        successCount++;
-      } catch (e) {
-        failCount++;
-      }
-    }
+	function toggleArticleSelection(id: string) {
+		if (selectedArticleIds.has(id)) {
+			selectedArticleIds.delete(id);
+		} else {
+			selectedArticleIds.add(id);
+		}
+		selectedArticleIds = selectedArticleIds;
+	}
 
-    qualityMessage = `✓ Deletion complete: ${successCount} deleted, ${failCount} failed`;
-    bulkDeleteLoading = false;
-    selectedBrokenIds.clear();
-    items = items.filter(it => !Array.from(selectedBrokenIds).includes(it.id));
-    setTimeout(() => validateQuality(), 2000);
-  }
+	function toggleAllArticles() {
+		if (selectedArticleIds.size === articles.length) {
+			selectedArticleIds.clear();
+		} else {
+			articles.forEach(a => selectedArticleIds.add(a.id));
+		}
+		selectedArticleIds = selectedArticleIds;
+	}
 
-  $: if (from || to || q || tickers || include_body) {
-    if (typeof window !== 'undefined') {
-      currentPage = 1;
-    }
-  }
-  
-  onMount(() => {
-    load();
-    loadAdapters();
-  });
+	function formatDate(dateStr: string) {
+		const date = new Date(dateStr);
+		const now = new Date();
+		const diff = now.getTime() - date.getTime();
+		const hours = Math.floor(diff / 3600000);
+		const days = Math.floor(diff / 86400000);
+
+		if (hours < 1) return 'just now';
+		if (hours < 24) return `${hours}h ago`;
+		if (days < 7) return `${days}d ago`;
+		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+	}
+
+	function formatSize(text: string | undefined) {
+		if (!text) return '0KB';
+		const bytes = text.length;
+		if (bytes < 1024) return `${bytes}B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+	}
 </script>
 
-<div class="h-screen flex flex-col overflow-hidden">
-  <!-- Header (fixed) -->
-  <div class="flex-shrink-0 max-w-5xl w-full mx-auto px-6 pt-6 pb-4">
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-neutral-100">News Feed</h1>
-        <p class="text-sm text-neutral-400 mt-1">Financial news from GDELT and RSS sources</p>
-      </div>
-      <div class="flex items-center gap-2">
-        <Badge variant={items.length > 0 ? 'success' : 'secondary'}>{items.length} articles</Badge>
-      </div>
-    </div>
-  </div>
-
-  <!-- Tab Navigation -->
-  <div class="flex-shrink-0 max-w-5xl w-full mx-auto px-6 pb-2 border-b border-neutral-700/50">
-    <div class="flex gap-1">
-      <button
-        on:click={() => activeTab = 'browse'}
-        class="px-4 py-2 rounded-t-lg font-medium transition-colors {activeTab === 'browse' ? 'bg-neutral-800/60 text-neutral-100 border-b-2 border-blue-500' : 'text-neutral-400 hover:text-neutral-200'}"
-      >
-        📰 Browse
-      </button>
-      <button
-        on:click={() => { activeTab = 'quality'; if (!qualityResults) validateQuality(); }}
-        class="px-4 py-2 rounded-t-lg font-medium transition-colors {activeTab === 'quality' ? 'bg-neutral-800/60 text-neutral-100 border-b-2 border-amber-500' : 'text-neutral-400 hover:text-neutral-200'}"
-      >
-        🔍 Quality Check
-      </button>
-    </div>
-  </div>
-
-  {#if activeTab === 'browse'}
-    <!-- BROWSE TAB -->
-    <!-- Filters (fixed) -->
-    <div class="flex-shrink-0 max-w-5xl w-full mx-auto px-6 pb-4 space-y-4">
-      <!-- Main Filters -->
-      <div class="bg-neutral-800/30 border border-neutral-700/50 rounded-xl p-5">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Input label="From" type="date" bind:value={from} />
-          <Input label="To" type="date" bind:value={to} />
-          <Input label="Search Query" placeholder="AI, chips, semiconductor" bind:value={q} />
-          <Input label="Filter by Tickers" placeholder="NVDA, AAPL, MSFT" bind:value={tickers} />
-        </div>
-        
-        <div class="flex items-center justify-between mt-4 pt-4 border-t border-neutral-700/50">
-          <label class="flex items-center gap-2 text-sm text-neutral-300 cursor-pointer">
-            <input type="checkbox" bind:checked={include_body} class="rounded border-neutral-600 bg-neutral-700 text-blue-600 focus:ring-2 focus:ring-blue-500/50" />
-            <span>Include article bodies</span>
-          </label>
-          
-          <div class="flex gap-2">
-            <Button variant="secondary" size="sm" on:click={() => showBackfill = !showBackfill}>
-              {showBackfill ? 'Hide' : 'Show'} Backfill
-            </Button>
-            <Button variant="secondary" size="sm" on:click={fetchBodies}>
-              Fetch Bodies
-            </Button>
-            <Button variant="primary" size="sm" {loading} on:click={resetPagination}>
-              {loading ? 'Loading...' : 'Refresh'}
-            </Button>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Backfill Section (collapsible) -->
-      {#if showBackfill}
-        <div class="bg-blue-900/10 border border-blue-700/30 rounded-xl p-5">
-          <div class="flex items-center gap-2 mb-4">
-            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <h3 class="text-lg font-semibold text-blue-300">Historical Backfill</h3>
-          </div>
-          
-          <p class="text-sm text-neutral-400 mb-4">
-            Fetch historical news data from all capable adapters.
-          </p>
-          
-          {#if adapters.length > 0}
-            <div class="mb-4 p-3 bg-neutral-800/50 rounded-lg">
-              <p class="text-xs text-neutral-400 mb-2">Available Adapters:</p>
-              <div class="flex flex-wrap gap-2">
-                {#each adapters.filter(a => a.supports_historical) as adapter}
-                  <Badge variant="success" size="sm">{adapter.name}</Badge>
-                {/each}
-                {#each adapters.filter(a => !a.supports_historical) as adapter}
-                  <Badge variant="secondary" size="sm">{adapter.name} (current only)</Badge>
-                {/each}
-              </div>
-            </div>
-          {/if}
-          
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <Input label="Query" placeholder="semiconductor OR chip" bind:value={backfillQuery} />
-            <Input label="From Date" type="date" bind:value={backfillFrom} />
-            <Input label="To Date" type="date" bind:value={backfillTo} />
-          </div>
-          
-          {#if backfillMsg}
-            <div class="mb-4 p-3 rounded-lg {backfillMsg.startsWith('✓') ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'} text-sm whitespace-pre-wrap">
-              {backfillMsg}
-            </div>
-          {/if}
-          
-          <Button variant="primary" size="sm" loading={backfilling} on:click={startBackfill}>
-            {backfilling ? 'Starting Backfill...' : 'Start Backfill Job'}
-          </Button>
-        </div>
-      {/if}
-    </div>
-
-    <!-- Pagination (fixed, always visible) -->
-    {#if totalItems > pageSize}
-      <div class="flex-shrink-0 max-w-5xl w-full mx-auto px-6 pb-4">
-        <Pagination 
-          {currentPage}
-          {totalItems} 
-          {pageSize} 
-          disabled={loading}
-          on:pagechange={handlePageChange} 
-        />
-      </div>
-    {/if}
-
-    <!-- Scrollable Content Area -->
-    <div class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-6 pb-6">
-      <!-- Error -->
-      {#if err}
-        <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-sm text-red-400 mb-4">
-          {err}
-        </div>
-      {/if}
-
-      <!-- Loading State -->
-      {#if loading}
-        <div class="flex items-center justify-center py-12">
-          <div class="flex flex-col items-center gap-3">
-            <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p class="text-sm text-neutral-400">Loading news articles...</p>
-          </div>
-        </div>
-      {/if}
-      
-      <!-- News Grid -->
-      {#if !loading && items.length > 0}
-        <div class="grid gap-4">
-          {#each items as item (item.id)}
-            <NewsCard {item} on:delete={handleDelete} />
-          {/each}
-        </div>
-      {:else if !loading && items.length === 0}
-        <div class="flex flex-col items-center justify-center py-16 text-center">
-          <svg class="w-16 h-16 text-neutral-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2.5 2.5 0 00-2.5-2.5H15" />
-          </svg>
-          <h3 class="text-lg font-semibold text-neutral-300 mb-1">No articles found</h3>
-          <p class="text-sm text-neutral-500">Try adjusting your filters or date range</p>
-        </div>
-      {/if}
-    </div>
-  {:else}
-    <!-- QUALITY TAB -->
-    <div class="flex-1 overflow-y-auto px-6 py-6 space-y-6 max-w-5xl w-full mx-auto">
-      <!-- Quality Controls -->
-      <Card>
-        <div class="space-y-4">
-          <h2 class="text-lg font-semibold text-neutral-100">🔍 Data Quality Validation</h2>
-          <p class="text-sm text-neutral-400">
-            Scan loaded articles for quality issues like broken content, access denied, or missing bodies.
-          </p>
-          
-          <div class="flex gap-2">
-            <Button
-              variant="primary"
-              loading={qualityValidating}
-              on:click={validateQuality}
-              disabled={items.length === 0}
-            >
-              {qualityValidating ? 'Scanning...' : `Validate ${items.length} Articles`}
-            </Button>
-          </div>
-          
-          {#if qualityMessage}
-            <div class="p-3 rounded-lg {qualityMessage.startsWith('✓') ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'} text-sm">
-              {qualityMessage}
-            </div>
-          {/if}
-        </div>
-      </Card>
-
-      {#if qualityResults}
-        <!-- Quality Summary -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="bg-gradient-to-br from-neutral-800/80 to-neutral-800/40 border border-neutral-700/50 rounded-xl p-6">
-            <div class="text-sm font-medium text-neutral-400 mb-2">Articles Checked</div>
-            <div class="text-3xl font-bold text-neutral-100">{qualityResults.total_checked}</div>
-          </div>
-          
-          <div class="bg-gradient-to-br from-emerald-900/20 to-emerald-900/10 border border-emerald-700/30 rounded-xl p-6">
-            <div class="text-sm font-medium text-emerald-400 mb-2">Valid</div>
-            <div class="text-3xl font-bold text-emerald-300">{qualityResults.valid_count}</div>
-            <div class="text-xs text-emerald-500 mt-2">{qualityResults.quality_score.toFixed(1)}% quality</div>
-          </div>
-          
-          <div class="bg-gradient-to-br from-red-900/20 to-red-900/10 border border-red-700/30 rounded-xl p-6">
-            <div class="text-sm font-medium text-red-400 mb-2">Broken</div>
-            <div class="text-3xl font-bold text-red-300">{qualityResults.invalid_count}</div>
-            <div class="text-xs text-red-500 mt-2">need attention</div>
-          </div>
-          
-          <div class="bg-gradient-to-br from-neutral-800/80 to-neutral-800/40 border border-neutral-700/50 rounded-xl p-6">
-            <div class="text-sm font-medium text-neutral-400 mb-2">Status</div>
-            <div class="text-lg font-bold {qualityResults.quality_score >= 80 ? 'text-emerald-300' : qualityResults.quality_score >= 50 ? 'text-amber-300' : 'text-red-300'}">
-              {qualityResults.quality_score >= 80 ? '✓ Good' : qualityResults.quality_score >= 50 ? '⚠️ Fair' : '✗ Poor'}
-            </div>
-          </div>
-        </div>
-
-        <!-- Broken Articles List -->
-        {#if qualityResults.errors && qualityResults.errors.length > 0}
-          <Card padding="p-0">
-            <div class="divide-y divide-neutral-700/30">
-              <div class="p-4 bg-neutral-800/30 sticky top-0">
-                <div class="flex items-center justify-between mb-3">
-                  <h3 class="font-semibold text-neutral-100">Broken Articles ({qualityResults.errors.length})</h3>
-                  <div class="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      on:click={selectAllBroken}
-                      disabled={selectedBrokenIds.size === qualityResults.errors.length}
-                    >
-                      Select All
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      on:click={deselectAllBroken}
-                      disabled={selectedBrokenIds.size === 0}
-                    >
-                      Deselect All
-                    </Button>
-                  </div>
-                </div>
-                
-                {#if selectedBrokenIds.size > 0}
-                  <div class="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      loading={bulkRecheckLoading}
-                      on:click={bulkRecheck}
-                    >
-                      Re-check Selected ({selectedBrokenIds.size})
-                    </Button>
-                    <button
-                      on:click={bulkDelete}
-                      disabled={bulkDeleteLoading}
-                      class="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 disabled:bg-neutral-700 text-white rounded transition-colors font-medium"
-                    >
-                      {bulkDeleteLoading ? 'Deleting...' : `Delete Selected (${selectedBrokenIds.size})`}
-                    </button>
-                  </div>
-                {/if}
-              </div>
-              
-              {#each qualityResults.errors as error}
-                <div class="p-4 hover:bg-neutral-800/30 transition-colors cursor-pointer">
-                  <div class="flex items-start gap-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedBrokenIds.has(error.id)}
-                      on:change={() => toggleBrokenSelection(error.id)}
-                      class="mt-1 rounded border-neutral-600 bg-neutral-700 text-red-600 focus:ring-2 focus:ring-red-500/50 cursor-pointer"
-                    />
-                    
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2 mb-2">
-                        <span class="font-mono text-xs text-neutral-500">{error.source}</span>
-                        <Badge variant="error" size="sm">{error.error}</Badge>
-                      </div>
-                      <p class="text-sm text-neutral-300 mb-2 line-clamp-2">{error.title}</p>
-                      <a
-                        href={error.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="text-xs text-blue-400 hover:text-blue-300 break-all"
-                      >
-                        {error.url}
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </Card>
-        {:else}
-          <div class="text-center py-8 text-neutral-500">
-            <p class="text-sm">✓ All articles look good!</p>
-          </div>
-        {/if}
-      {/if}
-    </div>
-  {/if}
+<div class="page-header">
+	<h1>📰 News Command Center</h1>
+	<p>Advanced news discovery and management with full control</p>
 </div>
 
+{#if error}
+	<div class="alert alert-error" style="margin-bottom: 1.5rem;">
+		{error}
+		<button on:click={() => (error = '')} style="float: right; background: none; border: none; cursor: pointer; font-size: 1.2rem;">×</button>
+	</div>
+{/if}
+
+<!-- Quick Stats Bar -->
+<div class="quick-stats">
+	<div class="stat-item">
+		<span class="stat-label">Total Articles</span>
+		<span class="stat-value">{totalArticles}</span>
+	</div>
+	<div class="stat-item">
+		<span class="stat-label">Today</span>
+		<span class="stat-value">{healthStatus?.articles_today || 0}</span>
+	</div>
+	<div class="stat-item">
+		<span class="stat-label">Health</span>
+		<span class="stat-value" style="color: {healthStatus?.status === 'healthy' ? '#10b981' : '#ef4444'};">
+			{healthStatus?.status === 'healthy' ? '🟢 Healthy' : '🔴 ' + healthStatus?.status}
+		</span>
+	</div>
+	<div class="stat-item">
+		<span class="stat-label">Active Jobs</span>
+		<span class="stat-value">{jobStats?.stats?.running || 0}</span>
+	</div>
+	<div class="stat-item">
+		<span class="stat-label">Crawl Success</span>
+		<span class="stat-value">{healthStatus?.crawl_success_rate || 0}%</span>
+	</div>
+</div>
+
+<!-- Active Backfill Widget -->
+{#if activeJob}
+	<div class="active-backfill-widget">
+		<div class="widget-header">
+			<span>🔄 RUNNING: {activeJob.payload?.topic || 'Backfill'}</span>
+			<span class="progress-pct">{activeJob.progress_pct || 0}%</span>
+		</div>
+		<div class="progress-bar">
+			<div class="progress-fill" style="width: {activeJob.progress_pct || 0}%"></div>
+		</div>
+		<div class="widget-stats">
+			<div>📊 Ingested: {activeJob.items_processed || 0}</div>
+			<div>⚠️ Discarded: {activeJob.items_failed || 0}</div>
+			<div>🟢 Health: Healthy</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Tab Navigation -->
+<div class="tab-navigation">
+	<button class="tab-button" class:active={activeTab === 'browse'} on:click={() => (activeTab = 'browse')}>
+		📋 Browse
+	</button>
+	<button class="tab-button" class:active={activeTab === 'analytics'} on:click={() => (activeTab = 'analytics')}>
+		📈 Analytics
+	</button>
+	<button class="tab-button" class:active={activeTab === 'backfill'} on:click={() => (activeTab = 'backfill')}>
+		📥 Backfill & Maintenance
+	</button>
+	<button class="tab-button" class:active={activeTab === 'quality'} on:click={() => (activeTab = 'quality')}>
+		✅ Data Quality
+	</button>
+</div>
+
+<!-- TAB: BROWSE -->
+{#if activeTab === 'browse'}
+	<section class="tab-content">
+		<!-- Search & Filters -->
+		<div class="search-filters">
+			<div class="filter-row">
+				<Input
+					bind:value={searchQuery}
+					placeholder="Search articles..."
+					on:keydown={(e) => {
+						if (e.key === 'Enter') handleSearch();
+					}}
+				/>
+				<Button on:click={handleSearch} loading={loading}>Search</Button>
+			</div>
+
+			<div class="filter-row">
+				<div class="filter-group">
+					<label for="from-date">From Date</label>
+					<input id="from-date" type="date" bind:value={fromDate} />
+				</div>
+				<div class="filter-group">
+					<label for="to-date">To Date</label>
+					<input id="to-date" type="date" bind:value={toDate} />
+				</div>
+				<div class="filter-group">
+					<label for="tickers">Tickers</label>
+					<Input id="tickers" bind:value={selectedTickers} placeholder="AAPL, MSFT, NVDA" />
+				</div>
+				<div class="filter-group">
+					<label for="sort">Sort By</label>
+					<select id="sort" bind:value={sortBy}>
+						<option value="date">Date</option>
+						<option value="relevance">Relevance</option>
+					</select>
+				</div>
+			</div>
+		</div>
+
+		<!-- Article List -->
+		{#if loading}
+			<div class="loading">Loading articles...</div>
+		{:else if articles.length > 0}
+			<div class="article-list">
+				<div class="article-header">
+					<div class="col-checkbox">
+						<input
+							type="checkbox"
+							checked={selectedArticleIds.size === articles.length && articles.length > 0}
+							on:change={toggleAllArticles}
+						/>
+					</div>
+					<div class="col-topic">Topic</div>
+					<div class="col-title">Title</div>
+					<div class="col-date">Date</div>
+					<div class="col-source">Source</div>
+					<div class="col-size">Size</div>
+					<div class="col-actions">Actions</div>
+				</div>
+
+				{#each articles as article (article.id)}
+					<div class="article-row">
+						<div class="col-checkbox">
+							<input
+								type="checkbox"
+								checked={selectedArticleIds.has(article.id)}
+								on:change={() => toggleArticleSelection(article.id)}
+							/>
+						</div>
+						<div class="col-topic">
+							{#if article.topics && article.topics.length > 0}
+								<span class="topic-badge">{article.topics[0]}</span>
+							{/if}
+						</div>
+						<div class="col-title">
+							<a href={article.url} target="_blank" rel="noopener">
+								{article.title}
+							</a>
+						</div>
+						<div class="col-date">
+							{formatDate(article.published_at)}
+						</div>
+						<div class="col-source">
+							{article.source}
+						</div>
+						<div class="col-size">
+							{formatSize(article.content_text)}
+						</div>
+						<div class="col-actions">
+							<button class="action-icon" title="View">👁️</button>
+							<button class="action-icon" title="Star">⭐</button>
+							<button class="action-icon" title="Delete">🗑️</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+
+			<!-- Pagination -->
+			<div class="pagination">
+				<span>Page {currentPage} of {Math.ceil(totalArticles / pageSize)} ({totalArticles} total)</span>
+				<div class="pagination-controls">
+					<Button
+						disabled={currentPage === 1}
+						on:click={() => {
+							currentPage = Math.max(1, currentPage - 1);
+							loadData();
+						}}
+					>
+						← Previous
+					</Button>
+					<Button
+						disabled={currentPage >= Math.ceil(totalArticles / pageSize)}
+						on:click={() => {
+							currentPage = Math.min(Math.ceil(totalArticles / pageSize), currentPage + 1);
+							loadData();
+						}}
+					>
+						Next →
+					</Button>
+				</div>
+			</div>
+		{:else}
+			<div class="no-data">No articles found. Try adjusting your filters.</div>
+		{/if}
+	</section>
+{/if}
+
+<!-- TAB: ANALYTICS -->
+{#if activeTab === 'analytics'}
+	<section class="tab-content">
+		<div class="coming-soon">
+			📈 Analytics Tab (Phase 2)
+			<br />
+			<small>Coverage charts, topic distribution, trending keywords coming soon...</small>
+		</div>
+	</section>
+{/if}
+
+<!-- TAB: BACKFILL & MAINTENANCE -->
+{#if activeTab === 'backfill'}
+	<section class="tab-content">
+		<div class="operation-section">
+			<h3>📥 Start New Backfill</h3>
+			{#if showBackfillForm}
+				<div class="form-card">
+					<div class="form-group">
+						<label for="backfill-query">Query</label>
+						<Input id="backfill-query" bind:value={backfillQuery} placeholder="e.g., AI, semiconductor" />
+					</div>
+					<div class="form-row">
+						<div class="form-group">
+							<label for="backfill-from">From Date</label>
+							<input id="backfill-from" type="date" bind:value={backfillFrom} />
+						</div>
+						<div class="form-group">
+							<label for="backfill-to">To Date</label>
+							<input id="backfill-to" type="date" bind:value={backfillTo} />
+						</div>
+					</div>
+					<div class="form-group">
+						<label for="backfill-max">Max Articles per Day</label>
+						<input id="backfill-max" type="number" min="1" max="1000" bind:value={backfillMaxPerDay} />
+						<small style="color: var(--color-text-tertiary); margin-top: 0.25rem;">Limits API load and crawling resources</small>
+					</div>
+					{#if backfillMessage}
+						<div class="message">{backfillMessage}</div>
+					{/if}
+					<div class="form-actions">
+						<Button on:click={handleBackfill} loading={backfilling}>Start Backfill</Button>
+						<button on:click={() => (showBackfillForm = false)} class="btn-secondary">Cancel</button>
+					</div>
+				</div>
+			{:else}
+				<Button on:click={() => (showBackfillForm = true)}>➕ New Backfill</Button>
+			{/if}
+		</div>
+	</section>
+{/if}
+
+<!-- TAB: DATA QUALITY -->
+{#if activeTab === 'quality'}
+	<section class="tab-content">
+		<div class="coming-soon">
+			✅ Data Quality Tab (Phase 2)
+			<br />
+			<small>Quality scores, link validation, duplicate detection coming soon...</small>
+		</div>
+	</section>
+{/if}
+
+<style>
+	.page-header {
+		margin-bottom: 2rem;
+	}
+
+	.page-header h1 {
+		font-size: 2rem;
+		font-weight: 700;
+		color: var(--color-text);
+		margin-bottom: 0.5rem;
+	}
+
+	.page-header p {
+		color: var(--color-text-secondary);
+		font-size: 0.875rem;
+	}
+
+	.alert {
+		padding: 1rem;
+		border-radius: var(--radius-md);
+		border: 1px solid;
+	}
+
+	.alert-error {
+		background: rgba(239, 68, 68, 0.1);
+		border-color: rgba(239, 68, 68, 0.3);
+		color: #ef4444;
+	}
+
+	.quick-stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 1rem;
+		margin-bottom: 2rem;
+	}
+
+	.stat-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 1rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+	}
+
+	.stat-label {
+		font-size: 0.75rem;
+		color: var(--color-text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.stat-value {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: var(--color-accent);
+	}
+
+	.active-backfill-widget {
+		margin-bottom: 2rem;
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid var(--color-accent);
+		border-radius: var(--radius-lg);
+	}
+
+	.widget-header {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 1rem;
+		font-weight: 600;
+		color: var(--color-text);
+	}
+
+	.progress-pct {
+		color: var(--color-accent);
+		font-size: 1.25rem;
+	}
+
+	.progress-bar {
+		width: 100%;
+		height: 8px;
+		background: rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-xl);
+		overflow: hidden;
+		margin-bottom: 1rem;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, var(--color-accent), var(--color-primary));
+		transition: width 0.3s ease;
+	}
+
+	.widget-stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		gap: 1rem;
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+	}
+
+	.tab-navigation {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 2rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+	}
+
+	.tab-button {
+		padding: 0.75rem 1.5rem;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--color-text-secondary);
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.tab-button:hover {
+		color: var(--color-text);
+	}
+
+	.tab-button.active {
+		color: var(--color-accent);
+		border-bottom-color: var(--color-accent);
+	}
+
+	.tab-content {
+		animation: fadeIn 0.2s ease;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.search-filters {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin-bottom: 2rem;
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+	}
+
+	.filter-row {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 1rem;
+		align-items: end;
+	}
+
+	.filter-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.filter-group label {
+		font-weight: 500;
+		color: var(--color-text-secondary);
+		font-size: 0.875rem;
+	}
+
+	.filter-group input,
+	.filter-group select {
+		padding: 0.5rem;
+		background: rgba(71, 85, 105, 0.2);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		color: var(--color-text);
+		font-family: inherit;
+	}
+
+	.article-list {
+		margin-bottom: 2rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		overflow: hidden;
+	}
+
+	.article-header {
+		display: grid;
+		grid-template-columns: 40px 80px 1fr 100px 100px 80px 80px;
+		gap: 1rem;
+		padding: 1rem 1.5rem;
+		background: rgba(71, 85, 105, 0.2);
+		border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+		font-weight: 600;
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		align-items: center;
+	}
+
+	.article-row {
+		display: grid;
+		grid-template-columns: 40px 80px 1fr 100px 100px 80px 80px;
+		gap: 1rem;
+		padding: 1rem 1.5rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.15);
+		align-items: center;
+		transition: background 0.2s ease;
+	}
+
+	.article-row:hover {
+		background: rgba(71, 85, 105, 0.1);
+	}
+
+	.col-checkbox {
+		display: flex;
+		justify-content: center;
+	}
+
+	.col-checkbox input {
+		cursor: pointer;
+	}
+
+	.col-topic {
+		display: flex;
+		align-items: center;
+	}
+
+	.topic-badge {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		background: rgba(34, 197, 211, 0.2);
+		color: #06b6d4;
+		border-radius: var(--radius-sm);
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.col-title a {
+		color: var(--color-accent);
+		text-decoration: none;
+		font-weight: 500;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.col-title a:hover {
+		text-decoration: underline;
+	}
+
+	.col-date,
+	.col-source,
+	.col-size {
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+	}
+
+	.col-actions {
+		display: flex;
+		gap: 0.5rem;
+		justify-content: center;
+	}
+
+	.action-icon {
+		background: none;
+		border: none;
+		font-size: 1rem;
+		cursor: pointer;
+		opacity: 0.6;
+		transition: opacity 0.2s ease;
+		padding: 0.25rem;
+	}
+
+	.action-icon:hover {
+		opacity: 1;
+	}
+
+	.pagination {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+	}
+
+	.pagination-controls {
+		display: flex;
+		gap: 1rem;
+	}
+
+	.loading {
+		text-align: center;
+		padding: 2rem;
+		color: var(--color-text-secondary);
+	}
+
+	.no-data {
+		text-align: center;
+		padding: 2rem;
+		color: var(--color-text-secondary);
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+	}
+
+	.coming-soon {
+		text-align: center;
+		padding: 3rem 2rem;
+		color: var(--color-text-secondary);
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		font-size: 1.125rem;
+		font-weight: 500;
+	}
+
+	.coming-soon small {
+		display: block;
+		font-size: 0.875rem;
+		margin-top: 0.5rem;
+		opacity: 0.7;
+	}
+
+	.operation-section {
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		margin-bottom: 2rem;
+	}
+
+	.operation-section h3 {
+		margin-bottom: 1rem;
+		color: var(--color-text);
+	}
+
+	.form-card {
+		padding: 1rem;
+		background: rgba(71, 85, 105, 0.1);
+		border-radius: var(--radius-md);
+	}
+
+	.form-group {
+		margin-bottom: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.form-group label {
+		font-weight: 500;
+		color: var(--color-text-secondary);
+		font-size: 0.875rem;
+	}
+
+	.form-group input {
+		padding: 0.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		color: var(--color-text);
+		font-family: inherit;
+	}
+
+	.form-group small {
+		display: block;
+		color: var(--color-text-tertiary);
+		margin-top: 0.25rem;
+	}
+
+	.form-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 1rem;
+		margin-top: 1rem;
+	}
+
+	.btn-secondary {
+		padding: 0.5rem 1rem;
+		background: transparent;
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-secondary:hover {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	.message {
+		padding: 0.5rem;
+		margin-bottom: 1rem;
+		border-radius: var(--radius-md);
+		background: rgba(34, 197, 211, 0.1);
+		color: #06b6d4;
+		font-size: 0.875rem;
+	}
+</style>
