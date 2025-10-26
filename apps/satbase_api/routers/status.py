@@ -85,21 +85,7 @@ def _analyze_news_coverage(stage_dir: Path) -> dict:
         "articles_with_bodies": 0
     }
     
-    # Analyze GDELT news
-    gdelt_dir = stage_dir / "gdelt"
-    if gdelt_dir.exists():
-        gdelt_stats = _scan_news_source(gdelt_dir)
-        result["sources"]["gdelt"] = gdelt_stats
-        result["total_articles"] += gdelt_stats["count"]
-    
-    # Analyze RSS news
-    rss_dir = stage_dir / "news_rss"
-    if rss_dir.exists():
-        rss_stats = _scan_news_source(rss_dir)
-        result["sources"]["rss"] = rss_stats
-        result["total_articles"] += rss_stats["count"]
-    
-    # Analyze Mediastack news
+    # Analyze Mediastack news (ONLY SOURCE)
     mediastack_dir = stage_dir / "mediastack"
     if mediastack_dir.exists():
         mediastack_stats = _scan_news_source(mediastack_dir)

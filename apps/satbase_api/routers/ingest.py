@@ -176,29 +176,20 @@ def _run_news(job_id: str, query: str, topic: str | None = None, hours: int | No
     reg = registry()
     results: dict[str, Any] = {}
     try:
-        # GDELT doc v2
-        if "gdelt_doc_v2" in reg:
-            fetch, normalize, sink = reg["gdelt_doc_v2"]
+        # Mediastack ONLY (daily ingestion)
+        if "mediastack" in reg:
+            fetch, normalize, sink = reg["mediastack"]
             params = {"query": query}
             if hours is not None:
-                params["window_hours"] = hours
+                # Mediastack uses days, convert hours to days
+                params["days"] = max(1, hours // 24)
             raw = fetch(params)
-            models = list(normalize(raw, topic))  # NEW: pass topic
-            info = sink(models, date.today(), topic)  # NEW: pass topic
-            results["gdelt_doc_v2"] = info
-        # Google RSS
-        if "news_google_rss" in reg:
-            fetch, normalize, sink = reg["news_google_rss"]
-            params = {"query": query}
-            raw = fetch(params)
-            models = list(normalize(raw, topic))  # NEW: pass topic
-            info = sink(models, date.today(), topic)  # NEW: pass topic
-            results["news_google_rss"] = info
+            models = list(normalize(raw, topic))
+            info = sink(models, date.today(), topic)
+            results["mediastack"] = info
+        
         _JOBS[job_id].update({"status": "done", "result": results})
         _persist_job(job_id)
-        
-        # Note: News body fetching is now handled by satbase_scheduler background job
-        # This decouples the blocking I/O from the API layer
         
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
@@ -236,23 +227,12 @@ def _run_news_backfill(
     registry_full = registry_with_metadata()
     results: dict[str, Any] = {}
     
-    # Build GDELT query filters based on tone_filter
-    tone_query_suffix = ""
-    if tone_filter == "positive":
-        tone_query_suffix = " tone>5"
-    elif tone_filter == "negative":
-        tone_query_suffix = " tone<-5"
-    elif tone_filter == "neutral":
-        tone_query_suffix = " tone>-1 tone<1"
-    
     try:
-        # Find all news adapters that support historical queries
-        # For backfill: MEDIASTACK ONLY (highly optimized, we pay per call anyway)
-        # GDELT/RSS are for daily real-time ingestion only
+        # Find Mediastack adapter (ONLY source for backfill)
         historical_adapters = {
             name: entry for name, entry in registry_full.items()
             if entry.metadata.category == "news" and entry.metadata.supports_historical
-            and name == "mediastack"  # BACKFILL: MEDIASTACK ONLY!
+            and name == "mediastack"
         }
         
         if not historical_adapters:
@@ -403,7 +383,7 @@ def _run_fetch_missing_bodies(job_id: str, max_articles: int = 300, days_back: i
         today = date.today()
         for d_off in range(0, days_back):
             d = today - timedelta(days=d_off)
-            for source in ["news_rss", "gdelt"]:
+            for source in ["mediastack"]:  # Mediastack only
                 docs_path = partition_path(stage, source, d) / "news_docs.parquet"
                 if not docs_path.exists():
                     continue
@@ -787,7 +767,7 @@ def _run_delete_topic(job_id: str, topic_name: str) -> None:
     
     try:
         # Scan all news_docs across all sources and dates
-        for source in ["gdelt", "news_rss"]:
+        for source in ["mediastack"]:  # Mediastack only
             source_dir = Path(s.stage_dir) / source
             if not source_dir.exists():
                 continue

@@ -90,7 +90,7 @@ async def _ingest_topic(client: httpx.AsyncClient, topic: str, max_retries: int 
             elif response.status_code >= 400:
                 raise Exception(f"API error: {response.status_code}")
             else:
-                data = response.json(); return {"articles_count": data.get("result", {}).get("gdelt_doc_v2", {}).get("count", 0)}
+                data = response.json(); return {"articles_count": data.get("result", {}).get("mediastack", {}).get("count", 0)}
         except Exception as e:
             last_error = e; attempt += 1
             if attempt < max_retries:
