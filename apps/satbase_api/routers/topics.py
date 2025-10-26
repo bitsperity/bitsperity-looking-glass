@@ -6,7 +6,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 import polars as pl
-from fastapi import APIRouter, Query
+import json
+from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.stage import scan_parquet_glob
@@ -260,3 +261,117 @@ def get_topic_coverage(
             "topics": topic_list,
             "periods": periods
         }
+
+
+@router.post("/news/topics/add")
+def add_topic(body: dict[str, Any]):
+    """
+    Add a new topic to the configured topics list.
+    
+    Request body:
+    - symbol: topic name (e.g., "AI", "semiconductor")
+    - expires_at: optional expiration date (defaults to 1 year from now)
+    
+    Returns:
+    - success: bool
+    - topic: added topic object
+    - error: error message if failed
+    """
+    s = load_settings()
+    topic_name = body.get("symbol", "").strip().upper()
+    
+    if not topic_name:
+        raise HTTPException(status_code=400, detail="Topic name (symbol) is required")
+    
+    # Load topics file
+    topics_file = Path(s.stage_dir).parent / "control" / "topics.json"
+    topics_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        if topics_file.exists():
+            with open(topics_file, "r") as f:
+                data = json.load(f)
+                topics_list = data.get("topics", [])
+        else:
+            topics_list = []
+            data = {"topics": topics_list}
+        
+        # Check if topic already exists
+        if any(t.get("symbol") == topic_name for t in topics_list):
+            raise HTTPException(status_code=409, detail=f"Topic '{topic_name}' already exists")
+        
+        # Add new topic
+        today = date.today().isoformat()
+        expires_at = body.get("expires_at", (date.today() + timedelta(days=365)).isoformat())
+        
+        new_topic = {
+            "symbol": topic_name,
+            "added_at": today,
+            "expires_at": expires_at
+        }
+        
+        topics_list.append(new_topic)
+        
+        # Save to file
+        with open(topics_file, "w") as f:
+            json.dump({"topics": topics_list}, f, indent=2)
+        
+        return {
+            "success": True,
+            "topic": new_topic,
+            "total_topics": len(topics_list)
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add topic: {str(e)}")
+
+
+@router.delete("/news/topics/{topic_name}")
+def delete_topic(topic_name: str):
+    """
+    Remove a topic from the configured topics list.
+    
+    Note: This does NOT delete articles with this topic;
+    it only removes it from the scheduled ingestion list.
+    
+    Returns:
+    - success: bool
+    - topic_removed: topic name
+    - remaining_count: number of topics left
+    """
+    topic_name = topic_name.strip().upper()
+    
+    s = load_settings()
+    topics_file = Path(s.stage_dir).parent / "control" / "topics.json"
+    
+    if not topics_file.exists():
+        raise HTTPException(status_code=404, detail="Topics file not found")
+    
+    try:
+        with open(topics_file, "r") as f:
+            data = json.load(f)
+            topics_list = data.get("topics", [])
+        
+        # Find and remove topic
+        original_count = len(topics_list)
+        topics_list = [t for t in topics_list if t.get("symbol") != topic_name]
+        
+        if len(topics_list) == original_count:
+            raise HTTPException(status_code=404, detail=f"Topic '{topic_name}' not found")
+        
+        # Save to file
+        with open(topics_file, "w") as f:
+            json.dump({"topics": topics_list}, f, indent=2)
+        
+        return {
+            "success": True,
+            "topic_removed": topic_name,
+            "remaining_count": len(topics_list)
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete topic: {str(e)}")

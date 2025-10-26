@@ -2,18 +2,9 @@
 	import { onMount } from 'svelte';
 	import SatbaseNav from '$lib/components/satbase/SatbaseNav.svelte';
 	import * as satbaseApi from '$lib/api/satbase';
-	import { Button } from '$lib/components/shared/Button.svelte';
-	import { Input } from '$lib/components/shared/Input.svelte';
-	import { Card } from '$lib/components/shared/Card.svelte';
-	import {
-		ChevronDown,
-		Plus,
-		Trash2,
-		TrendingUp,
-		Tag,
-		Calendar,
-		Hash
-	} from 'lucide-svelte';
+	import Button from '$lib/components/shared/Button.svelte';
+	import Input from '$lib/components/shared/Input.svelte';
+	import Card from '$lib/components/shared/Card.svelte';
 
 	interface Topic {
 		name: string;
@@ -93,18 +84,34 @@
 			return;
 		}
 
-		// TODO: API call to add topic to control/topics.json
-		newTopic = '';
-		showAddForm = false;
-		await loadTopics();
+		loading = true;
+		error = '';
+		try {
+			await satbaseApi.addTopic(topicName);
+			newTopic = '';
+			showAddForm = false;
+			await loadTopics();
+		} catch (err) {
+			error = `Failed to add topic: ${err}`;
+		} finally {
+			loading = false;
+		}
 	}
 
 	async function deleteTopic(topicName: string) {
 		if (!confirm(`Delete topic "${topicName}"? This will not remove existing articles tagged with this topic.`))
 			return;
 
-		// TODO: API call to remove from control/topics.json
-		await loadTopics();
+		loading = true;
+		error = '';
+		try {
+			await satbaseApi.deleteTopic(topicName);
+			await loadTopics();
+		} catch (err) {
+			error = `Failed to delete topic: ${err}`;
+		} finally {
+			loading = false;
+		}
 	}
 
 	function formatCount(count: number): string {
@@ -172,7 +179,7 @@
 									type="text"
 								/>
 								<Button on:click={addTopic} variant="primary">
-									<Plus class="w-4 h-4 mr-2" />
+									<span class="w-4 h-4 mr-2">➕</span>
 									Add
 								</Button>
 								<Button on:click={() => (showAddForm = false)} variant="ghost">
@@ -184,7 +191,7 @@
 				{:else}
 					<div class="mb-4">
 						<Button on:click={() => (showAddForm = true)} variant="primary">
-							<Plus class="w-4 h-4 mr-2" />
+							<span class="w-4 h-4 mr-2">➕</span>
 							Add Topic
 						</Button>
 					</div>
@@ -195,7 +202,7 @@
 					<div class="text-center text-slate-400 py-8">Loading topics...</div>
 				{:else if allTopics.length === 0}
 					<Card padding="p-12" classes="bg-slate-900/50 border-slate-700 text-center">
-						<Tag class="w-12 h-12 mx-auto text-slate-600 mb-4" />
+						<span class="w-12 h-12 mx-auto text-slate-600 mb-4">🗑️</span>
 						<p class="text-slate-400 mb-4">No topics yet. Create one to get started.</p>
 					</Card>
 				{:else}
@@ -210,15 +217,14 @@
 									<Button
 										on:click={() => deleteTopic(topic.name)}
 										variant="ghost"
-										classes="text-red-400 hover:text-red-300 hover:bg-red-900/20"
 									>
-										<Trash2 class="w-4 h-4" />
+										<span class="w-4 h-4">🗑️</span>
 									</Button>
 								</div>
 
 								<div class="space-y-2">
 									<div class="flex items-center gap-2">
-										<Hash class="w-4 h-4 text-slate-500" />
+										<span class="w-4 h-4 text-slate-500">🔗</span>
 										<span class="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
 											{formatCount(topic.count)}
 										</span>
@@ -233,9 +239,8 @@
 											viewMode = 'analytics';
 										}}
 										variant="ghost"
-										classes="w-full text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20"
 									>
-										<TrendingUp class="w-4 h-4 mr-2" />
+										<span class="w-4 h-4 mr-2">📈</span>
 										View Trends
 									</Button>
 								</div>
@@ -262,7 +267,6 @@
 									type="date"
 									bind:value={fromDate}
 									id="fromDate"
-									classes="bg-slate-800 border-slate-600 text-white"
 								/>
 							</div>
 							<div>
@@ -271,7 +275,6 @@
 									type="date"
 									bind:value={toDate}
 									id="toDate"
-									classes="bg-slate-800 border-slate-600 text-white"
 								/>
 							</div>
 							<div>
@@ -318,16 +321,15 @@
 							<Button
 								on:click={loadChartData}
 								disabled={chartLoading || selectedTopicsForChart.length === 0}
-								classes="bg-emerald-600 hover:bg-emerald-700 text-white disabled:bg-slate-700 disabled:text-slate-400"
+								variant="primary"
 							>
-								<TrendingUp class="w-4 h-4 mr-2" />
+								<span class="w-4 h-4 mr-2">📈</span>
 								Load Analytics
 							</Button>
 							{#if selectedTopicsForChart.length > 0}
 								<Button
 									on:click={() => (selectedTopicsForChart = [])}
 									variant="ghost"
-									classes="text-slate-400 hover:text-slate-300"
 								>
 									Clear Selection
 								</Button>

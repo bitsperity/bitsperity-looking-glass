@@ -282,3 +282,20 @@ export async function getTopicsCoverage(
 
   return apiGet(`/v1/news/topics/coverage?${queryParams.toString()}`);
 }
+
+/**
+ * Add a new topic
+ */
+export async function addTopic(symbol: string, expiresAt?: string): Promise<any> {
+  return apiPost('/v1/news/topics/add', {
+    symbol,
+    expires_at: expiresAt
+  });
+}
+
+/**
+ * Delete a topic
+ */
+export async function deleteTopic(topicName: string): Promise<any> {
+  return apiDelete(`/v1/news/topics/${topicName}`);
+}
