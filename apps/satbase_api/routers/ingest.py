@@ -277,12 +277,10 @@ def _run_news_backfill(
                 try:
                     fetch, normalize, sink = entry.fns
                     
-                    # Build query with tone filters
-                    filtered_query = query + tone_query_suffix
-                    
-                    # Prepare params for Mediastack (BACKFILL: ONLY MEDIASTACK)
+                    # Build query - Mediastack doesn't support tone filters like GDELT
+                    # So we send the query as-is without tone_query_suffix
                     params = {
-                        "query": filtered_query,
+                        "query": query,  # <-- NO tone_query_suffix for Mediastack!
                         "date_from": current_date.strftime("%Y-%m-%d"),
                         "date_to": next_date.strftime("%Y-%m-%d"),
                         "limit": min(max_articles_per_day, 100),  # Max 100 per request
