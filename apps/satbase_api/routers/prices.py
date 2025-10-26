@@ -1,177 +1,202 @@
 from datetime import date
-import polars as pl
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, status, BackgroundTasks
 from fastapi.responses import JSONResponse
-from .ingest import enqueue_prices_daily
+from pathlib import Path
+
 from libs.satbase_core.config.settings import load_settings
-from libs.satbase_core.storage.stage import scan_ticker_parquet
+from libs.satbase_core.storage.prices_db import PricesDB
 from libs.satbase_core.ingest.registry import registry
 import yfinance as yf
+
 
 router = APIRouter()
 
 
-def _fetch_ticker_sync(ticker: str) -> bool:
-    """
-    Synchronously fetch ticker data from stooq.
-    Returns True if successful, False if failed/invalid.
-    """
+def _get_prices_db() -> PricesDB:
+    """Get PricesDB instance."""
+    s = load_settings()
+    db_path = Path(s.stage_dir).parent / "prices.db"
+    return PricesDB(db_path)
+
+
+async def _fetch_ticker_background(ticker: str):
+    """Background task: fetch ticker data from stooq/yfinance."""
     try:
         reg = registry()
         fetch, normalize, sink = reg["stooq"]
         
-        # Minimal params for single ticker fetch
         params = {"tickers": [ticker.upper()]}
-        
-        # Fetch data
         raw = fetch(params)
         models = list(normalize(raw))
         
-        if not models:
-            return False  # No data
-        
-        # Write to storage
-        info = sink(models, date.today())
-        return True
-    except ValueError as e:
-        # Invalid ticker (marked by stooq adapter)
-        return False
-    except Exception as e:
-        print(f"Fetch error for {ticker}: {e}")
-        return False
-
-@router.get("/prices/daily/{ticker}")
-def prices_daily(ticker: str, from_: str | None = Query(None, alias="from"), to: str | None = None, btc_view: bool = False):
-    s = load_settings()
-    
-    # Load ticker-specific parquet file
-    lf = scan_ticker_parquet(s.stage_dir, "stooq", "prices_daily", ticker)
-    
-    # Check if ticker is marked as invalid
-    if lf is None:
-        return JSONResponse({"error": f"Invalid ticker: {ticker.upper()}"}, status_code=status.HTTP_404_NOT_FOUND)
-    
-    # Try to load from cache
-    try:
-        df = lf.collect()
-    except Exception:
-        df = pl.DataFrame()  # Empty if error
-    
-    # If no data: fetch synchronously (blocking)
-    if df.height == 0:
-        success = _fetch_ticker_sync(ticker)
-        
-        if not success:
-            # Invalid ticker or fetch failed
-            return JSONResponse({"error": f"Invalid ticker or fetch failed: {ticker.upper()}"}, status_code=status.HTTP_404_NOT_FOUND)
-        
-        # Reload from cache after fetch
-        lf = scan_ticker_parquet(s.stage_dir, "stooq", "prices_daily", ticker)
-        if lf is None:
-            return JSONResponse({"error": f"Invalid ticker: {ticker.upper()}"}, status_code=status.HTTP_404_NOT_FOUND)
-        
+        if models:
+            sink(models, date.today())
+    except:
+        # If stooq fails, try yfinance
         try:
-            df = lf.collect()
-        except Exception:
-            return JSONResponse({"error": "Failed to load data after fetch"}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            fetch, normalize, sink = reg["eod_yfinance"]
+            params = {"tickers": [ticker.upper()]}
+            raw = fetch(params)
+            models = list(normalize(raw))
+            
+            if models:
+                sink(models, date.today())
+        except:
+            pass
+
+
+@router.get("/prices/{ticker}")
+async def get_prices(
+    ticker: str,
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = None,
+    btc_view: bool = False,
+    sync_timeout_s: int = 3,
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Get price bars for a ticker.
     
-    # Apply date filter if provided
-    if from_ and to:
-        dfrom = date.fromisoformat(from_)
-        dto = date.fromisoformat(to)
-        df = df.filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))
+    Query params:
+    - from: ISO date (YYYY-MM-DD)
+    - to: ISO date (YYYY-MM-DD)
+    - btc_view: Return values in BTC (default: false)
+    - sync_timeout_s: Max seconds to wait for data fetch (default: 3, max: 30)
+    """
+    db = _get_prices_db()
     
+    # Validate ticker not in invalid list
+    status_info = db.get_status(ticker)
+    if status_info['invalid']:
+        return JSONResponse(
+            {"error": f"Invalid ticker: {ticker.upper()}", "reason": status_info['invalid_reason']},
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Query bars
+    from_date = date.fromisoformat(from_) if from_ else None
+    to_date = date.fromisoformat(to) if to else None
+    
+    bars = db.query_bars(ticker, from_date, to_date)
+    
+    # If no bars: trigger background fetch (fetch_on_miss)
+    if not bars:
+        if background_tasks:
+            background_tasks.add_task(_fetch_ticker_background, ticker)
+        return JSONResponse(
+            {"status": "fetch_on_miss", "retry_after": sync_timeout_s},
+            status_code=status.HTTP_202_ACCEPTED
+        )
+    
+    # Apply BTC view if requested
     if btc_view:
-        # Load BTCUSD data
-        lf_btc = scan_ticker_parquet(s.stage_dir, "stooq", "prices_daily", "BTCUSD")
-        try:
-            df_btc = lf_btc.collect()
-            if df_btc.height == 0:
-                job_id = enqueue_prices_daily(["BTCUSD"])
-                return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
-        except Exception:
-            job_id = enqueue_prices_daily(["BTCUSD"])
-            return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
+        btc_bars = db.query_bars("BTCUSD", from_date, to_date)
+        if not btc_bars:
+            # If no BTC data, fetch it
+            if background_tasks:
+                background_tasks.add_task(_fetch_ticker_background, "BTCUSD")
+            return JSONResponse(
+                {"status": "fetch_on_miss", "retry_after": sync_timeout_s},
+                status_code=status.HTTP_202_ACCEPTED
+            )
         
-        # Join and convert to BTC
-        df_btc = df_btc.select(["date", pl.col("close").alias("btc_close")])
-        df = df.join(df_btc, on="date", how="inner")
-        df = df.with_columns([
-            (pl.col("open") / pl.col("btc_close")).alias("open"),
-            (pl.col("high") / pl.col("btc_close")).alias("high"),
-            (pl.col("low") / pl.col("btc_close")).alias("low"),
-            (pl.col("close") / pl.col("btc_close")).alias("close"),
-        ]).drop("btc_close")
+        # Create BTC lookup dict by date
+        btc_dict = {bar['date']: bar['close'] for bar in btc_bars}
+        
+        # Convert bars to BTC
+        converted = []
+        for bar in bars:
+            if bar['date'] in btc_dict:
+                btc_close = btc_dict[bar['date']]
+                converted.append({
+                    'date': bar['date'],
+                    'open': bar['open'] / btc_close,
+                    'high': bar['high'] / btc_close,
+                    'low': bar['low'] / btc_close,
+                    'close': bar['close'] / btc_close,
+                    'volume': bar['volume'],
+                    'source': bar['source'],
+                })
+        bars = converted
     
-    # Final processing
-    df = df.unique(subset=["date"]).sort("date", descending=True)
-    records = df.to_dicts()
-    
-    return {"ticker": ticker.upper(), "from": from_, "to": to, "btc_view": btc_view, "bars": records}
+    return {
+        "ticker": ticker.upper(),
+        "bars": bars,
+        "last_date": bars[0]['date'] if bars else None,
+        "source": status_info['source'],
+        "from": from_,
+        "to": to,
+        "btc_view": btc_view,
+    }
 
 
-@router.get("/prices/daily")
-def prices_daily_multi(tickers: str, from_: str | None = Query(None, alias="from"), to: str | None = None, btc_view: bool = False):
-    s = load_settings()
-    if not from_ or not to:
-        return {"tickers": [], "from": from_, "to": to, "btc_view": btc_view, "series": {}}
-    dfrom = date.fromisoformat(from_)
-    dto = date.fromisoformat(to)
-    tick_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
-    if not tick_list:
-        return {"tickers": [], "from": from_, "to": to, "btc_view": btc_view, "series": {}}
-    lf = scan_parquet_glob(s.stage_dir, "stooq", "prices_daily", dfrom, dto)
-    l_all = lf.filter(pl.col("ticker").is_in(tick_list))
-    if btc_view:
-        l_btc = (
-            lf.filter(pl.col("ticker") == "BTCUSD")
-              .select(["date", "close"])  # EOD-Schlusskurs
-              .rename({"close": "btc_close"})
+@router.get("/prices/status/{ticker}")
+async def get_prices_status(ticker: str):
+    """Get price data status for a ticker."""
+    db = _get_prices_db()
+    status_info = db.get_status(ticker)
+    
+    # Calculate missing days if we have data
+    missing_days = []
+    if status_info['latest_date']:
+        try:
+            from datetime import timedelta
+            from_date = date.fromisoformat(status_info['latest_date']) - timedelta(days=30)
+            to_date = date.fromisoformat(status_info['latest_date'])
+            missing_days = db.get_missing_days(ticker, from_date, to_date)
+        except:
+            pass
+    
+    return {
+        "ticker": ticker.upper(),
+        "latest_date": status_info['latest_date'],
+        "bar_count": status_info['bar_count'],
+        "missing_days": missing_days,
+        "source": status_info['source'],
+        "source_fail_count": status_info['source_fail_count'],
+        "invalid": status_info['invalid'],
+        "invalid_reason": status_info['invalid_reason'],
+    }
+
+
+@router.post("/prices/ingest")
+async def ingest_prices(
+    payload: dict,
+    background_tasks: BackgroundTasks
+):
+    """
+    Trigger price ingestion for one or more tickers.
+    
+    Payload:
+    - tickers: list of ticker symbols
+    - period: lookback period (1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, max) - default: 2y
+    - interval: 1d for daily, 1wk for weekly
+    """
+    tickers = payload.get("tickers", [])
+    if not tickers:
+        return JSONResponse(
+            {"error": "No tickers provided"},
+            status_code=status.HTTP_400_BAD_REQUEST
         )
-        l_joined = l_all.join(l_btc, on="date", how="inner")
-        df = (
-            l_joined
-            .filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))  # Filter to requested date range
-            .with_columns([
-                (pl.col("open") / pl.col("btc_close")).alias("open"),
-                (pl.col("high") / pl.col("btc_close")).alias("high"),
-                (pl.col("low") / pl.col("btc_close")).alias("low"),
-                (pl.col("close") / pl.col("btc_close")).alias("close"),
-            ])
-            .drop(["btc_close"])  # Volume bleibt unverändert
-            .unique(subset=["ticker","date"])  # Dedupe
-            .sort(["ticker","date"], descending=[False, True])
-            .collect()
-        )
-    else:
-        df = (
-            l_all
-            .filter((pl.col("date") >= dfrom) & (pl.col("date") <= dto))  # Filter to requested date range
-            .unique(subset=["ticker","date"])  # Dedupe
-            .sort(["ticker","date"], descending=[False, True])
-            .collect()
-        )
-    out: dict[str, list[dict]] = {}
-    for t in tick_list:
-        out[t] = df.filter(pl.col("ticker") == t).to_dicts()
-    # If every requested series is empty → enqueue fetch-on-miss
-    if all(len(v) == 0 for v in out.values()):
-        job_id = enqueue_prices_daily(tick_list)
-        return JSONResponse({"status": "fetch_on_miss", "job_id": job_id, "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
-    return {"tickers": tick_list, "from": from_, "to": to, "btc_view": btc_view, "series": out}
+    
+    # Enqueue background fetch for each ticker
+    for ticker in tickers:
+        background_tasks.add_task(_fetch_ticker_background, ticker)
+    
+    return {
+        "status": "queued",
+        "tickers": tickers,
+        "message": f"Fetching {len(tickers)} tickers in background"
+    }
 
 
 @router.get("/prices/search")
 async def search_tickers(q: str, limit: int = 10):
-    """Search for stocks by ticker or company name using Yahoo Finance"""
+    """Search for stocks by ticker or company name using Yahoo Finance."""
     if not q or len(q) < 1:
         return {"query": q, "count": 0, "results": []}
     
     try:
-        # Use yfinance search (via Ticker quotes search)
-        import yfinance as yf
-        
-        # Search for tickers matching the query
         search_results = yf.Search(q, max_results=limit, news_count=0)
         quotes = search_results.quotes
         
@@ -192,7 +217,15 @@ async def search_tickers(q: str, limit: int = 10):
 
 @router.get("/prices/info/{ticker}")
 async def ticker_info(ticker: str):
-    """Get detailed company information for a ticker"""
+    """Get detailed company information for a ticker."""
+    db = _get_prices_db()
+    
+    # Check cache in symbols_meta first
+    cached = db.get_symbols_meta(ticker)
+    if cached and cached.get('info'):
+        return cached['info']
+    
+    # Fetch from yfinance
     try:
         t = yf.Ticker(ticker.upper())
         info = t.info
@@ -200,8 +233,7 @@ async def ticker_info(ticker: str):
         if not info or "symbol" not in info:
             return {"error": f"No info found for ticker {ticker.upper()}"}
         
-        # Extract relevant fields
-        return {
+        result = {
             "symbol": info.get("symbol"),
             "name": info.get("longName") or info.get("shortName"),
             "sector": info.get("sector"),
@@ -215,13 +247,27 @@ async def ticker_info(ticker: str):
             "enterprise_value": info.get("enterpriseValue"),
             "employees": info.get("fullTimeEmployees"),
         }
+        
+        # Cache in DB
+        db.update_symbols_meta(
+            ticker,
+            name=result['name'],
+            exchange=result['exchange'],
+            currency=result['currency'],
+            country=result['country'],
+            sector=result['sector'],
+            industry=result['industry'],
+            info=result
+        )
+        
+        return result
     except Exception as e:
         return {"error": str(e)}
 
 
 @router.get("/prices/fundamentals/{ticker}")
 async def ticker_fundamentals(ticker: str):
-    """Get key financial metrics for a ticker"""
+    """Get key financial metrics for a ticker."""
     try:
         t = yf.Ticker(ticker.upper())
         info = t.info
@@ -229,7 +275,6 @@ async def ticker_fundamentals(ticker: str):
         if not info or "symbol" not in info:
             return {"error": f"No fundamentals found for ticker {ticker.upper()}"}
         
-        # Extract financial metrics
         return {
             "symbol": info.get("symbol"),
             "current_price": info.get("currentPrice"),

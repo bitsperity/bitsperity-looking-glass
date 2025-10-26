@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..models.price import DailyBar
-import polars as pl
 from ..config.settings import load_settings
 from .http import get_text, default_headers
-from ..storage.stage import write_ticker_parquet, mark_ticker_invalid
+from ..storage.prices_db import PricesDB
 
 
 BASE = "https://stooq.com/q/d/l/"
@@ -72,24 +71,12 @@ def _parse_int(v: str | None) -> int | None:
         return None
 
 
-def _latest_date_for_ticker(base: Path, ticker: str) -> date | None:
-    """Get latest date for ticker from ticker-specific parquet file"""
-    try:
-        ticker_file = base / "stooq" / "prices_daily" / f"{ticker.upper()}.parquet"
-        if not ticker_file.exists():
-            return None
-        df = pl.read_parquet(ticker_file)
-        if df.height == 0:
-            return None
-        max_date = df["date"].max()
-        return max_date
-    except Exception:
-        return None
-
 def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
     tickers: list[str] = params.get("tickers", [])
     s = load_settings()
-    base = Path(s.stage_dir)
+    db_path = Path(s.stage_dir).parent / "prices.db"
+    db = PricesDB(db_path)
+    
     result: dict[str, list[DailyBar]] = {}
     invalid_tickers: list[str] = []
     
@@ -105,14 +92,14 @@ def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
         
         # Check if Stooq returned "No data" (invalid ticker)
         if text.strip() == "No data":
-            # Mark ticker as invalid to prevent future fetch attempts
-            mark_ticker_invalid(base, "stooq", "prices_daily", t.upper())
+            # Mark ticker as invalid in SQLite
+            db.mark_invalid(t.upper(), "stooq returned no data")
             invalid_tickers.append(t.upper())
             continue
         
         bars = _parse_csv(t, text)
         # Delta: nur neue Tage über der bisherigen Max(date)
-        last_dt = _latest_date_for_ticker(base, t.upper())
+        last_dt = db.get_latest_date(t.upper())
         if last_dt is not None:
             bars = [b for b in bars if b.date > last_dt]
         result[t.upper()] = bars
@@ -131,13 +118,14 @@ def normalize(raw: dict) -> Iterable[DailyBar]:
 
 
 def sink(models: Iterable[DailyBar], partition_dt: date) -> dict:
-    """Write ticker data to ticker-specific parquet files"""
+    """Write ticker data to SQLite prices.db"""
     rows = [m.model_dump() for m in models]
     if not rows:
         return {"count": 0, "skipped": True}
     
     s = load_settings()
-    base = Path(s.stage_dir)
+    db_path = Path(s.stage_dir).parent / "prices.db"
+    db = PricesDB(db_path)
     
     # Group rows by ticker
     ticker_groups: dict[str, list[dict]] = {}
@@ -147,15 +135,26 @@ def sink(models: Iterable[DailyBar], partition_dt: date) -> dict:
             ticker_groups[ticker] = []
         ticker_groups[ticker].append(row)
     
-    # Write each ticker to its own file
-    written_files = []
+    # Write each ticker to SQLite
+    total_upserted = 0
     for ticker, ticker_rows in ticker_groups.items():
-        path = write_ticker_parquet(base, "stooq", "prices_daily", ticker, ticker_rows)
-        written_files.append(str(path))
+        # Convert dicts to format expected by upsert_daily_bars
+        bars = [
+            {
+                'date': row['date'],
+                'open': row['open'],
+                'high': row['high'],
+                'low': row['low'],
+                'close': row['close'],
+                'volume': row['volume'],
+            }
+            for row in ticker_rows
+        ]
+        count = db.upsert_daily_bars(ticker, bars, source='stooq')
+        total_upserted += count
     
     return {
-        "files": written_files,
-        "count": len(rows),
+        "count": total_upserted,
         "tickers": list(ticker_groups.keys())
     }
 

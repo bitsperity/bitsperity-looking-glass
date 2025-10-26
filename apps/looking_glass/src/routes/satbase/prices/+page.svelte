@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getPricesSingle, searchTickers, getTickerInfo, getTickerFundamentals, type TickerSearchResult, type TickerInfo, type TickerFundamentals } from '$lib/api/prices';
-  import { getWatchlist, postWatchlist, deleteWatchlist } from '$lib/api/watchlist';
+  import { getWatchlistItems, addWatchlistItems, deleteWatchlistItem, updateWatchlistItem } from '$lib/api/satbase';
   import CandlestickChart from '$lib/components/charts/CandlestickChart.svelte';
   import { ApiError } from '$lib/api/client';
   import type { CandlestickData } from 'lightweight-charts';
   
-  let watchlist: Array<{ symbol: string }> = [];
+  let watchlist: Array<{ id: number; key: string; type: string; enabled: boolean; }> = [];
   let selectedTicker: string = '';
   let newTicker: string = '';
   let chartData: CandlestickData[] = [];
@@ -44,11 +44,11 @@
   
   async function loadWatchlist() {
     try {
-      const res = await getWatchlist();
-      watchlist = res;
+      const items = await getWatchlistItems({ type: 'stock', include_expired: false });
+      watchlist = items.items || [];
       if (watchlist.length > 0 && !selectedTicker) {
-        selectedTicker = watchlist[0].symbol;
-        await loadCompanyInfo(watchlist[0].symbol);
+        selectedTicker = watchlist[0].key.toUpperCase();
+        await loadCompanyInfo(watchlist[0].key);
         await loadChart();
       }
     } catch (e) {
@@ -184,7 +184,15 @@
     loading = true;
     err = null;
     try {
-      await postWatchlist({ symbols: [tickerToAdd], ttl_days: 365, ingest: true });
+      await addWatchlistItems({
+        items: [{
+          type: 'stock',
+          key: tickerToAdd,
+          enabled: true,
+          auto_ingest: true,
+          ttl_days: 365,
+        }]
+      });
       newTicker = '';
       await loadWatchlist();
       // Auto-select the newly added ticker
@@ -201,11 +209,6 @@
       } else {
         err = `Error adding ${tickerToAdd}: ${errMsg}`;
       }
-      // Clean up: remove from watchlist
-      try {
-        await deleteWatchlist(tickerToAdd);
-        await loadWatchlist();
-      } catch {}
     } finally {
       loading = false;
     }
@@ -248,12 +251,12 @@
     // Note: loadChart() is called automatically by the reactive statement
   }
   
-  async function removeTicker(ticker: string) {
+  async function removeTicker(itemId: number, ticker: string) {
     if (!confirm(`Remove ${ticker} from watchlist?`)) return;
     loading = true;
     err = null;
     try {
-      await deleteWatchlist(ticker);
+      await deleteWatchlistItem(itemId);
       await loadWatchlist();
       // If the removed ticker was selected, clear selection
       if (selectedTicker === ticker) {
@@ -327,18 +330,18 @@
       {#each watchlist as item}
         <div class="flex items-center gap-1 group">
           <button
-            on:click={() => selectTicker(item.symbol)}
+            on:click={() => selectTicker(item.key)}
             class="flex-1 text-left px-2 py-1.5 rounded text-sm font-mono transition-colors
-              {selectedTicker === item.symbol 
+              {selectedTicker === item.key 
                 ? 'bg-blue-600 text-white' 
                 : 'bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300'}"
           >
-            {item.symbol}
+            {item.key}
           </button>
           <button
-            on:click|stopPropagation={() => removeTicker(item.symbol)}
+            on:click|stopPropagation={() => removeTicker(item.id, item.key)}
             class="w-6 h-6 flex items-center justify-center rounded text-neutral-500 hover:bg-red-500/20 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-            title="Remove {item.symbol}"
+            title="Remove {item.key}"
           >
             ×
           </button>
