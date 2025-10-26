@@ -26,6 +26,7 @@
 	// Stats & Status
 	let healthStatus: any = null;
 	let jobStats: any = null;
+	let analyticsData: any = null;
 	let activeJob: any = null;
 	let allTopics: any[] = [];
 
@@ -38,6 +39,9 @@
 	let backfillMaxPerDay = 100;
 	let backfilling = false;
 	let backfillMessage = '';
+
+	// Preview state
+	let selectedArticleId: string | null = null;
 
 	// Bulk operations
 	let selectedArticleIds: Set<string> = new Set();
@@ -56,12 +60,12 @@
 		loading = true;
 		error = '';
 		try {
-			// Load in parallel
-			const [articlesRes, healthRes, jobsRes, topicsRes] = await Promise.all([
+			const q = searchQuery || undefined;
+			const [articlesRes, healthRes, jobsRes, topicsRes, analyticsRes] = await Promise.all([
 				satbaseApi.listNews({
 					from: fromDate,
 					to: toDate,
-					q: searchQuery || undefined,
+					q,
 					tickers: selectedTickers || undefined,
 					limit: pageSize,
 					offset: (currentPage - 1) * pageSize,
@@ -69,13 +73,19 @@
 				}).catch(() => ({ items: [], total: 0 })),
 				satbaseApi.getNewsHealth().catch(() => null),
 				satbaseApi.getJobStats().catch(() => null),
-				satbaseApi.getTopicsAll().catch(() => ({ topics: [] }))
+				satbaseApi.getTopicsAll().catch(() => ({ topics: [] })),
+				satbaseApi.getNewsAnalytics({ days: 7 }).catch(() => null)
 			]);
 
-			articles = articlesRes.items || [];
+			articles = (articlesRes.items || []).map((a: any) => ({
+				...a,
+				source: a.source_name || a.source || a.publisher || 'Unknown',
+				content_text: a.body_text || a.content_text || a.text || a.body || ''
+			}));
 			totalArticles = articlesRes.total || 0;
 			healthStatus = healthRes;
 			jobStats = jobsRes;
+			analyticsData = analyticsRes;
 			allTopics = (topicsRes.topics || []).map((t: any) => t.name);
 		} catch (err) {
 			error = `Failed to load data: ${err}`;
@@ -167,6 +177,23 @@
 		if (bytes < 1024) return `${bytes}B`;
 		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
 		return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+	}
+
+	async function deleteArticle(id: string) {
+		if (!confirm('Delete this article?')) return;
+		try {
+			await fetch(`http://localhost:8080/v1/admin/articles/batch?article_ids=${id}`, {
+				method: 'DELETE'
+			});
+			articles = articles.filter(a => a.id !== id);
+		} catch (e) {
+			error = `Failed to delete: ${e}`;
+		}
+	}
+
+	function getPreview(text: string | undefined, maxLength = 150) {
+		if (!text) return '';
+		return text.substring(0, maxLength) + (text.length > maxLength ? '...' : '');
 	}
 </script>
 
@@ -269,7 +296,7 @@
 				</div>
 				<div class="filter-group">
 					<label for="tickers">Tickers</label>
-					<Input id="tickers" bind:value={selectedTickers} placeholder="AAPL, MSFT, NVDA" />
+					<Input bind:value={selectedTickers} placeholder="AAPL, MSFT, NVDA" />
 				</div>
 				<div class="filter-group">
 					<label for="sort">Sort By</label>
@@ -281,66 +308,9 @@
 			</div>
 		</div>
 
-		<!-- Article List -->
-		{#if loading}
-			<div class="loading">Loading articles...</div>
-		{:else if articles.length > 0}
-			<div class="article-list">
-				<div class="article-header">
-					<div class="col-checkbox">
-						<input
-							type="checkbox"
-							checked={selectedArticleIds.size === articles.length && articles.length > 0}
-							on:change={toggleAllArticles}
-						/>
-					</div>
-					<div class="col-topic">Topic</div>
-					<div class="col-title">Title</div>
-					<div class="col-date">Date</div>
-					<div class="col-source">Source</div>
-					<div class="col-size">Size</div>
-					<div class="col-actions">Actions</div>
-				</div>
-
-				{#each articles as article (article.id)}
-					<div class="article-row">
-						<div class="col-checkbox">
-							<input
-								type="checkbox"
-								checked={selectedArticleIds.has(article.id)}
-								on:change={() => toggleArticleSelection(article.id)}
-							/>
-						</div>
-						<div class="col-topic">
-							{#if article.topics && article.topics.length > 0}
-								<span class="topic-badge">{article.topics[0]}</span>
-							{/if}
-						</div>
-						<div class="col-title">
-							<a href={article.url} target="_blank" rel="noopener">
-								{article.title}
-							</a>
-						</div>
-						<div class="col-date">
-							{formatDate(article.published_at)}
-						</div>
-						<div class="col-source">
-							{article.source}
-						</div>
-						<div class="col-size">
-							{formatSize(article.content_text)}
-						</div>
-						<div class="col-actions">
-							<button class="action-icon" title="View">👁️</button>
-							<button class="action-icon" title="Star">⭐</button>
-							<button class="action-icon" title="Delete">🗑️</button>
-						</div>
-					</div>
-				{/each}
-			</div>
-
-			<!-- Pagination -->
-			<div class="pagination">
+		<!-- Pagination - TOP (moved here) -->
+		{#if totalArticles > pageSize}
+			<div class="pagination pagination-top">
 				<span>Page {currentPage} of {Math.ceil(totalArticles / pageSize)} ({totalArticles} total)</span>
 				<div class="pagination-controls">
 					<Button
@@ -363,6 +333,112 @@
 					</Button>
 				</div>
 			</div>
+		{/if}
+
+		<!-- Article List - SCROLLABLE -->
+		{#if loading}
+			<div class="loading">Loading articles...</div>
+		{:else if articles.length > 0}
+			<div class="article-list-wrapper">
+				<div class="article-list">
+					<div class="article-header">
+						<div class="col-checkbox">
+							<input
+								type="checkbox"
+								checked={selectedArticleIds.size === articles.length && articles.length > 0}
+								on:change={toggleAllArticles}
+							/>
+						</div>
+						<div class="col-topic">Topic</div>
+						<div class="col-title">Title</div>
+						<div class="col-date">Date</div>
+						<div class="col-source">Source</div>
+						<div class="col-size">Size</div>
+						<div class="col-actions">Actions</div>
+					</div>
+
+					{#each articles as article (article.id)}
+						<div class="article-row" class:selected={selectedArticleId === article.id}>
+							<div class="col-checkbox">
+								<input
+									type="checkbox"
+									checked={selectedArticleIds.has(article.id)}
+									on:change={() => toggleArticleSelection(article.id)}
+								/>
+							</div>
+							<div class="col-topic">
+								{#if article.topics && article.topics.length > 0}
+									<span class="topic-badge">{article.topics[0]}</span>
+								{/if}
+							</div>
+							<div class="col-title">
+								<a href={article.url} target="_blank" rel="noopener">
+									{article.title}
+								</a>
+								{#if selectedArticleId === article.id && article.content_text}
+									<div class="article-preview">
+										<strong>📄 Body Preview:</strong><br />
+										{getPreview(article.content_text, 300)}
+									</div>
+								{/if}
+							</div>
+							<div class="col-date">
+								{formatDate(article.published_at)}
+							</div>
+							<div class="col-source">
+								{article.source}
+							</div>
+							<div class="col-size">
+								{formatSize(article.content_text)}
+							</div>
+							<div class="col-actions">
+								<button
+									class="action-icon"
+									title="Preview body"
+									on:click={() => {
+										selectedArticleId = selectedArticleId === article.id ? null : article.id;
+									}}
+								>
+									👁️
+								</button>
+								<button class="action-icon" title="Star" on:click={() => alert('Star feature coming soon')}>
+									⭐
+								</button>
+								<button class="action-icon" title="Delete" on:click={() => deleteArticle(article.id)}>
+									🗑️
+								</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Pagination - BOTTOM -->
+			{#if totalArticles > pageSize}
+				<div class="pagination pagination-bottom">
+					<span>Page {currentPage} of {Math.ceil(totalArticles / pageSize)} ({totalArticles} total)</span>
+					<div class="pagination-controls">
+						<Button
+							disabled={currentPage === 1}
+							on:click={() => {
+								currentPage = Math.max(1, currentPage - 1);
+								loadData();
+							}}
+						>
+							← Previous
+						</Button>
+						<Button
+							disabled={currentPage >= Math.ceil(totalArticles / pageSize)}
+							on:click={() => {
+								currentPage = Math.min(Math.ceil(totalArticles / pageSize), currentPage + 1);
+								loadData();
+							}}
+						>
+							Next →
+						</Button>
+					</div>
+				</div>
+			{/if}
 		{:else}
 			<div class="no-data">No articles found. Try adjusting your filters.</div>
 		{/if}
@@ -372,11 +448,49 @@
 <!-- TAB: ANALYTICS -->
 {#if activeTab === 'analytics'}
 	<section class="tab-content">
-		<div class="coming-soon">
-			📈 Analytics Tab (Phase 2)
-			<br />
-			<small>Coverage charts, topic distribution, trending keywords coming soon...</small>
-		</div>
+		{#if analyticsData}
+			<div class="analytics-container">
+				<div class="metric">
+					<span class="metric-label">Trend (Last 7 Days)</span>
+					<span class="metric-value">{analyticsData.trend || 'N/A'}</span>
+				</div>
+				<div class="metric">
+					<span class="metric-label">Total Articles</span>
+					<span class="metric-value">{analyticsData.total_articles || 0}</span>
+				</div>
+				<div class="metric">
+					<span class="metric-label">Avg Per Day</span>
+					<span class="metric-value">{(analyticsData.avg_per_day || 0).toFixed(1)}</span>
+				</div>
+				<div class="metric">
+					<span class="metric-label">Max/Day</span>
+					<span class="metric-value">{analyticsData.max_day || 0}</span>
+				</div>
+			</div>
+
+			{#if analyticsData.daily_counts && analyticsData.daily_counts.length > 0}
+				<div class="daily-breakdown">
+					<h3>Daily Article Counts (Last 7 Days)</h3>
+					<div class="chart">
+						{#each analyticsData.daily_counts as day}
+							<div class="bar-item">
+								<div class="bar" style="height: {Math.min((day.count / 5), 100)}%; background: linear-gradient(135deg, #22c55e, #06b6d4);"></div>
+								<div class="date">{new Date(day.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+								<div class="count">{day.count}</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{:else}
+				<div class="no-data">No daily breakdown data available</div>
+			{/if}
+		{:else}
+			<div class="coming-soon">
+				📈 Analytics loading...
+				<br />
+				<small>Showing coverage trends, daily counts, and article statistics</small>
+			</div>
+		{/if}
 	</section>
 {/if}
 
@@ -389,7 +503,7 @@
 				<div class="form-card">
 					<div class="form-group">
 						<label for="backfill-query">Query</label>
-						<Input id="backfill-query" bind:value={backfillQuery} placeholder="e.g., AI, semiconductor" />
+						<Input bind:value={backfillQuery} placeholder="e.g., AI, semiconductor" />
 					</div>
 					<div class="form-row">
 						<div class="form-group">
@@ -567,12 +681,8 @@
 	}
 
 	@keyframes fadeIn {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
+		from { opacity: 0; }
+		to { opacity: 1; }
 	}
 
 	.search-filters {
@@ -615,12 +725,47 @@
 		font-family: inherit;
 	}
 
-	.article-list {
+	.pagination {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+	}
+
+	.pagination-top {
 		margin-bottom: 2rem;
+	}
+
+	.pagination-bottom {
+		margin-top: 2rem;
+	}
+
+	.pagination-controls {
+		display: flex;
+		gap: 1rem;
+	}
+
+	.article-list-wrapper {
+		margin: 2rem 0;
 		background: var(--color-bg-card);
 		border: 1px solid rgba(71, 85, 105, 0.3);
 		border-radius: var(--radius-lg);
 		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		max-height: 600px;
+	}
+
+	.article-list {
+		flex: 1;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.article-header {
@@ -636,6 +781,7 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		align-items: center;
+		flex-shrink: 0;
 	}
 
 	.article-row {
@@ -650,6 +796,10 @@
 
 	.article-row:hover {
 		background: rgba(71, 85, 105, 0.1);
+	}
+
+	.article-row.selected {
+		background: rgba(34, 197, 211, 0.1);
 	}
 
 	.col-checkbox {
@@ -676,6 +826,12 @@
 		font-weight: 600;
 	}
 
+	.col-title {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
 	.col-title a {
 		color: var(--color-accent);
 		text-decoration: none;
@@ -687,6 +843,16 @@
 
 	.col-title a:hover {
 		text-decoration: underline;
+	}
+
+	.article-preview {
+		font-size: 0.8rem;
+		color: var(--color-text-secondary);
+		white-space: normal;
+		margin-top: 0.25rem;
+		padding: 0.5rem;
+		background: rgba(71, 85, 105, 0.1);
+		border-radius: var(--radius-sm);
 	}
 
 	.col-date,
@@ -714,23 +880,6 @@
 
 	.action-icon:hover {
 		opacity: 1;
-	}
-
-	.pagination {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 1.5rem;
-		background: var(--color-bg-card);
-		border: 1px solid rgba(71, 85, 105, 0.3);
-		border-radius: var(--radius-lg);
-		font-size: 0.875rem;
-		color: var(--color-text-secondary);
-	}
-
-	.pagination-controls {
-		display: flex;
-		gap: 1rem;
 	}
 
 	.loading {
@@ -847,5 +996,88 @@
 		background: rgba(34, 197, 211, 0.1);
 		color: #06b6d4;
 		font-size: 0.875rem;
+	}
+
+	.analytics-container {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 1.5rem;
+		margin-bottom: 2rem;
+	}
+
+	.metric {
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		text-align: center;
+	}
+
+	.metric-label {
+		display: block;
+		font-size: 0.75rem;
+		color: var(--color-text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-bottom: 0.5rem;
+	}
+
+	.metric-value {
+		display: block;
+		font-size: 2rem;
+		font-weight: 700;
+		background: linear-gradient(135deg, var(--color-accent), var(--color-primary));
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+
+	.daily-breakdown {
+		margin-bottom: 2rem;
+	}
+
+	.daily-breakdown h3 {
+		margin-bottom: 1rem;
+		color: var(--color-text);
+	}
+
+	.chart {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		gap: 0.75rem;
+		padding: 2rem 1rem 1rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+	}
+
+	.bar-item {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.bar {
+		width: 100%;
+		min-height: 20px;
+		border-radius: var(--radius-sm);
+		transition: all 0.2s ease;
+	}
+
+	.bar:hover {
+		transform: scale(1.05);
+	}
+
+	.date {
+		font-size: 0.7rem;
+		color: var(--color-text-tertiary);
+		text-align: center;
+	}
+
+	.count {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: var(--color-accent);
 	}
 </style>
