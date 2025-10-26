@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import threading
 import uuid
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +15,6 @@ from libs.satbase_core.utils.logging import log
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.stage import scan_parquet_glob
 import polars as pl
-from datetime import timedelta
 
 
 router = APIRouter()
@@ -76,40 +74,15 @@ def _load_cfg() -> dict[str, Any]:
     return yaml.safe_load(cfg_path.read_text()) if cfg_path.exists() else {}
 
 
-def _start_thread(target, *args, **kwargs) -> None:
-    t = threading.Thread(target=target, args=args, kwargs=kwargs, daemon=True)
-    t.start()
-
-
 def _new_job(kind: str, payload: dict[str, Any]) -> str:
     job_id = uuid.uuid4().hex
-    _JOBS[job_id] = {"status": "queued", "kind": kind, "payload": payload}
+    _JOBS[job_id] = {"status": "queued", "kind": kind, "payload": payload, "created_at": datetime.utcnow().isoformat()}
+    _persist_job(job_id)
     return job_id
 
 
-# Public enqueue helpers for other routers (fetch-on-miss)
-def enqueue_prices_daily(tickers: list[str]) -> str:
-    job_id = _new_job("prices_daily", {"tickers": [t.upper() for t in tickers]})
-    _start_thread(_run_prices_daily, job_id, [t.upper() for t in tickers])
-    return job_id
-
-
-def enqueue_macro_fred(series: list[str]) -> str:
-    job_id = _new_job("macro_fred", {"series": series})
-    _start_thread(_run_macro_fred, job_id, series)
-    return job_id
-
-
-def enqueue_news(query: str, hours: int | None = None) -> str:
-    job_id = _new_job("news", {"query": query, "hours": hours})
-    _start_thread(_run_news, job_id, query, hours)
-    return job_id
-
-
-def enqueue_news_backfill(query: str, date_from: date, date_to: date) -> str:
-    job_id = _new_job("news_backfill", {"query": query, "from": date_from.isoformat(), "to": date_to.isoformat()})
-    _start_thread(_run_news_backfill, job_id, query, date_from, date_to)
-    return job_id
+# Note: Removed _start_thread() and enqueue_ helpers
+# Now using FastAPI BackgroundTasks directly in endpoints for async execution
 
 
 def _run_prices_daily(job_id: str, tickers: list[str]) -> None:
@@ -270,56 +243,60 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date) 
 
 
 @router.post("/ingest/prices/daily", status_code=status.HTTP_202_ACCEPTED)
-def ingest_prices_daily(body: dict[str, Any]):
+async def ingest_prices_daily(body: dict[str, Any], background_tasks: BackgroundTasks):
+    """Non-blocking async price ingestion"""
     tickers = body.get("tickers", [])
     job_id = _new_job("prices_daily", {"tickers": tickers})
-    _start_thread(_run_prices_daily, job_id, tickers)
-    return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
-
-
-@router.post("/ingest/macro/fred", status_code=status.HTTP_202_ACCEPTED)
-def ingest_macro_fred(body: dict[str, Any]):
-    series = body.get("series", [])
-    job_id = _new_job("macro_fred", {"series": series})
-    _start_thread(_run_macro_fred, job_id, series)
-    return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
-
-
-@router.post("/ingest/news", status_code=status.HTTP_202_ACCEPTED)
-def ingest_news(body: dict[str, Any]):
-    query: str = body.get("query", "")
-    topic: str | None = body.get("topic")  # NEW: optional topic parameter
-    hours: int | None = body.get("hours")
-    job_id = _new_job("news", {"query": query, "topic": topic, "hours": hours})
-    _start_thread(_run_news, job_id, query, topic, hours)
-    return JSONResponse({"job_id": job_id, "status": "accepted", "retry_after": 2}, status_code=status.HTTP_202_ACCEPTED)
-
-
-@router.post("/ingest/news/bodies", status_code=status.HTTP_202_ACCEPTED)
-def ingest_news_bodies(body: dict[str, Any]):
-    """Trigger news body fetching for a date range"""
-    from_str = body.get("from")
-    to_str = body.get("to")
-    if not from_str or not to_str:
-        return JSONResponse({"error": "from/to required"}, status_code=400)
-    dfrom = date.fromisoformat(from_str)
-    dto = date.fromisoformat(to_str)
-    job_id = _new_job("news_bodies", {"from": from_str, "to": to_str})
-    
-    # News body fetching is now handled by satbase_scheduler as an async background job
-    # The scheduler will pick up pending news bodies and fetch them
-    # This endpoint just creates a job record for tracking
-    
+    background_tasks.add_task(_run_prices_daily, job_id, tickers)
     return JSONResponse({
         "job_id": job_id, 
         "status": "accepted", 
-        "retry_after": 2,
-        "message": "News body fetching queued and will be processed by background scheduler"
+        "message": "Price ingestion started in background"
+    }, status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post("/ingest/macro/fred", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_macro_fred(body: dict[str, Any], background_tasks: BackgroundTasks):
+    """Non-blocking async FRED macro data ingestion"""
+    series = body.get("series", [])
+    job_id = _new_job("macro_fred", {"series": series})
+    background_tasks.add_task(_run_macro_fred, job_id, series)
+    return JSONResponse({
+        "job_id": job_id, 
+        "status": "accepted", 
+        "message": "Macro data ingestion started in background"
+    }, status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post("/ingest/news", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_news(body: dict[str, Any], background_tasks: BackgroundTasks):
+    """Non-blocking async news ingestion with unified fetch (metadata + text content)"""
+    query: str = body.get("query", "")
+    topic: str | None = body.get("topic")
+    hours: int | None = body.get("hours")
+    job_id = _new_job("news", {"query": query, "topic": topic, "hours": hours})
+    background_tasks.add_task(_run_news, job_id, query, topic, hours)
+    return JSONResponse({
+        "job_id": job_id, 
+        "status": "accepted", 
+        "message": "News ingestion started in background (unified fetch: metadata + text)"
+    }, status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post("/ingest/news/bodies", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_news_bodies(body: dict[str, Any]):
+    """
+    DEPRECATED: News body fetching now happens inline during news ingestion.
+    This endpoint returns immediately - unified fetch already handles bodies.
+    """
+    return JSONResponse({
+        "status": "deprecated", 
+        "message": "News body fetching is now unified with news ingestion. Bodies are fetched inline during /ingest/news."
     }, status_code=status.HTTP_202_ACCEPTED)
 
 
 @router.post("/ingest/news/backfill", status_code=status.HTTP_202_ACCEPTED)
-def ingest_news_backfill(body: dict[str, Any]):
+async def ingest_news_backfill(body: dict[str, Any], background_tasks: BackgroundTasks):
     """Backfill historical news data using all adapters that support historical queries"""
     query = body.get("query", "semiconductor OR chip OR foundry")
     from_str = body.get("from")
@@ -340,7 +317,7 @@ def ingest_news_backfill(body: dict[str, Any]):
         )
     
     job_id = _new_job("news_backfill", {"query": query, "from": from_str, "to": to_str})
-    _start_thread(_run_news_backfill, job_id, query, dfrom, dto)
+    background_tasks.add_task(_run_news_backfill, job_id, query, dfrom, dto)
     
     return JSONResponse({
         "job_id": job_id,

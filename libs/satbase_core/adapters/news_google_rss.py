@@ -9,8 +9,10 @@ from ..models.news import NewsDoc
 from urllib.parse import quote_plus
 from ..utils.hashing import sha1_hex
 from ..config.settings import load_settings
-from ..storage.stage import write_parquet
+from ..storage.stage import write_parquet, upsert_parquet_by_id
 from ..resolver.watcher import load_watchlist_symbols, match_text_to_symbols
+from ..adapters.http import fetch_text_with_retry
+from ..utils.logging import log
 
 
 BASE = "https://news.google.com/rss/search"
@@ -29,6 +31,10 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
 
 
 def normalize(entries: Iterable[dict], topic: str | None = None) -> Iterable[NewsDoc]:
+    """
+    Fetch RSS metadata + text content in one pass.
+    Only yields NewsDoc if text content successfully fetched.
+    """
     for raw in entries:
         title = raw.get("title", "")
         link = raw.get("link", "")
@@ -55,34 +61,85 @@ def normalize(entries: Iterable[dict], topic: str | None = None) -> Iterable[New
         # Initialize topics from parameter if provided
         topics = [topic] if topic else []
         
-        doc = NewsDoc(
-            id=nid,
-            source="google_rss",
-            title=title,
-            text=raw.get("summary", ""),
-            url=link,
-            published_at=published_at,
-            tickers=tickers,  # Always list, never None
-            regions=[],  # Always list, never None
-            themes=[],  # Always list, never None
-            topics=topics,
-        )
-        yield doc
+        # UNIFIED FETCH: Attempt to fetch text content inline
+        text_content = fetch_text_with_retry(link, max_retries=2, timeout=15)
+        
+        # Only yield if text successfully extracted
+        if text_content and len(text_content) > 100:
+            doc = NewsDoc(
+                id=nid,
+                source="google_rss",
+                title=title,
+                text=raw.get("summary", ""),
+                url=link,
+                published_at=published_at,
+                tickers=tickers,  # Always list, never None
+                regions=[],  # Always list, never None
+                themes=[],  # Always list, never None
+                topics=topics,
+            )
+            # Attach text_content for body storage
+            doc.text_content = text_content  # type: ignore
+            yield doc
+        else:
+            # Skip entirely - broken URL or no text
+            log("news_fetch_skipped", id=nid, url=link, reason="no_text")
 
 
 def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None) -> dict:
-    rows = [m.model_dump() for m in models]
-    if not rows:
-        return {"path": None, "count": 0}
+    """
+    DUAL SINK: Store metadata + bodies separately.
     
-    # Ensure all rows have topic (in case normalize wasn't called with topic param)
-    if topic:
-        for row in rows:
-            if "topics" not in row:
-                row["topics"] = []
-            if isinstance(row["topics"], list) and topic not in row["topics"]:
-                row["topics"].append(topic)
+    news_docs: metadata only (id, title, url, tickers, topics)
+    news_body: full text content (id, url, content_text, fetched_at)
+    """
+    news_rows = []
+    body_rows = []
     
-    p = write_parquet(load_settings().stage_dir, "news_rss", partition_dt, "news_docs", rows)
-    return {"path": str(p), "count": len(rows)}
+    for doc in models:
+        # Extract text_content for body table (attached by normalize)
+        text_content = getattr(doc, 'text_content', None)
+        
+        if text_content:
+            # Store metadata (exclude text_content)
+            doc_dict = doc.model_dump()
+            doc_dict.pop('text_content', None)  # Remove if present
+            
+            # Ensure topics is set
+            if topic and (not doc_dict.get("topics") or topic not in doc_dict["topics"]):
+                if "topics" not in doc_dict:
+                    doc_dict["topics"] = []
+                if isinstance(doc_dict["topics"], list) and topic not in doc_dict["topics"]:
+                    doc_dict["topics"].append(topic)
+            
+            news_rows.append(doc_dict)
+            
+            # Store body separately
+            body_rows.append({
+                'id': doc.id,
+                'url': doc.url,
+                'content_text': text_content,
+                'fetched_at': datetime.utcnow(),
+                'published_at': doc.published_at
+            })
+    
+    if not news_rows:
+        return {"path": None, "body_path": None, "count": 0, "bodies": 0}
+    
+    # Write news_docs (metadata)
+    s = load_settings()
+    news_path = write_parquet(s.stage_dir, "news_rss", partition_dt, "news_docs", news_rows)
+    
+    # Write news_body (separate source for queryability)
+    body_path = upsert_parquet_by_id(s.stage_dir, "news_body", partition_dt, "news_body", "id", body_rows)
+    
+    log("news_sink_complete", news_count=len(news_rows), bodies_count=len(body_rows), 
+        news_path=str(news_path), body_path=str(body_path))
+    
+    return {
+        "path": str(news_path),
+        "body_path": str(body_path),
+        "count": len(news_rows),
+        "bodies": len(body_rows)
+    }
 

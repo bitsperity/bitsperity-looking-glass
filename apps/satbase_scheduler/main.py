@@ -7,7 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from config import SATBASE_SCHEDULE
-from jobs import watchlist, topics, fred, news_bodies
+from jobs import watchlist, topics, fred
 
 
 logging.basicConfig(
@@ -49,17 +49,9 @@ def setup_scheduler() -> AsyncIOScheduler:
         name='Refresh FRED Core Indicators'
     )
 
-    # News Bodies (every 15 minutes, non-blocking background fetch)
-    nb = SATBASE_SCHEDULE.get('news_bodies', {'minutes': 15, 'max_articles': 100})
-    scheduler.add_job(
-        news_bodies.fetch_pending_news_bodies,
-        trigger=IntervalTrigger(minutes=nb.get('minutes', 15)),
-        kwargs={'max_articles': nb.get('max_articles', 100), 'batch_size': 10},
-        id='news_bodies_fetch',
-        name='Fetch Pending News Bodies (Background)',
-        max_instances=1  # Only one instance running at a time
-    )
-
+    # Note: News body fetching removed - now unified with news ingestion
+    # Bodies are fetched inline during news ingestion (see unified fetch in adapters)
+    
     return scheduler
 
 

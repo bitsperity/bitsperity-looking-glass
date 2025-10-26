@@ -18,10 +18,9 @@ class NewsDoc(BaseModel):
 
 
 class NewsBody(BaseModel):
-    id: str
+    id: str  # References NewsDoc.id
     url: str
-    content_text: str | None = None
-    content_html: str | None = None
+    content_text: str  # Required - only store if successfully fetched
     fetched_at: datetime
     published_at: datetime
 
