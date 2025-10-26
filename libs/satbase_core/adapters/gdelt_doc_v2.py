@@ -94,14 +94,23 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
         nxt = min(cur + timedelta(hours=window_hours), end_dt)
         try:
             # GDELT 2.0 Doc API expects: start_date, end_date in YYYY-MM-DD format
-            # NOT startdatetime/enddatetime - those are ignored!
+            # CRITICAL: If start_date == end_date (in YYYY-MM-DD format), GDELT returns 0 results!
+            # Solution: Ensure end_date is always > start_date by adding 1 day if needed
+            
+            start_date_str = cur.strftime("%Y-%m-%d")
+            end_date_str = nxt.strftime("%Y-%m-%d")
+            
+            # If they're the same day, include the next day
+            if start_date_str == end_date_str:
+                end_date_str = (nxt + timedelta(days=1)).strftime("%Y-%m-%d")
+            
             data = get_json(
                 BASE,
                 params={
                     "query": q,
                     "mode": "artlist",
-                    "start_date": cur.strftime("%Y-%m-%d"),  # YYYY-MM-DD format
-                    "end_date": nxt.strftime("%Y-%m-%d"),    # YYYY-MM-DD format
+                    "start_date": start_date_str,
+                    "end_date": end_date_str,
                     "format": "json",
                     "maxrecords": min(maxrecords, 250),  # GDELT max is 250
                     "sort": sort,  # NEW: support sort parameter
@@ -120,7 +129,6 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
                 error=str(e)[:100],
                 window_hours=window_hours)
         cur = nxt
-        window_attempts += 1
     
     log("gdelt_summary", 
         windows=window_attempts, 
