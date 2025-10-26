@@ -50,30 +50,45 @@ def get_configured_topics():
 
 
 @router.get("/news/topics/all")
-def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None = None, limit: int = Query(50, ge=1, le=500)):
+def get_all_topics(
+    from_: str | None = Query(None, alias="from"), 
+    to: str | None = None, 
+    limit: int | None = Query(None, ge=1, le=10000)
+):
     """
-    Get all topics mentioned in articles, with global counts.
+    Get all topics mentioned in articles with intelligent filtering.
     
-    Returns:
-    - All topics from articles (extracted from topics field)
-    - Count of articles per topic
-    - Topics are deduplicated across all articles
+    Smart behavior:
+    - NO parameters: Returns ALL topics ever recorded (unlimited)
+    - WITH from/to: Returns all topics in that date range (unlimited)
+    - WITH limit: Returns top N topics (by count, descending)
+    - WITH from/to + limit: Returns top N in that date range
     
     Query Parameters:
-    - from (str): Start date (YYYY-MM-DD), defaults to 365 days ago
-    - to (str): End date (YYYY-MM-DD), defaults to today
-    - limit (int): Max topics to return (1-500, default 50)
+    - from (str, optional): Start date (YYYY-MM-DD)
+    - to (str, optional): End date (YYYY-MM-DD)
+    - limit (int, optional): Max topics to return (1-10000)
+    
+    Examples:
+    - GET /v1/news/topics/all → All topics ever
+    - GET /v1/news/topics/all?from=2025-01-01&to=2025-12-31 → All topics in 2025
+    - GET /v1/news/topics/all?limit=50 → Top 50 topics ever
+    - GET /v1/news/topics/all?from=2025-02-01&to=2025-02-28&limit=20 → Top 20 in Feb 2025
     """
     s = load_settings()
     
-    # Default to last 365 days
-    if not to:
-        to = date.today().isoformat()
-    if not from_:
-        from_ = (date.today() - timedelta(days=365)).isoformat()
+    # Determine date range
+    if to:
+        dto = date.fromisoformat(to)
+    else:
+        dto = date.today()
     
-    dfrom = date.fromisoformat(from_)
-    dto = date.fromisoformat(to)
+    if from_:
+        dfrom = date.fromisoformat(from_)
+    else:
+        # No from_ provided - scan ALL available data
+        # This is a heuristic: assume data starts from 2020
+        dfrom = date(2020, 1, 1)
     
     # Collect and aggregate topics using Polars
     all_dfs = []
@@ -96,7 +111,7 @@ def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None
                 .explode("topics")
                 .filter(pl.col("topics").is_not_null() & (pl.col("topics") != ""))
                 .group_by("topics")
-                .agg(pl.count().alias("count"))
+                .agg(pl.len().alias("count"))
                 .sort("count", descending=True)
             )
             
@@ -111,8 +126,11 @@ def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None
             .group_by("topics")
             .agg(pl.sum("count").alias("count"))
             .sort("count", descending=True)
-            .limit(limit)
         )
+        
+        # Apply limit ONLY if provided
+        if limit:
+            topic_counts = topic_counts.limit(limit)
         
         topics_list = [
             {"name": row["topics"], "count": row["count"]}
@@ -122,7 +140,11 @@ def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None
         topics_list = []
     
     return {
-        "period": {"from": from_, "to": to},
+        "period": {
+            "from": from_ or "2020-01-01 (all data)",
+            "to": to or date.today().isoformat(),
+            "limited_to": limit if limit else f"{len(topics_list)} (all)"
+        },
         "topics": topics_list,
         "total_unique_topics": len(topics_list),
         "total_articles_with_topics": sum(t["count"] for t in topics_list)

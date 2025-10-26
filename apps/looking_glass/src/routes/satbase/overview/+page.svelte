@@ -26,15 +26,24 @@
 			topicsLoading = true;
 			topicsSummary = await satbaseApi.getTopicsSummary({ 
 				limit: 5, 
-				days: 30 
+				days: 365  // Changed from 30 to 365 - show all topics available
 			});
 
 			// Load heatmap data in background
 			heatmapLoading = true;
-			const allTopics = topicsSummary?.topics?.map((t: any) => t.name).join(',') || '';
+			// CHANGE: Load ALL topics for the selected year (intelligent endpoint)
+			const fromDate = `${selectedYear}-01-01`;
+			const toDate = `${selectedYear}-12-31`;
+			
+			// Get ALL topics for this year (no limit - returns everything)
+			const topicsForYear = await satbaseApi.getTopicsAll({
+				from: fromDate,
+				to: toDate
+				// NO limit - get everything available in this year
+			});
+			
+			const allTopics = topicsForYear?.topics?.map((t: any) => t.name).join(',') || '';
 			if (allTopics) {
-				const fromDate = `${selectedYear}-01-01`;
-				const toDate = `${selectedYear}-12-31`;
 				const response = await satbaseApi.getTopicsCoverage(
 					allTopics,
 					fromDate,
@@ -44,17 +53,15 @@
 				);
 
 				// Transform matrix format to {topic: {month_index: count}}
-				// Handle sparse periods (e.g., only Sept & Oct, not all 12 months)
 				if (response?.matrix && response?.topics && response?.periods) {
 					const transformed: Record<string, Record<number, number>> = {};
 					response.topics.forEach((topic: string) => {
 						transformed[topic] = {};
 					});
 
-					// Map each period to its actual month index (0-11)
 					response.matrix.forEach((row: number[], rowIdx: number) => {
-						const period = response.periods[rowIdx]; // e.g., "2025-09"
-						const monthIndex = parseInt(period.split('-')[1]) - 1; // Extract month (1-12) → (0-11)
+						const period = response.periods[rowIdx];
+						const monthIndex = parseInt(period.split('-')[1]) - 1;
 						
 						row.forEach((count: number, topicIdx: number) => {
 							const topic = response.topics[topicIdx];
