@@ -80,6 +80,42 @@ def extract_text_from_html(html: str) -> str | None:
         return None
 
 
+def is_paywall_or_cookie_page(text: str) -> bool:
+    """
+    Detect if fetched content is a paywall, cookie notice, or login page.
+    
+    These are NOT real content and should be marked as failed crawl.
+    """
+    if not text:
+        return True
+    
+    text_lower = text.lower()
+    
+    # Google cookies notice
+    if 'before you continue' in text_lower and 'sign in' in text_lower and 'cookies' in text_lower:
+        return True
+    
+    # Cloudflare challenge
+    if 'cloudflare' in text_lower and ('challenge' in text_lower or 'checking your browser' in text_lower):
+        return True
+    
+    # Common paywall patterns
+    paywall_keywords = [
+        'subscribe now',
+        'paywall',
+        'membership required',
+        'login to read',
+        'sign in to continue',
+        'create free account',
+    ]
+    
+    for keyword in paywall_keywords:
+        if keyword in text_lower:
+            return True
+    
+    return False
+
+
 def fetch_text_with_retry(
     url: str,
     max_retries: int = 2,
@@ -103,6 +139,12 @@ def fetch_text_with_retry(
             
             # Extract text from HTML
             text = extract_text_from_html(html)
+            
+            # Check if this is a paywall/cookie page (still return None but we know it failed for a reason)
+            if text and is_paywall_or_cookie_page(text):
+                # Return None to indicate crawl failed, but it's NOT a network error
+                # The calling code can distinguish this via logging
+                return None
             
             # Only return if we have substantial text (>100 chars)
             if text and len(text) > 100:

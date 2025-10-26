@@ -46,7 +46,8 @@ class NewsDB:
                     url TEXT NOT NULL UNIQUE,
                     title TEXT NOT NULL,
                     description TEXT,
-                    body_text TEXT NOT NULL,
+                    body_text TEXT,
+                    body_available BOOLEAN DEFAULT 0,
                     published_at TIMESTAMP NOT NULL,
                     fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     
@@ -62,6 +63,7 @@ class NewsDB:
                 CREATE INDEX IF NOT EXISTS idx_category ON news_articles(category);
                 CREATE INDEX IF NOT EXISTS idx_language ON news_articles(language);
                 CREATE INDEX IF NOT EXISTS idx_fetched_at ON news_articles(fetched_at);
+                CREATE INDEX IF NOT EXISTS idx_body_available ON news_articles(body_available);
                 
                 CREATE TABLE IF NOT EXISTS news_topics (
                     article_id TEXT NOT NULL,
@@ -133,6 +135,7 @@ class NewsDB:
         """
         Upsert article to database with topic/ticker merge.
         If article already exists by URL, merge topics and tickers.
+        Allows articles without body_text (summary-only).
         """
         # Extract article data
         if hasattr(article, 'model_dump'):
@@ -150,9 +153,12 @@ class NewsDB:
         body_text = data.get("body_text", "")
         published_at = data.get("published_at")
         
-        if not article_id or not url or not body_text:
-            log("newsdb_upsert_invalid", article_id=article_id, url=url, has_body=bool(body_text))
+        if not article_id or not url:
+            log("newsdb_upsert_invalid", article_id=article_id, url=url)
             return
+        
+        # Set body_available flag
+        body_available = bool(body_text and len(body_text.strip()) > 10)
         
         # Normalize datetime
         if isinstance(published_at, str):
@@ -166,15 +172,16 @@ class NewsDB:
             # Upsert article (INSERT OR REPLACE)
             conn.execute("""
                 INSERT OR REPLACE INTO news_articles
-                (id, url, title, description, body_text, published_at, 
+                (id, url, title, description, body_text, body_available, published_at, 
                  author, image, category, language, country, source_name, fetched_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """, (
                 article_id,
                 url,
                 title,
                 description,
-                body_text,
+                body_text if body_text else None,
+                1 if body_available else 0,
                 published_at,
                 data.get("author"),
                 data.get("image"),

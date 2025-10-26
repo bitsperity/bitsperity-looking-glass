@@ -148,9 +148,11 @@ def normalize(raw: List[dict], topic: str | None = None) -> Iterable[NewsDoc]:
 
 def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None) -> dict:
     """
-    Store articles to SQLite after fetching body text.
+    Store articles to SQLite after attempting to fetch body text.
     
-    Discard articles if body fetch fails.
+    CHANGE: Always save articles even if body fetch fails.
+    The body_available flag indicates if body was successfully crawled.
+    Summary is still valuable for Tesseract even without body.
     """
     from ..storage.news_db import NewsDB
     
@@ -158,8 +160,9 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
     db_path = s.stage_dir.parent / "news.db"
     db = NewsDB(db_path)
     
-    success_count = 0
-    discarded_count = 0
+    success_count = 0  # Articles with body
+    summary_only_count = 0  # Articles without body but saved
+    error_count = 0
     errors = []
     
     for doc in models:
@@ -171,18 +174,18 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
                 timeout=20
             )
             
-            # Discard if body fetch fails or too short
-            if not body_text or len(body_text.strip()) < 100:
-                discarded_count += 1
-                log("mediastack_body_discard",
-                    url=doc.url[:50],
-                    reason="empty_or_too_short")
-                continue
+            # Set body text if we got it
+            if body_text and len(body_text.strip()) > 100:
+                doc.body_text = body_text[:1000000]  # Cap at 1MB
+                body_status = "success"
+                success_count += 1
+            else:
+                # No body, but still save with summary
+                doc.body_text = ""
+                body_status = "no_body"
+                summary_only_count += 1
             
-            # Set body text
-            doc.body_text = body_text[:1000000]  # Cap at 1MB
-            
-            # Upsert to SQLite with topic merge
+            # Always upsert to SQLite with topic merge
             db.upsert_article(doc, topics=doc.topics, tickers=doc.tickers)
             
             # Log to audit trail
@@ -192,25 +195,25 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
                 article_id=doc.id,
                 article_url=doc.url,
                 topic=topics_str,
-                details=f"title: {doc.title[:50]}"
+                details=f"title: {doc.title[:50]} | body: {body_status}"
             )
             
-            success_count += 1
-            
         except Exception as e:
-            discarded_count += 1
+            error_count += 1
             errors.append(str(e)[:100])
             log("mediastack_sink_error", url=doc.url[:50], error=str(e)[:100])
     
     result = {
         "count": success_count,
-        "discarded": discarded_count,
+        "summary_only": summary_only_count,
+        "errors": error_count,
+        "total_saved": success_count + summary_only_count,
         "storage": "sqlite"
     }
     
     if errors:
-        result["errors"] = errors[:5]
+        result["error_details"] = errors[:5]
     
-    log("mediastack_sink", success=success_count, discarded=discarded_count)
+    log("mediastack_sink", success=success_count, summary_only=summary_only_count, errors=error_count)
     
     return result

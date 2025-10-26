@@ -300,3 +300,63 @@ def check_integrity():
             status_code=500
         )
 
+@router.post("/news/{article_id}/update-body")
+def update_article_body(article_id: str, body_text: str):
+    """Update article body text (for manual corrections)."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    try:
+        if not body_text or len(body_text.strip()) < 10:
+            return JSONResponse(
+                {
+                    "error": "Body text too short (minimum 10 characters)",
+                    "status": "FAILED"
+                },
+                status_code=400
+            )
+        
+        # Update body text and set body_available flag
+        with db.conn() as conn:
+            conn.execute(
+                """UPDATE news_articles 
+                   SET body_text = ?, body_available = 1, fetched_at = CURRENT_TIMESTAMP
+                   WHERE id = ?""",
+                (body_text[:1000000], article_id)  # Cap at 1MB
+            )
+            
+            # Get updated article
+            result = conn.execute(
+                "SELECT * FROM news_articles WHERE id = ?",
+                (article_id,)
+            ).fetchone()
+            
+            if not result:
+                return JSONResponse(
+                    {"error": "Article not found", "status": "NOT_FOUND"},
+                    status_code=404
+                )
+            
+            # Log to audit trail
+            db.log_audit(
+                action="body_updated",
+                article_id=article_id,
+                details=f"Body updated manually: {len(body_text)} chars"
+            )
+        
+        return {
+            "article_id": article_id,
+            "body_length": len(body_text),
+            "status": "OK",
+            "message": "Article body updated successfully"
+        }
+    
+    except Exception as e:
+        return JSONResponse(
+            {
+                "error": str(e),
+                "status": "ERROR"
+            },
+            status_code=500
+        )
+
