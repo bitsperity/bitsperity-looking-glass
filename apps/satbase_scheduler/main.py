@@ -30,13 +30,14 @@ def setup_scheduler() -> AsyncIOScheduler:
         name='Refresh Watchlist (Prices + News)'
     )
 
-    # Topics (hourly)
+    # Topics (hourly) - per-topic ingestion with proper annotation
     tm = SATBASE_SCHEDULE['topics_monitor']
     scheduler.add_job(
-        topics.monitor_topics,
+        topics.ingest_topics_job,
         trigger=IntervalTrigger(hours=tm.get('hours', 1)),
-        id='topics_monitor',
-        name='Monitor Topics'
+        id='topics_ingest',
+        name='Per-Topic News Ingestion',
+        max_instances=1  # Only one instance running at a time
     )
 
     # FRED (daily 8:00 UTC)
