@@ -208,6 +208,14 @@ def _run_news(job_id: str, query: str, topic: str | None = None, hours: int | No
 def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date, topic: str | None = None) -> None:
     """Backfill historical news using ALL adapters that support historical queries"""
     _JOBS[job_id]["status"] = "running"
+    _JOBS[job_id]["progress"] = {
+        "total_days": (date_to - date_from).days + 1,
+        "processed_days": 0,
+        "current_date": None,
+        "total_articles": 0,
+        "current_articles": 0,
+        "errors": []
+    }
     _persist_job(job_id)
     
     registry_full = registry_with_metadata()
@@ -221,12 +229,20 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date, 
         }
         
         log("news_backfill_start", adapters=list(historical_adapters.keys()), 
-            date_from=date_from.isoformat(), date_to=date_to.isoformat())
+            date_from=date_from.isoformat(), date_to=date_to.isoformat(), topic=topic)
         
         # Process date range day by day to avoid huge API requests
         current_date = date_from
+        day_count = 0
         while current_date <= date_to:
             next_date = current_date + timedelta(days=1)
+            day_count += 1
+            
+            # Update progress: current date
+            _JOBS[job_id]["progress"]["current_date"] = current_date.isoformat()
+            _JOBS[job_id]["progress"]["processed_days"] = day_count
+            _JOBS[job_id]["progress"]["current_articles"] = 0
+            _persist_job(job_id)
             
             for adapter_name, entry in historical_adapters.items():
                 try:
@@ -249,37 +265,45 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date, 
                         results[adapter_name] = {"days": 0, "total_count": 0, "partitions": []}
                     
                     results[adapter_name]["days"] += 1
-                    results[adapter_name]["total_count"] += info.get("count", 0)
+                    article_count = info.get("count", 0)
+                    results[adapter_name]["total_count"] += article_count
                     results[adapter_name]["partitions"].append({
                         "date": current_date.isoformat(),
-                        "count": info.get("count", 0),
+                        "count": article_count,
                         "path": info.get("path")
                     })
                     
+                    # Update progress: articles for this day
+                    _JOBS[job_id]["progress"]["current_articles"] += article_count
+                    _JOBS[job_id]["progress"]["total_articles"] += article_count
+                    _persist_job(job_id)
+                    
                     log("news_backfill_day", adapter=adapter_name, date=current_date.isoformat(), 
-                        count=info.get("count", 0))
+                        count=article_count, topic=topic)
                     
                 except Exception as e:
+                    error_msg = f"{adapter_name} on {current_date.isoformat()}: {str(e)}"
+                    _JOBS[job_id]["progress"]["errors"].append(error_msg)
+                    _persist_job(job_id)
+                    
                     log("news_backfill_day_error", adapter=adapter_name, 
-                        date=current_date.isoformat(), error=str(e))
+                        date=current_date.isoformat(), error=str(e), topic=topic)
                     # Continue with other adapters/dates even if one fails
             
             current_date = next_date
         
-        _JOBS[job_id].update({"status": "done", "result": results})
+        _JOBS[job_id].update({"status": "done", "result": results, "progress": _JOBS[job_id]["progress"]})
         _persist_job(job_id)
-        log("news_backfill_complete", results=results)
+        log("news_backfill_complete", results=results, total_articles=_JOBS[job_id]["progress"]["total_articles"], topic=topic)
         
         # Automatically fetch bodies for the news we just fetched
         log("news_backfill_auto_bodies", date_from=date_from.isoformat(), date_to=date_to.isoformat())
         body_job_id = _new_job("news_bodies", {"from": date_from.isoformat(), "to": date_to.isoformat(), "auto": True})
-        # _start_thread(_run_news_bodies, body_job_id, date_from, date_to) # This line is removed
-        # The body fetching logic is now handled by the /ingest/news/backfill endpoint
         
     except Exception as e:
-        _JOBS[job_id].update({"status": "error", "error": str(e)})
+        _JOBS[job_id].update({"status": "error", "error": str(e), "progress": _JOBS[job_id]["progress"]})
         _persist_job(job_id)
-        log("news_backfill_error", error=str(e))
+        log("news_backfill_error", error=str(e), topic=topic)
 
 
 def _run_fetch_missing_bodies(job_id: str, max_articles: int = 300, days_back: int = 3) -> None:
@@ -575,6 +599,24 @@ def list_adapters(category: str | None = None):
     return {
         "count": len(adapters),
         "adapters": adapters
+    }
+
+
+@router.get("/ingest/backfill-monitor/{job_id}")
+def backfill_monitor(job_id: str):
+    """Get live progress of a backfill job"""
+    job = _JOBS.get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    
+    return {
+        "job_id": job_id,
+        "status": job.get("status", "unknown"),
+        "progress": job.get("progress", {}),
+        "kind": job.get("kind"),
+        "payload": job.get("payload"),
+        "created_at": job.get("created_at"),
+        "result": job.get("result")
     }
 
 
