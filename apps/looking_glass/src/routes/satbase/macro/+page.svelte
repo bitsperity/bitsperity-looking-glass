@@ -167,7 +167,8 @@
     if (!selectedSeries) return;
     loading = new Set([...loading, selectedSeries]);
     try {
-      await ingestSeries([selectedSeries], from, to);
+      // Always fetch ALL data (no date range)
+      await ingestSeries([selectedSeries]);
       // Wait for background ingestion
       await new Promise(r => setTimeout(r, 2000));
       await loadSeries(selectedSeries);

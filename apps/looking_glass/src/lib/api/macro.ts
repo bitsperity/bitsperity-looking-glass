@@ -62,11 +62,12 @@ export async function getCategories(category?: string) {
   return await apiGet<any>(url);
 }
 
-export async function ingestSeries(series: string[], from?: string, to?: string) {
+export async function ingestSeries(series: string[]) {
+  // Always fetches ALL available data (no date range)
   const res = await fetch('http://127.0.0.1:8080/v1/macro/ingest', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ series, from, to })
+    body: JSON.stringify({ series })
   });
   if (!res.ok) throw new Error(`Ingest failed: ${res.status}`);
   return res.json();

@@ -153,10 +153,10 @@ async def get_macro_series(
     
     items = db.query_series(series_id, from_date, to_date)
     
-    # If no data, trigger background fetch
+    # If no data, trigger background fetch (always fetch ALL data, not just the requested range)
     if not items:
         if background_tasks:
-            background_tasks.add_task(_fetch_fred_background, [series_id], from_, to)
+            background_tasks.add_task(_fetch_fred_background, [series_id], None, None)
         return JSONResponse(
             {"status": "fetch_on_miss", "series_id": series_id, "retry_after": sync_timeout_s},
             status_code=status.HTTP_202_ACCEPTED
@@ -185,8 +185,8 @@ async def ingest_macro(payload: dict, background_tasks: BackgroundTasks):
     
     Payload:
     - series: list of series IDs
-    - from: optional ISO date
-    - to: optional ISO date
+    
+    Note: Always fetches ALL available data (no date range limits).
     """
     series = payload.get("series", [])
     if not series:
@@ -195,16 +195,14 @@ async def ingest_macro(payload: dict, background_tasks: BackgroundTasks):
             status_code=status.HTTP_400_BAD_REQUEST
         )
     
-    from_date = payload.get("from")
-    to_date = payload.get("to")
-    
-    background_tasks.add_task(_fetch_fred_background, series, from_date, to_date)
+    # ALWAYS fetch all data - don't pass from/to dates
+    background_tasks.add_task(_fetch_fred_background, series, None, None)
     
     return {
         "status": "queued",
         "series": series,
         "retry_after": 2,
-        "message": f"Fetching {len(series)} FRED series in background"
+        "message": f"Fetching {len(series)} FRED series (all historical data) in background"
     }
 
 
