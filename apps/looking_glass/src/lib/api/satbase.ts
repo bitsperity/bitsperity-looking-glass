@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete } from './client';
+import { apiGet, apiPost, apiDelete, apiPatch } from './client';
 
 // Types
 export interface NewsItem {
@@ -395,4 +395,82 @@ export async function getJobsList(params?: {
   if (params?.offset) queryParams.set('offset', params.offset.toString());
 
   return apiGet(`/v1/admin/jobs${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+}
+
+/**
+ * Get watchlist items with optional filters
+ */
+export async function getWatchlistItems(params?: {
+  type?: 'stock' | 'topic' | 'macro';
+  enabled?: boolean;
+  active_now?: boolean;
+  include_expired?: boolean;
+  q?: string;
+}): Promise<any> {
+  const queryParams = new URLSearchParams();
+  if (params?.type) queryParams.set('type', params.type);
+  if (params?.enabled !== undefined) queryParams.set('enabled', params.enabled.toString());
+  if (params?.active_now) queryParams.set('active_now', 'true');
+  if (params?.include_expired) queryParams.set('include_expired', 'true');
+  if (params?.q) queryParams.set('q', params.q);
+
+  return apiGet(`/v1/watchlist/items${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+}
+
+/**
+ * Get currently active watchlist items (for scheduler)
+ */
+export async function getActiveWatchlistItems(): Promise<any> {
+  return apiGet('/v1/watchlist/active');
+}
+
+/**
+ * Add one or more watchlist items (stocks, topics, or macro)
+ */
+export async function addWatchlistItems(payload: {
+  items: Array<{
+    type: 'stock' | 'topic' | 'macro';
+    key: string;
+    label?: string;
+    enabled?: boolean;
+    auto_ingest?: boolean;
+    ttl_days?: number;
+    active_from?: string;
+    active_to?: string;
+    metadata?: any;
+  }>;
+}): Promise<any> {
+  return apiPost('/v1/watchlist/items', payload);
+}
+
+/**
+ * Update a watchlist item (partial update)
+ */
+export async function updateWatchlistItem(itemId: number, updates: {
+  enabled?: boolean;
+  auto_ingest?: boolean;
+  ttl_days?: number;
+  active_from?: string | null;
+  active_to?: string | null;
+  label?: string;
+  metadata?: any;
+}): Promise<any> {
+  return apiPatch(`/v1/watchlist/items/${itemId}`, updates);
+}
+
+/**
+ * Delete a watchlist item (soft delete)
+ */
+export async function deleteWatchlistItem(itemId: number): Promise<any> {
+  return apiDelete(`/v1/watchlist/items/${itemId}`);
+}
+
+/**
+ * Refresh active watchlist items (trigger ingestion jobs)
+ */
+export async function refreshWatchlist(params?: {
+  types?: Array<'stock' | 'topic' | 'macro'>;
+  only_active?: boolean;
+}): Promise<any> {
+  return apiPost('/v1/watchlist/refresh', params || {});
 }
