@@ -6,13 +6,30 @@
   import { ApiError } from '$lib/api/client';
   import type { CandlestickData } from 'lightweight-charts';
   
-  let watchlist: Array<{ id: number; key: string; type: string; enabled: boolean; }> = [];
+  let watchlist: Array<{ id: number; key: string; type: string; enabled: boolean; added_at?: string; last_refresh_at?: string; }> = [];
   let selectedTicker: string = '';
   let newTicker: string = '';
   let chartData: CandlestickData[] = [];
   let btcView: boolean = false;
   let loading: boolean = false;
   let err: string | null = null;
+  let chartScale: 'linear' | 'log' = 'linear';
+  
+  // Presets
+  let presets: Array<{ label: string; days: number }> = [
+    { label: '1M', days: 30 },
+    { label: '3M', days: 90 },
+    { label: '6M', days: 180 },
+    { label: 'YTD', days: getYTDDays() },
+    { label: '1Y', days: 365 },
+    { label: 'All', days: 10000 },
+  ];
+  
+  function getYTDDays(): number {
+    const now = new Date();
+    const ytd = new Date(now.getFullYear(), 0, 1);
+    return Math.floor((now.getTime() - ytd.getTime()) / (1000 * 60 * 60 * 24));
+  }
   
   // Search autocomplete state
   let searchResults: TickerSearchResult[] = [];
@@ -26,20 +43,33 @@
   let showCompanyInfo: boolean = false;
   let infoLoading: boolean = false;
   
-  // Date range is optional - empty = load all data
+  // Status info
+  let tickerStatus: any = null;
+  
+  // Date range
   let from: string = '';
   let to: string = '';
   
   const today = new Date().toISOString().slice(0, 10);
   
-  // Validate and clamp dates to today
-  function validateDates() {
-    if (from && from > today) from = today;
-    if (to && to > today) to = today;
-    if (from && to && from > to) {
-      // If from is after to, swap them
-      [from, to] = [to, from];
-    }
+  function applyPreset(days: number) {
+    const toDate = new Date();
+    const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
+    to = toDate.toISOString().slice(0, 10);
+    from = fromDate.toISOString().slice(0, 10);
+    loadChart();
+  }
+  
+  function formatDateDiff(dateStr: string | null): string {
+    if (!dateStr) return 'N/A';
+    const then = new Date(dateStr).getTime();
+    const now = new Date().getTime();
+    const days = Math.floor((now - then) / (1000 * 60 * 60 * 24));
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    if (days < 7) return `${days} days ago`;
+    if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+    return `${Math.floor(days / 30)} months ago`;
   }
   
   async function loadWatchlist() {
@@ -49,7 +79,8 @@
       if (watchlist.length > 0 && !selectedTicker) {
         selectedTicker = watchlist[0].key.toUpperCase();
         await loadCompanyInfo(watchlist[0].key);
-        await loadChart();
+        await loadStatus();
+        applyPreset(365); // Default to 1Y
       }
     } catch (e) {
       err = String(e);
@@ -57,15 +88,12 @@
   }
   
   let retryCount = 0;
-  const MAX_RETRIES = 10; // 10 * 3s = 30 seconds max
-
-  let isRetrying = false; // Track if we're in a retry loop
+  const MAX_RETRIES = 10;
+  let isRetrying = false;
   
   async function loadChart() {
     if (!selectedTicker) return;
-    if (isRetrying) return; // Don't start new load if already retrying
-    
-    validateDates(); // Validate dates before loading
+    if (isRetrying) return;
     
     loading = true;
     err = null;
@@ -73,7 +101,6 @@
     try {
       const res = await getPricesSingle(selectedTicker, from, to, btcView);
       
-      // Convert bars to CandlestickData format
       if (res.bars && res.bars.length > 0) {
         chartData = res.bars
           .map((bar: any) => ({
@@ -84,41 +111,50 @@
             close: bar.close,
           }))
           .sort((a: any, b: any) => a.time - b.time);
-        retryCount = 0; // Reset on success
-        isRetrying = false; // Clear retry flag
+        retryCount = 0;
+        isRetrying = false;
       } else {
-        // No data available, but not an error condition
         chartData = [];
         isRetrying = false;
       }
     } catch (e: any) {
-      // Handle 202 gracefully - data is being fetched
       if (e?.message?.includes('202') || e?.status === 202) {
         if (retryCount < MAX_RETRIES) {
           retryCount++;
-          isRetrying = true; // Set retry flag
+          isRetrying = true;
           err = `Fetching data for ${selectedTicker}... (${retryCount}/${MAX_RETRIES})`;
-          // Keep existing chartData if available
           setTimeout(() => {
             if (selectedTicker) {
-              isRetrying = false; // Clear before retry
+              isRetrying = false;
               loadChart();
             }
           }, 3000);
         } else {
-          err = `Timeout: Data for ${selectedTicker} could not be fetched. The ticker may be invalid or the data source is unavailable.`;
+          err = `Timeout: Data for ${selectedTicker} could not be fetched.`;
           retryCount = 0;
           isRetrying = false;
-          chartData = []; // Clear on timeout
+          chartData = [];
         }
       } else {
         err = String(e);
         retryCount = 0;
         isRetrying = false;
-        chartData = []; // Clear on error
+        chartData = [];
       }
     } finally {
       loading = false;
+    }
+  }
+  
+  async function loadStatus() {
+    if (!selectedTicker) return;
+    try {
+      const res = await fetch(`http://127.0.0.1:8080/v1/prices/status/${selectedTicker}`);
+      if (res.ok) {
+        tickerStatus = await res.json();
+      }
+    } catch (e) {
+      console.error('Failed to load status:', e);
     }
   }
   
@@ -131,7 +167,6 @@
       return;
     }
     
-    // Debounce search
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer);
     }
@@ -163,7 +198,6 @@
   }
   
   function handleBlur() {
-    // Delay to allow click on dropdown item
     setTimeout(() => {
       showDropdown = false;
     }, 200);
@@ -195,20 +229,14 @@
       });
       newTicker = '';
       await loadWatchlist();
-      // Auto-select the newly added ticker
       selectedTicker = tickerToAdd;
       retryCount = 0;
-      loadChart();
-      // Load company info
+      await loadStatus();
+      applyPreset(365);
       await loadCompanyInfo(tickerToAdd);
     } catch (e: any) {
-      // Job failed (invalid ticker or API error) - remove from watchlist
       const errMsg = e?.body?.error || e?.message || String(e);
-      if (errMsg.includes('No data found')) {
-        err = `Invalid ticker: ${tickerToAdd} is not available.`;
-      } else {
-        err = `Error adding ${tickerToAdd}: ${errMsg}`;
-      }
+      err = `Error adding ${tickerToAdd}: ${errMsg}`;
     } finally {
       loading = false;
     }
@@ -246,9 +274,10 @@
   
   function selectTicker(ticker: string) {
     selectedTicker = ticker;
-    retryCount = 0; // Reset retry counter when switching tickers
-    loadCompanyInfo(ticker); // Load company info when selecting ticker
-    // Note: loadChart() is called automatically by the reactive statement
+    retryCount = 0;
+    loadCompanyInfo(ticker);
+    loadStatus();
+    applyPreset(365);
   }
   
   async function removeTicker(itemId: number, ticker: string) {
@@ -258,10 +287,10 @@
     try {
       await deleteWatchlistItem(itemId);
       await loadWatchlist();
-      // If the removed ticker was selected, clear selection
       if (selectedTicker === ticker) {
         selectedTicker = '';
         chartData = [];
+        tickerStatus = null;
       }
     } catch (e) {
       err = `Failed to remove ${ticker}: ${String(e)}`;
@@ -272,9 +301,7 @@
   
   onMount(loadWatchlist);
   
-  // Reactive: reload chart when ticker, date range, or btc view changes
   $: {
-    // Trigger reload when any of these dependencies change
     const _ = [selectedTicker, from, to, btcView];
     if (selectedTicker) {
       loadChart();
@@ -282,268 +309,254 @@
   }
 </script>
 
-<div class="h-screen flex relative overflow-hidden">
-  <!-- Compact Sidebar -->
-  <div class="w-56 flex-shrink-0 bg-neutral-900/50 border-r border-neutral-800 flex flex-col relative z-10 overflow-hidden">
-    <div class="p-3 border-b border-neutral-800 relative overflow-visible">
-      <h2 class="text-xs uppercase tracking-wider text-neutral-500 mb-2">Watchlist</h2>
-      <input
-        type="text"
-        placeholder="Search ticker or company..."
-        bind:value={newTicker}
-        on:input={handleSearchInput}
-        on:keydown={handleKeydown}
-        on:blur={handleBlur}
-        disabled={loading}
-        class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-2.5 py-1.5 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 transition-all"
-      />
-      
-      <!-- Autocomplete Dropdown -->
-      {#if showDropdown && searchResults.length > 0}
-        <div class="absolute z-50 w-[calc(100%-1.5rem)] mt-1 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl max-h-80 overflow-y-auto">
-          {#each searchResults as result}
-            <button
-              on:click={() => selectSearchResult(result)}
-              class="w-full text-left px-3 py-2 hover:bg-neutral-700/50 transition-colors border-b border-neutral-700/30 last:border-b-0"
-            >
-              <div class="flex flex-col gap-0.5">
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold text-sm text-blue-400 font-mono">{result.symbol}</span>
-                  {#if result.exchange}
-                    <span class="text-xs text-neutral-500">{result.exchange}</span>
-                  {/if}
+<div class="h-screen flex flex-col overflow-hidden bg-neutral-950">
+  <!-- Header -->
+  <div class="flex-shrink-0 p-4 border-b border-neutral-800 bg-neutral-900/50">
+    <div class="flex items-center justify-between gap-4">
+      <h1 class="text-2xl font-bold text-neutral-100">💹 Prices</h1>
+      <div class="flex-1">
+        <input
+          type="text"
+          placeholder="Add ticker (e.g., AAPL, MSFT)..."
+          bind:value={newTicker}
+          on:input={handleSearchInput}
+          on:keydown={handleKeydown}
+          on:blur={handleBlur}
+          disabled={loading}
+          class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 transition-all"
+        />
+        
+        {#if showDropdown && searchResults.length > 0}
+          <div class="absolute z-50 mt-1 w-96 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl max-h-80 overflow-y-auto">
+            {#each searchResults as result}
+              <button
+                on:click={() => selectSearchResult(result)}
+                class="w-full text-left px-4 py-2 hover:bg-neutral-700/50 transition-colors border-b border-neutral-700/30 last:border-b-0"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-blue-400 font-mono">{result.symbol}</span>
+                  <span class="text-xs text-neutral-500">{result.exchange}</span>
                 </div>
-                {#if result.name}
-                  <div class="text-xs text-neutral-300 line-clamp-1">{result.name}</div>
-                {/if}
-                {#if result.sector}
-                  <div class="text-xs text-neutral-500">{result.sector}</div>
-                {/if}
-              </div>
-            </button>
-          {/each}
-        </div>
-      {/if}
+                <div class="text-xs text-neutral-300 line-clamp-1">{result.name}</div>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
-    
-    <div class="flex-1 overflow-y-auto p-2 space-y-1">
-      {#each watchlist as item}
-        <div class="flex items-center gap-1 group">
+  </div>
+
+  <div class="flex-1 flex overflow-hidden">
+    <!-- Watchlist Sidebar -->
+    <div class="w-64 flex-shrink-0 bg-neutral-900/50 border-r border-neutral-800 flex flex-col overflow-hidden">
+      <div class="flex-1 overflow-y-auto p-3 space-y-1">
+        <div class="px-2 py-1 text-xs font-semibold text-neutral-500 uppercase">Watchlist ({watchlist.length})</div>
+        {#each watchlist as item (item.id)}
           <button
             on:click={() => selectTicker(item.key)}
-            class="flex-1 text-left px-2 py-1.5 rounded text-sm font-mono transition-colors
+            class="w-full text-left px-3 py-2 rounded-lg text-sm font-mono transition-colors group flex items-center justify-between
               {selectedTicker === item.key 
                 ? 'bg-blue-600 text-white' 
                 : 'bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300'}"
           >
-            {item.key}
+            <span>{item.key}</span>
+            <button
+              on:click|stopPropagation={() => removeTicker(item.id, item.key)}
+              class="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-red-400 transition-all"
+            >
+              ✕
+            </button>
           </button>
-          <button
-            on:click|stopPropagation={() => removeTicker(item.id, item.key)}
-            class="w-6 h-6 flex items-center justify-center rounded text-neutral-500 hover:bg-red-500/20 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-            title="Remove {item.key}"
-          >
-            ×
-          </button>
-        </div>
-      {/each}
-    </div>
-    
-    {#if watchlist.length === 0}
-      <div class="text-center py-8 px-4 text-xs text-neutral-600">
-        Add tickers above
-      </div>
-    {/if}
-  </div>
-  
-  <!-- Main Area -->
-  <div class="flex-1 flex flex-col overflow-hidden">
-    <!-- Compact Toolbar -->
-    <div class="flex items-center gap-3 p-3 pb-2 border-b border-neutral-800 flex-shrink-0">
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-neutral-500">From</span>
-        <input type="date" bind:value={from} max={today} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="text-xs text-neutral-500">To</span>
-        <input type="date" bind:value={to} max={today} class="bg-neutral-800 border-0 rounded px-2 py-1 text-xs text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+        {/each}
       </div>
       
-      <label class="flex items-center gap-2 text-xs cursor-pointer">
-        <input type="checkbox" bind:checked={btcView} class="rounded border-neutral-600 bg-neutral-700 text-orange-600 focus:ring-1 focus:ring-orange-500/50" />
-        <span class="text-neutral-300">₿ BTC View</span>
-      </label>
-      
-      <button
-        on:click={loadChart}
-        disabled={loading}
-        class="ml-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-xs font-medium"
-      >
-        {loading ? 'Loading...' : 'Refresh'}
-      </button>
-    </div>
-    
-    <!-- Error / Info -->
-    {#if err}
-      <div class="mx-3 mb-2 bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 text-sm text-blue-300 flex items-center gap-2 flex-shrink-0">
-        {#if err.includes('Fetching')}
-          <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        {/if}
-        <span>{err}</span>
-      </div>
-    {/if}
-    
-    <!-- Chart Container (takes remaining space) -->
-    <div class="flex-1 min-h-0 overflow-hidden bg-neutral-800/50 border border-neutral-700/50 rounded-xl mx-3 mb-2">
-      {#if loading}
-        <div class="h-full flex items-center justify-center">
-          <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        </div>
-      {:else if selectedTicker && chartData.length > 0}
-        <div class="h-full">
-          <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} />
-        </div>
-      {:else if selectedTicker}
-        <div class="h-full flex items-center justify-center text-center">
-          <div>
-            <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            <h3 class="text-sm font-semibold text-neutral-300 mb-1">No data available</h3>
-            <p class="text-xs text-neutral-500">Adjust date range or wait for fetch</p>
-          </div>
-        </div>
-      {:else}
-        <div class="h-full flex items-center justify-center text-center">
-          <div>
-            <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-            </svg>
-            <h3 class="text-sm font-semibold text-neutral-300 mb-1">Select a ticker</h3>
-            <p class="text-xs text-neutral-500">Choose from watchlist or add new</p>
-          </div>
+      {#if watchlist.length === 0}
+        <div class="p-4 text-center text-xs text-neutral-600">
+          Add tickers to begin
         </div>
       {/if}
     </div>
-    
-    <!-- Company Info Card (fixed 30vh height when expanded) -->
-    {#if selectedTicker && (tickerInfo || tickerFundamentals)}
-      <div class="flex-shrink-0 mx-3 mb-3" style="height: {showCompanyInfo ? '30vh' : 'auto'}">
-        <div class="bg-neutral-800/50 border border-neutral-700/50 rounded-xl overflow-hidden h-full flex flex-col">
-        <button
-          on:click={() => showCompanyInfo = !showCompanyInfo}
-          class="w-full p-3 flex items-center justify-between hover:bg-neutral-800/70 transition-colors flex-shrink-0"
-        >
-          <div class="flex items-center gap-3">
-            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div class="text-left">
-              <h3 class="text-sm font-semibold text-neutral-100">{tickerInfo?.name || selectedTicker}</h3>
-              {#if tickerInfo?.sector}
-                <p class="text-xs text-neutral-400">{tickerInfo.sector} • {tickerInfo.industry || ''}</p>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Toolbar -->
+      <div class="flex-shrink-0 p-4 border-b border-neutral-800 bg-neutral-900/30 space-y-3">
+        <!-- Chart Presets -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-neutral-500">Range:</span>
+          {#each presets as preset}
+            <button
+              on:click={() => applyPreset(preset.days)}
+              class="px-3 py-1.5 text-xs rounded-lg font-medium transition-colors
+                {from && preset.label === '1M' || (preset.label === '1Y' && !from)
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300'}"
+            >
+              {preset.label}
+            </button>
+          {/each}
+        </div>
+
+        <!-- Options -->
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-2 cursor-pointer text-xs">
+            <input type="checkbox" bind:checked={btcView} class="rounded" />
+            <span class="text-neutral-300">₿ BTC View</span>
+          </label>
+
+          <label class="flex items-center gap-2 cursor-pointer text-xs">
+            <input type="checkbox" bind:checked={chartScale} value="log" class="rounded" />
+            <span class="text-neutral-300">Log Scale</span>
+          </label>
+
+          {#if tickerStatus}
+            <div class="ml-auto flex items-center gap-3 text-xs">
+              <div class="flex items-center gap-1">
+                <span class="text-neutral-500">Last Update:</span>
+                <span class="text-neutral-300 font-mono">{formatDateDiff(tickerStatus.latest_date)}</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="text-neutral-500">Source:</span>
+                <span class="px-2 py-1 rounded bg-neutral-800/50 text-neutral-300">{tickerStatus.source || 'N/A'}</span>
+              </div>
+              {#if tickerStatus.invalid}
+                <div class="px-2 py-1 rounded bg-red-500/20 text-red-400">Invalid</div>
               {/if}
             </div>
+          {/if}
+
+          <button
+            on:click={() => loadChart()}
+            disabled={loading}
+            class="ml-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-xs font-medium"
+          >
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+
+      <!-- Error Message -->
+      {#if err}
+        <div class="mx-4 mt-2 bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 text-sm text-blue-300 flex items-center gap-2 flex-shrink-0">
+          {#if err.includes('Fetching')}
+            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          {/if}
+          <span>{err}</span>
+        </div>
+      {/if}
+
+      <!-- Chart Container -->
+      <div class="flex-1 min-h-0 overflow-hidden p-4">
+        {#if loading}
+          <div class="h-full flex items-center justify-center">
+            <svg class="animate-spin h-8 w-8 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
           </div>
-          <svg class="w-5 h-5 text-neutral-500 transition-transform {showCompanyInfo ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-        
-        {#if showCompanyInfo}
-          <div class="p-4 pt-0 space-y-4 overflow-y-auto flex-1">
-            <!-- Description -->
-            {#if tickerInfo?.description}
-              <div>
-                <h4 class="text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-1">About</h4>
-                <p class="text-xs text-neutral-300 leading-relaxed">{tickerInfo.description}</p>
-              </div>
-            {/if}
-            
-            <!-- Key Metrics Grid -->
-            {#if tickerFundamentals}
-              <div>
-                <h4 class="text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">Key Metrics</h4>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {#if tickerFundamentals.market_cap}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">Market Cap</div>
-                      <div class="text-sm font-semibold text-neutral-100">${(tickerFundamentals.market_cap / 1e9).toFixed(2)}B</div>
-                    </div>
-                  {/if}
-                  {#if tickerFundamentals.pe_ratio}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">P/E Ratio</div>
-                      <div class="text-sm font-semibold text-neutral-100">{tickerFundamentals.pe_ratio.toFixed(2)}</div>
-                    </div>
-                  {/if}
-                  {#if tickerFundamentals.eps}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">EPS</div>
-                      <div class="text-sm font-semibold text-neutral-100">${tickerFundamentals.eps.toFixed(2)}</div>
-                    </div>
-                  {/if}
-                  {#if tickerFundamentals.dividend_yield}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">Dividend Yield</div>
-                      <div class="text-sm font-semibold text-neutral-100">{(tickerFundamentals.dividend_yield * 100).toFixed(2)}%</div>
-                    </div>
-                  {/if}
-                  {#if tickerFundamentals.beta}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">Beta</div>
-                      <div class="text-sm font-semibold text-neutral-100">{tickerFundamentals.beta.toFixed(2)}</div>
-                    </div>
-                  {/if}
-                  {#if tickerFundamentals.profit_margin}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">Profit Margin</div>
-                      <div class="text-sm font-semibold text-neutral-100">{(tickerFundamentals.profit_margin * 100).toFixed(2)}%</div>
-                    </div>
-                  {/if}
-                  {#if tickerFundamentals['52_week_high']}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">52W High</div>
-                      <div class="text-sm font-semibold text-neutral-100">${tickerFundamentals['52_week_high'].toFixed(2)}</div>
-                    </div>
-                  {/if}
-                  {#if tickerFundamentals['52_week_low']}
-                    <div class="bg-neutral-900/50 rounded p-2">
-                      <div class="text-xs text-neutral-500">52W Low</div>
-                      <div class="text-sm font-semibold text-neutral-100">${tickerFundamentals['52_week_low'].toFixed(2)}</div>
-                    </div>
-                  {/if}
-                </div>
-              </div>
-            {/if}
-            
-            <!-- Additional Info -->
-            <div class="flex items-center gap-4 text-xs text-neutral-400">
-              {#if tickerInfo?.website}
-                <a href={tickerInfo.website} target="_blank" rel="noreferrer" class="hover:text-blue-400 transition-colors flex items-center gap-1">
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                  Website
-                </a>
-              {/if}
-              {#if tickerInfo?.exchange}
-                <span>{tickerInfo.exchange}</span>
-              {/if}
-              {#if tickerInfo?.country}
-                <span>{tickerInfo.country}</span>
-              {/if}
+        {:else if selectedTicker && chartData.length > 0}
+          <div class="h-full bg-neutral-900/50 rounded-lg border border-neutral-800/50">
+            <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} />
+          </div>
+        {:else if selectedTicker}
+          <div class="h-full flex items-center justify-center">
+            <div class="text-center">
+              <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <h3 class="text-sm font-semibold text-neutral-300 mb-1">No data available</h3>
+              <p class="text-xs text-neutral-500">Adjust date range or wait for fetch</p>
+            </div>
+          </div>
+        {:else}
+          <div class="h-full flex items-center justify-center">
+            <div class="text-center">
+              <svg class="w-12 h-12 text-neutral-600 mb-3 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              <h3 class="text-sm font-semibold text-neutral-300 mb-1">Select a ticker</h3>
+              <p class="text-xs text-neutral-500">Choose from watchlist or add new</p>
             </div>
           </div>
         {/if}
-        </div>
       </div>
-    {/if}
+
+      <!-- Company Info Card -->
+      {#if selectedTicker && (tickerInfo || tickerFundamentals)}
+        <div class="flex-shrink-0 p-4 border-t border-neutral-800">
+          <button
+            on:click={() => showCompanyInfo = !showCompanyInfo}
+            class="w-full p-3 flex items-center justify-between hover:bg-neutral-800/50 transition-colors rounded-lg"
+          >
+            <div class="flex items-center gap-3">
+              <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div class="text-left">
+                <h3 class="text-sm font-semibold text-neutral-100">{tickerInfo?.name || selectedTicker}</h3>
+                {#if tickerInfo?.sector}
+                  <p class="text-xs text-neutral-400">{tickerInfo.sector}</p>
+                {/if}
+              </div>
+            </div>
+            <svg class="w-5 h-5 text-neutral-500 transition-transform {showCompanyInfo ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          
+          {#if showCompanyInfo && (tickerInfo || tickerFundamentals)}
+            <div class="mt-4 p-4 bg-neutral-800/30 rounded-lg space-y-4 max-h-60 overflow-y-auto">
+              {#if tickerInfo?.description}
+                <div>
+                  <h4 class="text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">About</h4>
+                  <p class="text-xs text-neutral-300 leading-relaxed line-clamp-3">{tickerInfo.description}</p>
+                </div>
+              {/if}
+              
+              {#if tickerFundamentals}
+                <div>
+                  <h4 class="text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">Key Metrics</h4>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {#if tickerFundamentals.market_cap}
+                      <div class="bg-neutral-900/50 rounded p-2">
+                        <div class="text-xs text-neutral-500">Market Cap</div>
+                        <div class="text-sm font-semibold text-neutral-100">${(tickerFundamentals.market_cap / 1e9).toFixed(2)}B</div>
+                      </div>
+                    {/if}
+                    {#if tickerFundamentals.pe_ratio}
+                      <div class="bg-neutral-900/50 rounded p-2">
+                        <div class="text-xs text-neutral-500">P/E</div>
+                        <div class="text-sm font-semibold text-neutral-100">{tickerFundamentals.pe_ratio.toFixed(2)}</div>
+                      </div>
+                    {/if}
+                    {#if tickerFundamentals.dividend_yield}
+                      <div class="bg-neutral-900/50 rounded p-2">
+                        <div class="text-xs text-neutral-500">Div Yield</div>
+                        <div class="text-sm font-semibold text-neutral-100">{(tickerFundamentals.dividend_yield * 100).toFixed(2)}%</div>
+                      </div>
+                    {/if}
+                    {#if tickerFundamentals.beta}
+                      <div class="bg-neutral-900/50 rounded p-2">
+                        <div class="text-xs text-neutral-500">Beta</div>
+                        <div class="text-sm font-semibold text-neutral-100">{tickerFundamentals.beta.toFixed(2)}</div>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
+
+<style lang="postcss">
+  :global(body) {
+    @apply bg-neutral-950 text-neutral-100;
+  }
+</style>
