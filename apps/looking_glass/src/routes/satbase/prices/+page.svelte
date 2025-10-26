@@ -49,14 +49,49 @@
   // Date range
   let from: string = '';
   let to: string = '';
+  let activePreset: string = '1Y';
   
   const today = new Date().toISOString().slice(0, 10);
+  
+  function calculateActivePreset(): void {
+    if (!from || !to) {
+      activePreset = '';
+      return;
+    }
+    
+    const toDate = new Date(to);
+    const fromDate = new Date(from);
+    const diffDays = Math.floor((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    // Check for YTD first (from is Jan 1 of this year)
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    
+    if (from === yearStart) {
+      activePreset = 'YTD';
+      return;
+    }
+    
+    // Match to closest preset
+    if (diffDays <= 35) {
+      activePreset = '1M';
+    } else if (diffDays <= 105) {
+      activePreset = '3M';
+    } else if (diffDays <= 195) {
+      activePreset = '6M';
+    } else if (diffDays <= 395) {
+      activePreset = '1Y';
+    } else {
+      activePreset = 'All';
+    }
+  }
   
   function applyPreset(days: number) {
     const toDate = new Date();
     const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000);
     to = toDate.toISOString().slice(0, 10);
     from = fromDate.toISOString().slice(0, 10);
+    calculateActivePreset();
     loadChart();
   }
   
@@ -306,6 +341,7 @@
     if (selectedTicker) {
       loadChart();
     }
+    calculateActivePreset();
   }
 </script>
 
@@ -388,7 +424,7 @@
             <button
               on:click={() => applyPreset(preset.days)}
               class="px-3 py-1.5 text-xs rounded-lg font-medium transition-colors
-                {from && preset.label === '1M' || (preset.label === '1Y' && !from)
+                {activePreset === preset.label
                   ? 'bg-blue-600 text-white'
                   : 'bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300'}"
             >
