@@ -43,6 +43,12 @@
 	// Preview state
 	let selectedArticleId: string | null = null;
 
+	// Modal state for article details
+	let showArticleModal = false;
+	let selectedArticle: any = null;
+	let editingBody = false;
+	let editedBody = '';
+
 	// Bulk operations
 	let selectedArticleIds: Set<string> = new Set();
 
@@ -188,6 +194,30 @@
 			articles = articles.filter(a => a.id !== id);
 		} catch (e) {
 			error = `Failed to delete: ${e}`;
+		}
+	}
+
+	function openArticleModal(article: any) {
+		selectedArticle = article;
+		editedBody = article.content_text || article.body_text || '';
+		editingBody = false;
+		showArticleModal = true;
+	}
+
+	function closeArticleModal() {
+		showArticleModal = false;
+		selectedArticle = null;
+		editingBody = false;
+	}
+
+	async function saveEditedBody() {
+		if (!selectedArticle) return;
+		try {
+			// TODO: Implement API endpoint to update article body
+			alert('Body update feature coming soon');
+			editingBody = false;
+		} catch (e) {
+			error = `Failed to update: ${e}`;
 		}
 	}
 
@@ -358,8 +388,8 @@
 					</div>
 
 					{#each articles as article (article.id)}
-						<div class="article-row" class:selected={selectedArticleId === article.id}>
-							<div class="col-checkbox">
+						<div class="article-row" class:selected={selectedArticleId === article.id} on:click={() => openArticleModal(article)} role="button" tabindex="0" on:keydown={(e) => e.key === 'Enter' && openArticleModal(article)}>
+							<div class="col-checkbox" on:click={(e) => e.stopPropagation()}>
 								<input
 									type="checkbox"
 									checked={selectedArticleIds.has(article.id)}
@@ -372,15 +402,9 @@
 								{/if}
 							</div>
 							<div class="col-title">
-								<a href={article.url} target="_blank" rel="noopener">
+								<a href={article.url} target="_blank" rel="noopener" on:click={(e) => e.stopPropagation()}>
 									{article.title}
 								</a>
-								{#if selectedArticleId === article.id && article.content_text}
-									<div class="article-preview">
-										<strong>📄 Body Preview:</strong><br />
-										{getPreview(article.content_text, 300)}
-									</div>
-								{/if}
 							</div>
 							<div class="col-date">
 								{formatDate(article.published_at)}
@@ -391,20 +415,12 @@
 							<div class="col-size">
 								{formatSize(article.content_text)}
 							</div>
-							<div class="col-actions">
+							<div class="col-actions" on:click={(e) => e.stopPropagation()}>
 								<button
 									class="action-icon"
-									title="Preview body"
-									on:click={() => {
-										selectedArticleId = selectedArticleId === article.id ? null : article.id;
-									}}
+									title="Delete"
+									on:click={() => deleteArticle(article.id)}
 								>
-									👁️
-								</button>
-								<button class="action-icon" title="Star" on:click={() => alert('Star feature coming soon')}>
-									⭐
-								</button>
-								<button class="action-icon" title="Delete" on:click={() => deleteArticle(article.id)}>
 									🗑️
 								</button>
 							</div>
@@ -544,6 +560,94 @@
 			<small>Quality scores, link validation, duplicate detection coming soon...</small>
 		</div>
 	</section>
+{/if}
+
+<!-- Article Detail Modal -->
+{#if showArticleModal && selectedArticle}
+	<div class="modal-overlay" role="dialog" aria-modal="true" on:click={closeArticleModal}>
+		<div class="modal-content" on:click={(e) => e.stopPropagation()}>
+			<!-- Modal Header -->
+			<div class="modal-header">
+				<div class="modal-title-section">
+					<span class="modal-topic">{selectedArticle.topics?.[0] || 'News'}</span>
+					<h2>{selectedArticle.title}</h2>
+					<div class="modal-meta">
+						<span>📅 {formatDate(selectedArticle.published_at)}</span>
+						<span>📰 {selectedArticle.source || 'Unknown'}</span>
+						<span>📏 {formatSize(selectedArticle.content_text)}</span>
+					</div>
+				</div>
+				<button class="modal-close" on:click={closeArticleModal}>✕</button>
+			</div>
+
+			<!-- Modal Tabs -->
+			<div class="modal-tabs">
+				<button class="modal-tab" class:active={!editingBody} on:click={() => (editingBody = false)}>
+					📖 Content
+				</button>
+				<button class="modal-tab" class:active={editingBody} on:click={() => (editingBody = true)}>
+					✏️ Edit Body
+				</button>
+				<a href={selectedArticle.url} target="_blank" rel="noopener" class="modal-tab">
+					🔗 Original Source
+				</a>
+			</div>
+
+			<!-- Content View -->
+			{#if !editingBody}
+				<div class="modal-body-view">
+					<div class="article-content">
+						{#if selectedArticle.description}
+							<div class="section">
+								<h4>📝 Summary</h4>
+								<p>{selectedArticle.description}</p>
+							</div>
+						{/if}
+
+						<div class="section">
+							<h4>📄 Full Content ({selectedArticle.content_text?.length || 0} chars)</h4>
+							<div class="content-text">
+								{selectedArticle.content_text || selectedArticle.body_text || 'No content available'}
+							</div>
+						</div>
+
+						<div class="section meta-info">
+							<h4>ℹ️ Metadata</h4>
+							<div class="meta-grid">
+								<div><strong>Language:</strong> {selectedArticle.language || '-'}</div>
+								<div><strong>Category:</strong> {selectedArticle.category || '-'}</div>
+								<div><strong>Country:</strong> {selectedArticle.country || '-'}</div>
+								<div><strong>Author:</strong> {selectedArticle.author || '-'}</div>
+								<div><strong>Fetched:</strong> {selectedArticle.fetched_at || '-'}</div>
+								<div><strong>Published:</strong> {selectedArticle.published_at || '-'}</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			{:else}
+				<!-- Edit View -->
+				<div class="modal-body-edit">
+					<textarea bind:value={editedBody} class="edit-textarea"></textarea>
+					<div class="edit-actions">
+						<Button on:click={saveEditedBody}>💾 Save Changes</Button>
+						<Button on:click={() => (editingBody = false)}>Cancel</Button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Modal Footer -->
+			<div class="modal-footer">
+				<div class="footer-actions">
+					<button class="action-btn danger" on:click={() => { deleteArticle(selectedArticle.id); closeArticleModal(); }}>
+						🗑️ Delete Article
+					</button>
+					<button class="action-btn" on:click={closeArticleModal}>
+						Close
+					</button>
+				</div>
+			</div>
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -792,10 +896,12 @@
 		border-bottom: 1px solid rgba(71, 85, 105, 0.15);
 		align-items: center;
 		transition: background 0.2s ease;
+		cursor: pointer;
 	}
 
 	.article-row:hover {
-		background: rgba(71, 85, 105, 0.1);
+		background: rgba(71, 85, 105, 0.15);
+		box-shadow: inset 0 0 10px rgba(34, 197, 211, 0.1);
 	}
 
 	.article-row.selected {
@@ -843,16 +949,6 @@
 
 	.col-title a:hover {
 		text-decoration: underline;
-	}
-
-	.article-preview {
-		font-size: 0.8rem;
-		color: var(--color-text-secondary);
-		white-space: normal;
-		margin-top: 0.25rem;
-		padding: 0.5rem;
-		background: rgba(71, 85, 105, 0.1);
-		border-radius: var(--radius-sm);
 	}
 
 	.col-date,
@@ -1079,5 +1175,219 @@
 		font-size: 0.8rem;
 		font-weight: 600;
 		color: var(--color-accent);
+	}
+
+	/* Modal Styles */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		z-index: 1000;
+	}
+
+	.modal-content {
+		background: var(--color-bg-card);
+		border-radius: var(--radius-lg);
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+		width: 90%;
+		max-width: 800px;
+		max-height: 90vh;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	.modal-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1.5rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+		background: rgba(71, 85, 105, 0.1);
+	}
+
+	.modal-title-section {
+		flex: 1;
+		margin-right: 1rem;
+	}
+
+	.modal-topic {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		background: rgba(34, 197, 211, 0.2);
+		color: #06b6d4;
+		border-radius: var(--radius-sm);
+		font-size: 0.75rem;
+		font-weight: 600;
+		margin-bottom: 0.5rem;
+	}
+
+	.modal-meta {
+		font-size: 0.875rem;
+		color: var(--color-text-tertiary);
+		margin-top: 0.5rem;
+	}
+
+	.modal-close {
+		background: none;
+		border: none;
+		font-size: 1.5rem;
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		transition: color 0.2s ease;
+	}
+
+	.modal-close:hover {
+		color: var(--color-text);
+	}
+
+	.modal-tabs {
+		display: flex;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+		margin-bottom: 1.5rem;
+	}
+
+	.modal-tab {
+		flex: 1;
+		padding: 0.75rem 1.5rem;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--color-text-secondary);
+		font-weight: 500;
+		cursor: pointer;
+		text-align: center;
+		transition: all 0.2s ease;
+		text-decoration: none;
+		color: var(--color-accent);
+		border-bottom-color: var(--color-accent);
+	}
+
+	.modal-tab:hover {
+		color: var(--color-text);
+	}
+
+	.modal-tab.active {
+		border-bottom-color: var(--color-accent);
+	}
+
+	.modal-body-view,
+	.modal-body-edit {
+		flex: 1;
+		padding: 1.5rem;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.modal-body-view .section,
+	.modal-body-edit .section {
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.1);
+	}
+
+	.modal-body-view .section:last-child,
+	.modal-body-edit .section:last-child {
+		border-bottom: none;
+		margin-bottom: 0;
+		padding-bottom: 0;
+	}
+
+	.modal-body-view h4,
+	.modal-body-edit h4 {
+		margin-bottom: 0.75rem;
+		color: var(--color-text);
+	}
+
+	.modal-body-view p,
+	.modal-body-edit p {
+		color: var(--color-text-secondary);
+		line-height: 1.6;
+		margin-bottom: 0.75rem;
+	}
+
+	.modal-body-view .content-text,
+	.modal-body-edit .edit-textarea {
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		padding: 1rem;
+		color: var(--color-text);
+		font-family: inherit;
+		min-height: 150px;
+		resize: vertical;
+		font-size: 0.9rem;
+	}
+
+	.edit-actions {
+		display: flex;
+		gap: 1rem;
+		margin-top: 1rem;
+	}
+
+	.modal-body-view .meta-info,
+	.modal-body-edit .meta-info {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		gap: 0.75rem;
+		margin-top: 0.75rem;
+	}
+
+	.modal-body-view .meta-info div,
+	.modal-body-edit .meta-info div {
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+	}
+
+	.modal-body-view .meta-info strong,
+	.modal-body-edit .meta-info strong {
+		color: var(--color-text);
+	}
+
+	.modal-footer {
+		padding: 1.5rem;
+		border-top: 1px solid rgba(71, 85, 105, 0.2);
+		background: rgba(71, 85, 105, 0.1);
+	}
+
+	.footer-actions {
+		display: flex;
+		gap: 1rem;
+	}
+
+	.action-btn {
+		flex: 1;
+		padding: 0.75rem 1.5rem;
+		background: none;
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.action-btn:hover {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	.action-btn.danger {
+		border-color: rgba(239, 68, 68, 0.3);
+		color: #ef4444;
+	}
+
+	.action-btn.danger:hover {
+		border-color: rgba(239, 68, 68, 0.5);
+		color: #ef4444;
 	}
 </style>
