@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 from contextlib import contextmanager
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, Any
 import json
 
@@ -468,3 +468,120 @@ class NewsDB:
             rows = conn.execute(query, params).fetchall()
             
             return [{"name": row[0], "count": row[1]} for row in rows]
+    
+    def get_daily_counts(
+        self,
+        from_date: str | date | None = None,
+        to_date: str | date | None = None
+    ) -> list[dict]:
+        """Get article counts by day for trend analysis."""
+        where_parts = ["1=1"]
+        params: list[Any] = []
+        
+        if from_date:
+            if isinstance(from_date, str):
+                from_date = datetime.fromisoformat(from_date)
+            where_parts.append("published_at >= ?")
+            params.append(from_date)
+        
+        if to_date:
+            if isinstance(to_date, str):
+                to_date = datetime.fromisoformat(to_date)
+            where_parts.append("published_at < ?")
+            params.append(to_date)
+        
+        where_clause = " AND ".join(where_parts)
+        
+        with self.conn() as conn:
+            rows = conn.execute(f"""
+                SELECT DATE(published_at) as day, COUNT(*) as count
+                FROM news_articles
+                WHERE {where_clause}
+                GROUP BY day
+                ORDER BY day
+            """, params).fetchall()
+            
+            return [{"day": row[0], "count": row[1]} for row in rows]
+    
+    def get_ingestion_errors(self, hours: int = 24) -> list[dict]:
+        """Get recent ingestion errors from job logs (placeholder)."""
+        # This would normally come from a separate error log table
+        # For now, return empty - can be extended with structured logging
+        return []
+    
+    def get_crawl_success_rate(self, hours: int = 24) -> float:
+        """Calculate body text crawl success rate."""
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        
+        with self.conn() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM news_articles WHERE fetched_at >= ?",
+                (cutoff,)
+            ).fetchone()[0]
+            
+            if total == 0:
+                return 100.0
+            
+            with_body = conn.execute(
+                "SELECT COUNT(*) FROM news_articles WHERE fetched_at >= ? AND LENGTH(body_text) > 50",
+                (cutoff,)
+            ).fetchone()[0]
+            
+            return round((with_body / total) * 100, 1)
+    
+    def get_duplicate_candidates(self) -> list[dict]:
+        """Find potential duplicate articles (same URL)."""
+        with self.conn() as conn:
+            rows = conn.execute("""
+                SELECT url, COUNT(*) as count, GROUP_CONCAT(id) as ids
+                FROM news_articles
+                GROUP BY url
+                HAVING count > 1
+            """).fetchall()
+            
+            return [
+                {"url": row[0], "count": row[1], "article_ids": row[2].split(",")}
+                for row in rows
+            ]
+    
+    def delete_articles_batch(self, article_ids: list[str]) -> int:
+        """Delete multiple articles by ID."""
+        if not article_ids:
+            return 0
+        
+        placeholders = ",".join("?" * len(article_ids))
+        
+        with self.conn() as conn:
+            result = conn.execute(
+                f"DELETE FROM news_articles WHERE id IN ({placeholders})",
+                article_ids
+            )
+            return result.rowcount
+    
+    def delete_articles_by_topic(self, topic: str, before_date: str | date | None = None) -> int:
+        """Delete all articles with a specific topic (optionally before a date)."""
+        where_parts = ["nt.topic = ?"]
+        params: list[Any] = [topic]
+        
+        if before_date:
+            if isinstance(before_date, str):
+                before_date = datetime.fromisoformat(before_date)
+            where_parts.append("a.published_at < ?")
+            params.append(before_date)
+        
+        where_clause = " AND ".join(where_parts)
+        
+        with self.conn() as conn:
+            # Find article IDs to delete
+            ids = conn.execute(f"""
+                SELECT DISTINCT a.id
+                FROM news_articles a
+                JOIN news_topics nt ON a.id = nt.article_id
+                WHERE {where_clause}
+            """, params).fetchall()
+            
+            if not ids:
+                return 0
+            
+            article_ids = [row[0] for row in ids]
+            return self.delete_articles_batch(article_ids)
