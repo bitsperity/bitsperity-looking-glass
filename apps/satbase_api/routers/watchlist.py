@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import httpx
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.watchlist_db import WatchlistDB
-from .ingest import enqueue_prices_daily, enqueue_news, enqueue_macro_fred
+from .ingest import enqueue_prices_daily, enqueue_news
 
 
 router = APIRouter()
@@ -109,7 +110,7 @@ def delete_watchlist_item(item_id: int):
 
 
 @router.post("/watchlist/refresh", status_code=status.HTTP_202_ACCEPTED)
-def refresh_watchlist(body: dict[str, Any] = None):
+async def refresh_watchlist(body: dict[str, Any] = None, background_tasks: BackgroundTasks = None):
     """Trigger refresh for active watchlist items (prices, news, macro)."""
     body = body or {}
     
@@ -153,15 +154,26 @@ def refresh_watchlist(body: dict[str, Any] = None):
                 "job_id": job_id
             })
     
-    # Refresh macro (per-item)
+    # Refresh macro (via new macro ingest endpoint)
     if 'macro' in by_type:
-        for item in by_type['macro']:
-            job_id = enqueue_macro_fred(item['key'])
-            jobs.append({
-                "type": "macro",
-                "series_id": item['key'],
-                "job_id": job_id
-            })
+        macro_series = [item['key'] for item in by_type['macro']]
+        if background_tasks and macro_series:
+            # Trigger async macro ingestion via local call
+            payload = {"series": macro_series}
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                try:
+                    resp = await client.post(
+                        "http://127.0.0.1:8080/v1/macro/ingest",
+                        json=payload
+                    )
+                    if resp.status_code in (202, 200):
+                        jobs.append({
+                            "type": "macro",
+                            "series_count": len(macro_series),
+                            "series": macro_series
+                        })
+                except Exception as e:
+                    print(f"Failed to trigger macro refresh: {e}")
     
     return JSONResponse({
         "status": "accepted",

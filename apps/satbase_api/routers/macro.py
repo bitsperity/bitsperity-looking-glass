@@ -1,15 +1,45 @@
 from datetime import date
 from pathlib import Path
-import polars as pl
-from fastapi import APIRouter, status, Query
-from fastapi.responses import JSONResponse
-from .ingest import enqueue_macro_fred
-from libs.satbase_core.config.settings import load_settings
 import httpx
+from fastapi import APIRouter, status, Query, BackgroundTasks
+from fastapi.responses import JSONResponse
+
+from libs.satbase_core.config.settings import load_settings
+from libs.satbase_core.storage.macro_db import MacroDB
+from libs.satbase_core.ingest.registry import registry
 
 router = APIRouter()
 
-# FRED Categories (from Vision doc)
+
+def _get_macro_db() -> MacroDB:
+    """Get MacroDB instance."""
+    s = load_settings()
+    db_path = Path(s.stage_dir).parent / "macro.db"
+    return MacroDB(db_path)
+
+
+async def _fetch_fred_background(series_ids: list[str], from_date: str = None, to_date: str = None):
+    """Background task: fetch FRED series."""
+    try:
+        reg = registry()
+        fetch, normalize, sink = reg["fred"]
+        
+        params = {
+            "series_ids": [s.upper() for s in series_ids],
+        }
+        if from_date:
+            params["from"] = date.fromisoformat(from_date)
+        if to_date:
+            params["to"] = date.fromisoformat(to_date)
+        
+        raw = fetch(params)
+        models = normalize(raw)
+        sink(models)
+    except Exception as e:
+        print(f"FRED background fetch failed: {e}")
+
+
+# FRED Categories mapping
 FRED_CATEGORIES = {
     'inflation': {
         'name': 'Inflation & Prices',
@@ -49,6 +79,16 @@ FRED_CATEGORIES = {
     }
 }
 
+CORE_FRED_SERIES = [
+    'GDP', 'GDPC1', 'UNRATE', 'CPIAUCSL', 'FEDFUNDS',
+    'DGS10', 'DGS2', 'T10Y2Y', 'DEXUSEU', 'DCOILWTICO',
+    'M2SL', 'VIXCLS', 'PCEPI', 'CPILFESL', 'PAYEMS',
+    'ICSA', 'GDPPOT', 'M1SL', 'WALCL', 'RSXFS',
+    'UMCSENT', 'PCE', 'INDPRO', 'MANEMP', 'HOUST',
+    'MORTGAGE30US', 'DTWEXBGS', 'GASREGW'
+]
+
+
 @router.get("/macro/fred/search")
 async def fred_search(q: str, limit: int = 20):
     """Search FRED series by text query"""
@@ -72,7 +112,6 @@ async def fred_search(q: str, limit: int = 20):
             resp.raise_for_status()
             data = resp.json()
             
-            # Extract relevant fields
             results = []
             for series in data.get("seriess", []):
                 results.append({
@@ -89,101 +128,122 @@ async def fred_search(q: str, limit: int = 20):
     except Exception as e:
         return {"error": str(e), "results": []}
 
-@router.get("/macro/fred/series/{series_id}")
-def fred_series(series_id: str, from_: str | None = Query(None, alias="from"), to: str | None = None):
+
+@router.get("/macro/series/{series_id}")
+async def get_macro_series(
+    series_id: str,
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = None,
+    sync_timeout_s: int = 2,
+    background_tasks: BackgroundTasks = None
+):
     """
     Get FRED series observations.
     
-    Now reads from: data/stage/macro/fred/{series_id}.parquet
-    
-    This is MUCH faster than scanning date folders!
+    Params:
+    - from: ISO date (YYYY-MM-DD)
+    - to: ISO date (YYYY-MM-DD)
+    - sync_timeout_s: Max seconds to wait for fetch-on-miss (default: 2)
     """
-    s = load_settings()
+    db = _get_macro_db()
     
-    # Direct path to series file (like Stooq does for tickers!)
-    series_file = Path(s.stage_dir) / "macro" / "fred" / f"{series_id}.parquet"
+    # Try to query database
+    from_date = date.fromisoformat(from_) if from_ else None
+    to_date = date.fromisoformat(to) if to else None
     
-    # If file doesn't exist, trigger ingestion
-    if not series_file.exists():
-        job_id = enqueue_macro_fred([series_id])
+    items = db.query_series(series_id, from_date, to_date)
+    
+    # If no data, trigger background fetch
+    if not items:
+        if background_tasks:
+            background_tasks.add_task(_fetch_fred_background, [series_id], from_, to)
         return JSONResponse(
-            {"status": "fetch_on_miss", "job_id": job_id, "series_id": series_id, "retry_after": 2}, 
+            {"status": "fetch_on_miss", "series_id": series_id, "retry_after": sync_timeout_s},
             status_code=status.HTTP_202_ACCEPTED
         )
     
-    # Read the parquet file
-    try:
-        df = pl.read_parquet(series_file)
-        
-        # Apply date filters if provided
-        if from_ and to:
-            dfrom = date.fromisoformat(from_)
-            dto = date.fromisoformat(to)
-            df = df.filter(pl.col("date").is_between(dfrom, dto))
-        elif from_:
-            dfrom = date.fromisoformat(from_)
-            df = df.filter(pl.col("date") >= dfrom)
-        elif to:
-            dto = date.fromisoformat(to)
-            df = df.filter(pl.col("date") <= dto)
-        
-        # Sort by date descending (newest first)
-        df = df.sort("date", descending=True)
-        
-        items = df.to_dicts()
-        
-        return {
-            "series_id": series_id,
-            "from": from_,
-            "to": to,
-            "items": items
-        }
-    except Exception as e:
+    return {
+        "series_id": series_id,
+        "from": from_,
+        "to": to,
+        "items": items
+    }
+
+
+@router.get("/macro/status/{series_id}")
+async def get_macro_status(series_id: str):
+    """Get status for a FRED series."""
+    db = _get_macro_db()
+    status_info = db.get_status(series_id)
+    return status_info
+
+
+@router.post("/macro/ingest")
+async def ingest_macro(payload: dict, background_tasks: BackgroundTasks):
+    """
+    Trigger macro (FRED) ingestion.
+    
+    Payload:
+    - series: list of series IDs
+    - from: optional ISO date
+    - to: optional ISO date
+    """
+    series = payload.get("series", [])
+    if not series:
         return JSONResponse(
-            {"error": f"Failed to read series {series_id}: {str(e)}"}, 
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"error": "No series provided"},
+            status_code=status.HTTP_400_BAD_REQUEST
         )
+    
+    from_date = payload.get("from")
+    to_date = payload.get("to")
+    
+    background_tasks.add_task(_fetch_fred_background, series, from_date, to_date)
+    
+    return {
+        "status": "queued",
+        "series": series,
+        "retry_after": 2,
+        "message": f"Fetching {len(series)} FRED series in background"
+    }
 
 
-@router.get("/macro/fred/categories")
-def fred_categories(category: str | None = Query(None, description="Optional: filter by category (e.g., 'inflation')")):
+@router.post("/macro/refresh-core", status_code=status.HTTP_202_ACCEPTED)
+async def refresh_fred_core(background_tasks: BackgroundTasks):
+    """Refresh all 28 core FRED indicators."""
+    background_tasks.add_task(_fetch_fred_background, CORE_FRED_SERIES)
+    
+    return JSONResponse({
+        "status": "accepted",
+        "series_count": len(CORE_FRED_SERIES),
+        "series": CORE_FRED_SERIES,
+        "retry_after": 2
+    }, status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.get("/macro/categories")
+async def get_macro_categories(category: str | None = Query(None)):
     """
     Browse FRED series organized by economic category.
     
     Returns all categories with their series and metadata,
     or just one category if specified.
     """
-    s = load_settings()
-    fred_dir = Path(s.stage_dir) / "macro" / "fred"
+    db = _get_macro_db()
     
     def enrich_series(series_id: str) -> dict:
-        """Get metadata for a series"""
-        series_file = fred_dir / f"{series_id}.parquet"
-        
-        result = {
+        """Get metadata for a series."""
+        status_info = db.get_status(series_id)
+        return {
             "id": series_id,
-            "title": series_id,  # Default to ID
-            "available": False,
-            "observations": 0,
-            "latest_value": None,
-            "latest_date": None
+            "title": status_info['title'] or series_id,
+            "available": status_info['observation_count'] > 0,
+            "observations": status_info['observation_count'],
+            "latest_value": status_info['latest_value'],
+            "latest_date": status_info['latest_date'],
+            "units": status_info['units'],
+            "frequency": status_info['frequency']
         }
-        
-        if series_file.exists():
-            try:
-                df = pl.read_parquet(series_file)
-                result["available"] = True
-                result["observations"] = len(df)
-                
-                if len(df) > 0 and "date" in df.columns and "value" in df.columns:
-                    # Get latest observation
-                    latest = df.sort("date", descending=True).head(1)
-                    result["latest_value"] = float(latest["value"][0])
-                    result["latest_date"] = str(latest["date"][0])
-            except Exception:
-                pass
-        
-        return result
     
     # If specific category requested
     if category:
@@ -220,26 +280,3 @@ def fred_categories(category: str | None = Query(None, description="Optional: fi
         "categories": categories,
         "total_categories": len(categories)
     }
-
-
-CORE_FRED_SERIES = [
-    'GDP', 'GDPC1', 'UNRATE', 'CPIAUCSL', 'FEDFUNDS',
-    'DGS10', 'DGS2', 'T10Y2Y', 'DEXUSEU', 'DCOILWTICO',
-    'M2SL', 'VIXCLS', 'PCEPI', 'CPILFESL', 'PAYEMS',
-    'ICSA', 'GDPPOT', 'M1SL', 'WALCL', 'RSXFS',
-    'UMCSENT', 'PCE', 'INDPRO', 'MANEMP', 'HOUST',
-    'MORTGAGE30US', 'DTWEXBGS', 'GASREGW'
-]
-
-
-@router.post("/macro/fred/refresh-core", status_code=status.HTTP_202_ACCEPTED)
-def refresh_fred_core():
-    """Refresh all 28 core FRED indicators."""
-    job_id = enqueue_macro_fred(CORE_FRED_SERIES)
-    return JSONResponse({
-        "status": "accepted",
-        "job_id": job_id,
-        "series_count": len(CORE_FRED_SERIES),
-        "series": CORE_FRED_SERIES,
-        "retry_after": 2
-    }, status_code=status.HTTP_202_ACCEPTED)
