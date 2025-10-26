@@ -81,7 +81,7 @@
 	:global(main.satbase-main) {
 		position: relative;
 		z-index: 1;
-		padding-top: 4rem; /* Space below nav */
+		padding-top: 2rem;
 		padding-bottom: 4rem;
 	}
 

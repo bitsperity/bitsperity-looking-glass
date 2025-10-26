@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import SatbaseNav from '$lib/components/satbase/SatbaseNav.svelte';
 	import * as satbaseApi from '$lib/api/satbase';
 	import Button from '$lib/components/shared/Button.svelte';
 	import Input from '$lib/components/shared/Input.svelte';
@@ -153,10 +152,7 @@
 	}
 </script>
 
-<div class="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-	<SatbaseNav />
-
-	<div class="mx-auto max-w-7xl px-4 py-8">
+<div class="mx-auto max-w-7xl px-4 py-8">
 		<!-- Header -->
 		<div class="mb-8">
 			<h1 class="text-4xl font-bold text-white mb-2">📋 Topics</h1>
@@ -417,10 +413,3 @@
 			</div>
 		{/if}
 	</div>
-</div>
-
-<style>
-	:global(body) {
-		background: linear-gradient(to bottom, rgb(15, 23, 42), rgb(2, 6, 23));
-	}
-</style>
