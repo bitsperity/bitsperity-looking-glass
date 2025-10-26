@@ -97,6 +97,31 @@ class NewsDB:
                 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON news_audit_log(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS idx_audit_article ON news_audit_log(article_id);
                 CREATE INDEX IF NOT EXISTS idx_audit_action ON news_audit_log(action);
+                
+                CREATE TABLE IF NOT EXISTS job_tracking (
+                    job_id TEXT PRIMARY KEY,
+                    job_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    
+                    payload TEXT,
+                    progress_total INTEGER,
+                    progress_current INTEGER,
+                    
+                    result TEXT,
+                    error TEXT,
+                    error_count INTEGER DEFAULT 0,
+                    
+                    duration_seconds INTEGER,
+                    items_processed INTEGER DEFAULT 0,
+                    items_failed INTEGER DEFAULT 0
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_job_status ON job_tracking(status);
+                CREATE INDEX IF NOT EXISTS idx_job_type ON job_tracking(job_type);
+                CREATE INDEX IF NOT EXISTS idx_job_created ON job_tracking(created_at DESC);
             """)
     
     def upsert_article(
@@ -689,4 +714,171 @@ class NewsDB:
                 "period_days": days,
                 "total_events": total,
                 "actions": {action[0]: action[1] for action in actions}
+            }
+    
+    def create_job(
+        self,
+        job_id: str,
+        job_type: str,
+        payload: dict | None = None
+    ) -> None:
+        """Create a new job record."""
+        import json
+        payload_str = json.dumps(payload) if payload else None
+        
+        with self.conn() as conn:
+            conn.execute("""
+                INSERT INTO job_tracking
+                (job_id, job_type, status, payload)
+                VALUES (?, ?, ?, ?)
+            """, (job_id, job_type, "queued", payload_str))
+    
+    def update_job_status(
+        self,
+        job_id: str,
+        status: str,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None
+    ) -> None:
+        """Update job status (queued, running, done, error)."""
+        with self.conn() as conn:
+            conn.execute("""
+                UPDATE job_tracking
+                SET status = ?, started_at = COALESCE(?, started_at), completed_at = ?
+                WHERE job_id = ?
+            """, (status, started_at, completed_at, job_id))
+    
+    def update_job_progress(
+        self,
+        job_id: str,
+        current: int,
+        total: int | None = None,
+        items_processed: int | None = None,
+        items_failed: int | None = None
+    ) -> None:
+        """Update job progress during execution."""
+        with self.conn() as conn:
+            conn.execute("""
+                UPDATE job_tracking
+                SET progress_current = ?,
+                    progress_total = COALESCE(?, progress_total),
+                    items_processed = COALESCE(?, items_processed),
+                    items_failed = COALESCE(?, items_failed)
+                WHERE job_id = ?
+            """, (current, total, items_processed, items_failed, job_id))
+    
+    def complete_job(
+        self,
+        job_id: str,
+        status: str = "done",
+        result: dict | None = None,
+        error: str | None = None
+    ) -> None:
+        """Mark job as completed with result or error."""
+        import json
+        result_str = json.dumps(result) if result else None
+        
+        with self.conn() as conn:
+            started = conn.execute(
+                "SELECT started_at FROM job_tracking WHERE job_id = ?",
+                (job_id,)
+            ).fetchone()
+            
+            duration = None
+            if started and started[0]:
+                start_dt = datetime.fromisoformat(started[0]) if isinstance(started[0], str) else started[0]
+                duration = int((datetime.utcnow() - start_dt).total_seconds())
+            
+            conn.execute("""
+                UPDATE job_tracking
+                SET status = ?, result = ?, error = ?, 
+                    completed_at = CURRENT_TIMESTAMP, duration_seconds = ?
+                WHERE job_id = ?
+            """, (status, result_str, error, duration, job_id))
+    
+    def get_job(self, job_id: str) -> dict | None:
+        """Get detailed job information."""
+        import json
+        with self.conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM job_tracking WHERE job_id = ?",
+                (job_id,)
+            ).fetchone()
+            
+            if not row:
+                return None
+            
+            job = dict(row)
+            if job["payload"]:
+                job["payload"] = json.loads(job["payload"])
+            if job["result"]:
+                job["result"] = json.loads(job["result"])
+            return job
+    
+    def list_jobs(
+        self,
+        status: str | None = None,
+        job_type: str | None = None,
+        limit: int = 100
+    ) -> list[dict]:
+        """List jobs with optional filters."""
+        import json
+        where_parts = ["1=1"]
+        params: list[Any] = []
+        
+        if status:
+            where_parts.append("status = ?")
+            params.append(status)
+        
+        if job_type:
+            where_parts.append("job_type = ?")
+            params.append(job_type)
+        
+        where_clause = " AND ".join(where_parts)
+        
+        with self.conn() as conn:
+            rows = conn.execute(f"""
+                SELECT * FROM job_tracking
+                WHERE {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, params + [limit]).fetchall()
+            
+            jobs = []
+            for row in rows:
+                job = dict(row)
+                if job["payload"]:
+                    job["payload"] = json.loads(job["payload"])
+                if job["result"]:
+                    job["result"] = json.loads(job["result"])
+                jobs.append(job)
+            
+            return jobs
+    
+    def get_job_stats(self) -> dict:
+        """Get job statistics."""
+        with self.conn() as conn:
+            stats = conn.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+                    SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+                    SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done,
+                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error,
+                    ROUND(AVG(CASE WHEN duration_seconds IS NOT NULL THEN duration_seconds ELSE NULL END), 1) as avg_duration_seconds,
+                    SUM(CASE WHEN items_processed IS NOT NULL THEN items_processed ELSE 0 END) as total_items_processed
+                FROM job_tracking
+            """).fetchone()
+            
+            return {
+                "total_jobs": stats[0] or 0,
+                "queued": stats[1] or 0,
+                "running": stats[2] or 0,
+                "done": stats[3] or 0,
+                "error": stats[4] or 0,
+                "avg_duration_seconds": stats[5],
+                "total_items_processed": stats[6] or 0,
+                "success_rate": round(
+                    (stats[3] or 0) / max(1, (stats[0] or 1)) * 100, 1
+                )
             }

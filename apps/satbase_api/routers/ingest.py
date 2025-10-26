@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from libs.satbase_core.ingest.registry import registry, registry_with_metadata
 from libs.satbase_core.utils.logging import log
 from libs.satbase_core.config.settings import load_settings
+from libs.satbase_core.storage.news_db import NewsDB
 
 
 router = APIRouter()
@@ -74,6 +75,15 @@ def _new_job(kind: str, payload: dict[str, Any]) -> str:
     job_id = uuid.uuid4().hex
     _JOBS[job_id] = {"status": "queued", "kind": kind, "payload": payload, "created_at": datetime.utcnow().isoformat()}
     _persist_job(job_id)
+    
+    # Also persist to SQLite for permanent tracking
+    try:
+        s = load_settings()
+        db = NewsDB(s.stage_dir.parent / "news.db")
+        db.create_job(job_id, kind, payload=payload)
+    except Exception as e:
+        log("job_sqlite_persist_error", job_id=job_id, error=str(e))
+    
     return job_id
 
 
@@ -180,8 +190,11 @@ def _run_news_unified(
     Unified news ingestion: daily or backfill (same code path).
     If date_from/date_to not provided: fetch today's news.
     """
-    _JOBS[job_id]["status"] = "running"
-    _persist_job(job_id)
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    # Update job status to running
+    db.update_job_status(job_id, "running", started_at=datetime.utcnow())
     
     # Default: today if not provided
     if not date_from or not date_to:
@@ -191,8 +204,7 @@ def _run_news_unified(
     reg = registry()
     if "mediastack" not in reg:
         error_msg = "Mediastack adapter not available"
-        _JOBS[job_id].update({"status": "error", "error": error_msg})
-        _persist_job(job_id)
+        db.complete_job(job_id, status="error", error=error_msg)
         log("news_unified_error", error=error_msg)
         return
     
@@ -207,9 +219,14 @@ def _run_news_unified(
     
     try:
         current_date = date_from
+        day_count = 0
         while current_date <= date_to:
+            day_count += 1
             try:
                 next_date = current_date + timedelta(days=1)
+                
+                # Update progress
+                db.update_job_progress(job_id, current=day_count, total=results["total_days"])
                 
                 params = {
                     "query": query,
@@ -228,6 +245,14 @@ def _run_news_unified(
                 results["articles_stored"] += info.get("count", 0)
                 results["articles_discarded"] += info.get("discarded", 0)
                 
+                # Update progress with items processed
+                db.update_job_progress(
+                    job_id,
+                    current=day_count,
+                    items_processed=results["articles_stored"],
+                    items_failed=results["articles_discarded"]
+                )
+                
                 if "errors" in info:
                     results["errors"].extend(info["errors"])
                 
@@ -245,8 +270,7 @@ def _run_news_unified(
                 log("news_unified_day_error", date=current_date.isoformat(), error=str(e), topic=topic)
                 current_date += timedelta(days=1)
         
-        _JOBS[job_id].update({"status": "done", "result": results})
-        _persist_job(job_id)
+        db.complete_job(job_id, status="done", result=results)
         log("news_unified_complete",
             total_days=results["total_days"],
             stored=results["articles_stored"],
@@ -254,8 +278,7 @@ def _run_news_unified(
             topic=topic)
     
     except Exception as e:
-        _JOBS[job_id].update({"status": "error", "error": str(e)})
-        _persist_job(job_id)
+        db.complete_job(job_id, status="error", error=str(e))
         log("news_unified_error", error=str(e), topic=topic)
 
 

@@ -331,3 +331,174 @@ def get_audit_stats(days: int = Query(30, ge=1, le=365)):
         "stats": stats,
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# ============================================================================
+# Job Management Endpoints
+# ============================================================================
+
+@router.get("/admin/jobs")
+def list_jobs_admin(
+    status: str | None = Query(None, description="queued, running, done, error"),
+    job_type: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=1000)
+):
+    """
+    List all jobs with optional filters.
+    Perfect for frontend monitoring.
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    jobs = db.list_jobs(status=status, job_type=job_type, limit=limit)
+    
+    return {
+        "jobs": jobs,
+        "total": len(jobs),
+        "filters": {"status": status, "job_type": job_type},
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.get("/admin/jobs/stats")
+def get_jobs_stats():
+    """Get overall job statistics (success rate, avg duration, etc)."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    stats = db.get_job_stats()
+    
+    return {
+        "stats": stats,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.get("/admin/jobs/{job_id}")
+def get_job_detail(job_id: str):
+    """Get detailed information about a specific job including progress."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    job = db.get_job(job_id)
+    
+    if not job:
+        return JSONResponse(
+            {"error": f"Job {job_id} not found"},
+            status_code=404
+        )
+    
+    # Calculate progress percentage
+    progress_pct = None
+    if job["progress_total"] and job["progress_total"] > 0:
+        progress_pct = round((job["progress_current"] or 0) / job["progress_total"] * 100, 1)
+    
+    return {
+        "job": job,
+        "progress_percent": progress_pct,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.post("/admin/jobs/{job_id}/retry")
+def retry_job(job_id: str):
+    """Retry a failed job."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    job = db.get_job(job_id)
+    
+    if not job:
+        return JSONResponse(
+            {"error": f"Job {job_id} not found"},
+            status_code=404
+        )
+    
+    if job["status"] != "error":
+        return JSONResponse(
+            {"error": f"Cannot retry job with status '{job['status']}'"},
+            status_code=400
+        )
+    
+    # Create a new job with same payload
+    new_job_id = str(uuid.uuid4()).replace("-", "")
+    db.create_job(new_job_id, job["job_type"], payload=job["payload"])
+    
+    # Trigger based on job type
+    if job["job_type"] == "news_backfill":
+        import httpx
+        try:
+            payload = job["payload"]
+            with httpx.Client(timeout=2) as client:
+                client.post(
+                    "http://localhost:8080/v1/ingest/news/backfill",
+                    json=payload
+                )
+        except Exception as e:
+            log("job_retry_error", original_job=job_id, new_job=new_job_id, error=str(e))
+    
+    return {
+        "status": "success",
+        "original_job": job_id,
+        "new_job": new_job_id,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.delete("/admin/jobs/{job_id}")
+def delete_job(job_id: str):
+    """Delete/cleanup a job record."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    job = db.get_job(job_id)
+    
+    if not job:
+        return JSONResponse(
+            {"error": f"Job {job_id} not found"},
+            status_code=404
+        )
+    
+    # Only allow deletion of completed jobs
+    if job["status"] not in ["done", "error"]:
+        return JSONResponse(
+            {"error": f"Cannot delete job with status '{job['status']}'"},
+            status_code=400
+        )
+    
+    with db.conn() as conn:
+        conn.execute("DELETE FROM job_tracking WHERE job_id = ?", (job_id,))
+    
+    return {
+        "status": "success",
+        "deleted_job": job_id,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.post("/admin/jobs/cleanup")
+def cleanup_old_jobs(days: int = Query(30, ge=1, le=365)):
+    """Delete old completed jobs (for maintenance)."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    
+    with db.conn() as conn:
+        result = conn.execute(
+            "DELETE FROM job_tracking WHERE status IN ('done', 'error') AND completed_at < ?",
+            (cutoff,)
+        )
+        deleted_count = result.rowcount
+    
+    return {
+        "status": "success",
+        "deleted_count": deleted_count,
+        "before_date": cutoff.isoformat(),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+# Import uuid for retry function
+import uuid
+from libs.satbase_core.utils.logging import log
