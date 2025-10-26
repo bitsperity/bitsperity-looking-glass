@@ -16,7 +16,7 @@ BASE = "https://api.mediastack.com/v1/news"
 
 
 def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
-    """Normalize a Mediastack article to NewsDoc format"""
+    """Normalize a Mediastack article to NewsDoc format - store ALL fields (we pay per API call!)"""
     url = rec.get("url")
     if not url:
         return None
@@ -49,6 +49,7 @@ def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
     # Initialize topics from parameter if provided
     topics = [topic] if topic else []
     
+    # Extract ALL Mediastack fields (we pay per API call!)
     doc = NewsDoc(
         id=nid,
         source="mediastack",
@@ -60,6 +61,14 @@ def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
         regions=[],  # Always list, never None
         themes=[],  # Always list, never None
         topics=topics,
+        # Store ALL Mediastack metadata to maximize data value
+        author=rec.get("author"),
+        description=rec.get("description"),
+        image=rec.get("image"),
+        category=rec.get("category"),
+        language=rec.get("language"),
+        country=rec.get("country"),
+        source_name=rec.get("source"),  # In Mediastack this is "source" field
     )
     return doc
 

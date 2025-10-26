@@ -68,7 +68,10 @@ def normalize(entries: Iterable[dict], topic: str | None = None) -> Iterable[New
                 url=link,
                 published_at=published_at,
                 tickers=tickers,
-                topics=[topic] if topic else []
+                topics=[topic] if topic else [],
+                # Store available metadata fields (RSS has limited metadata)
+                author=raw.get("author"),
+                description=raw.get("summary"),
             )
             yield doc
             count += 1

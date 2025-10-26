@@ -30,8 +30,8 @@ def reset_all_data():
     deleted = []
     errors = []
     
-    # Delete all news-related directories
-    for subdir in ["gdelt", "news_rss", "news_body"]:
+    # Delete all news-related directories (including mediastack)
+    for subdir in ["gdelt", "news_rss", "mediastack", "news_docs", "news_body"]:
         path = stage_dir / subdir
         if path.exists():
             try:
@@ -73,6 +73,7 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
     dto = date.fromisoformat(to)
     lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", dfrom, dto)
     lf_r = scan_parquet_glob(s.stage_dir, "news_rss", "news_docs", dfrom, dto)
+    lf_m = scan_parquet_glob(s.stage_dir, "mediastack", "news_docs", dfrom, dto)
     # Define complete schema for fallback empty DataFrames
     empty_schema = {
         "id": pl.Utf8,
@@ -95,12 +96,18 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         df_r = lf_r.collect()
     except Exception:
         df_r = pl.DataFrame(schema=empty_schema)
+    try:
+        df_m = lf_m.collect()
+    except Exception:
+        df_m = pl.DataFrame(schema=empty_schema)
     # Normalize published_at to string to avoid timezone dtype conflicts
     if "published_at" in df_g.columns:
         df_g = df_g.with_columns(pl.col("published_at").cast(pl.Utf8))
     if "published_at" in df_r.columns:
         df_r = df_r.with_columns(pl.col("published_at").cast(pl.Utf8))
-    df = pl.concat([df_g, df_r], how="vertical_relaxed")
+    if "published_at" in df_m.columns:
+        df_m = df_m.with_columns(pl.col("published_at").cast(pl.Utf8))
+    df = pl.concat([df_g, df_r, df_m], how="vertical_relaxed")
     
     # Ensure tickers column is List[Utf8] and null-safe
     if "tickers" in df.columns:
@@ -205,7 +212,7 @@ def delete_news(news_id: str):
         from_date = to_date - timedelta(days=365)
         
         deleted = False
-        sources = ["gdelt", "news_rss"]
+        sources = ["gdelt", "news_rss", "mediastack"]
         
         for source in sources:
             try:
@@ -315,7 +322,7 @@ def news_heatmap(
     dfrom = date.fromisoformat(from_)
     dto = date.fromisoformat(to)
     
-    # Scan news from both sources
+    # Scan news from all sources
     try:
         lf_g = scan_parquet_glob(s.stage_dir, "gdelt", "news_docs", dfrom, dto)
         df_g = lf_g.collect()
@@ -334,8 +341,17 @@ def news_heatmap(
     except Exception:
         df_r = pl.DataFrame(schema={"id": pl.Utf8, "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
     
-    # Combine
-    df = pl.concat([df_g, df_r], how="vertical_relaxed")
+    try:
+        lf_m = scan_parquet_glob(s.stage_dir, "mediastack", "news_docs", dfrom, dto)
+        df_m = lf_m.collect()
+        # Normalize published_at to string to avoid timezone conflicts
+        if "published_at" in df_m.columns:
+            df_m = df_m.with_columns(pl.col("published_at").cast(pl.Utf8))
+    except Exception:
+        df_m = pl.DataFrame(schema={"id": pl.Utf8, "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
+    
+    # Combine all sources
+    df = pl.concat([df_g, df_r, df_m], how="vertical_relaxed")
     
     if df.height == 0:
         return {
@@ -462,8 +478,17 @@ def trending_tickers(
     except Exception:
         df_r = pl.DataFrame(schema={"tickers": pl.List(pl.Utf8), "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
     
-    # Combine
-    df = pl.concat([df_g, df_r], how="vertical_relaxed")
+    try:
+        lf_m = scan_parquet_glob(s.stage_dir, "mediastack", "news_docs", from_date, to_date)
+        df_m = lf_m.collect()
+        # Normalize published_at to string to avoid timezone conflicts
+        if "published_at" in df_m.columns:
+            df_m = df_m.with_columns(pl.col("published_at").cast(pl.Utf8))
+    except Exception:
+        df_m = pl.DataFrame(schema={"tickers": pl.List(pl.Utf8), "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
+    
+    # Combine all sources
+    df = pl.concat([df_g, df_r, df_m], how="vertical_relaxed")
     
     if df.height == 0:
         return {
@@ -658,7 +683,7 @@ def get_news_gaps(
     # Scan both news sources
     daily_counts = {}
     
-    for source in ["gdelt", "news_rss"]:
+    for source in ["gdelt", "news_rss", "mediastack"]:
         try:
             lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
             df = lf.collect()
@@ -743,7 +768,7 @@ def validate_news_batch(body: dict):
     to_date = date.today()
     from_date = to_date - timedelta(days=365)
     
-    for source in ["gdelt", "news_rss"]:
+    for source in ["gdelt", "news_rss", "mediastack"]:
         try:
             lf = scan_parquet_glob(s.stage_dir, source, "news_docs", from_date, to_date)
             df = lf.collect()
@@ -810,7 +835,7 @@ async def recheck_news_url(news_id: str):
         from_date = to_date - timedelta(days=365)
         
         article = None
-        for source in ["gdelt", "news_rss"]:
+        for source in ["gdelt", "news_rss", "mediastack"]:
             try:
                 lf = scan_parquet_glob(s.stage_dir, source, "news_docs", from_date, to_date)
                 df = lf.collect()
@@ -937,7 +962,7 @@ def check_integrity():
         doc_ids = set()
         doc_count = 0
         
-        for source in ["gdelt", "news_rss"]:
+        for source in ["gdelt", "news_rss", "mediastack"]:
             try:
                 lf = pl.scan_parquet(str(stage_dir / source / "**" / "news_docs.parquet"))
                 df = lf.select("id").collect()

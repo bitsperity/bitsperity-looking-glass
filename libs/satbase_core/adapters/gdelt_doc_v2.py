@@ -61,6 +61,9 @@ def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
         regions=[],  # Always list, never None
         themes=[],  # Always list, never None
         topics=topics,
+        # Store available metadata (GDELT has limited enrichment)
+        source_name=rec.get("sourcecountry"),
+        description=rec.get("excerpt") or rec.get("snippet"),
     )
     return doc
 

@@ -245,35 +245,24 @@ def _run_news_backfill(
     elif tone_filter == "neutral":
         tone_query_suffix = " tone>-1 tone<1"
     
-    # Map sort_order to GDELT sort parameter
-    sort_map = {
-        "relevance": "HybridRel",
-        "newest": "DateDesc",
-        "oldest": "DateAsc",
-        "most_positive": "ToneDesc",
-        "most_negative": "ToneAsc"
-    }
-    gdelt_sort = sort_map.get(sort_order, "HybridRel")
-    
     try:
         # Find all news adapters that support historical queries
+        # For backfill: MEDIASTACK ONLY (highly optimized, we pay per call anyway)
+        # GDELT/RSS are for daily real-time ingestion only
         historical_adapters = {
             name: entry for name, entry in registry_full.items()
             if entry.metadata.category == "news" and entry.metadata.supports_historical
+            and name == "mediastack"  # BACKFILL: MEDIASTACK ONLY!
         }
         
-        # Prioritize Mediastack if available (better quality, historical support)
-        # Then GDELT for fallback
-        adapter_order = ["mediastack", "gdelt_doc_v2"]
-        ordered_adapters = {}
-        for adapter_name in adapter_order:
-            if adapter_name in historical_adapters:
-                ordered_adapters[adapter_name] = historical_adapters.pop(adapter_name)
-        # Add any remaining adapters
-        ordered_adapters.update(historical_adapters)
+        if not historical_adapters:
+            log("news_backfill_error", error="Mediastack adapter not available or MEDIASTACK_API_KEY not configured")
+            _JOBS[job_id].update({"status": "error", "error": "Mediastack adapter required for backfill. Set MEDIASTACK_API_KEY env var."})
+            _persist_job(job_id)
+            return
         
         log("news_backfill_start", 
-            adapters=list(ordered_adapters.keys()), 
+            adapters=list(historical_adapters.keys()), 
             date_from=date_from.isoformat(), 
             date_to=date_to.isoformat(),
             topic=topic,
@@ -295,32 +284,20 @@ def _run_news_backfill(
             _JOBS[job_id]["progress"]["current_articles"] = 0
             _persist_job(job_id)
             
-            for adapter_name, entry in ordered_adapters.items():
+            for adapter_name, entry in historical_adapters.items():
                 try:
                     fetch, normalize, sink = entry.fns
                     
                     # Build query with tone filters
                     filtered_query = query + tone_query_suffix
                     
-                    # Prepare params - format varies by adapter
-                    if adapter_name == "mediastack":
-                        # Mediastack uses date_from/date_to in YYYY-MM-DD format
-                        params = {
-                            "query": filtered_query,
-                            "date_from": current_date.strftime("%Y-%m-%d"),
-                            "date_to": next_date.strftime("%Y-%m-%d"),
-                            "limit": min(max_articles_per_day, 100),  # Max 100 per request
-                        }
-                    else:
-                        # GDELT uses startdatetime/enddatetime in YYYYMMDDHHmmss format
-                        params = {
-                            "query": filtered_query,
-                            "startdatetime": current_date.strftime("%Y%m%d%H%M%S"),
-                            "enddatetime": next_date.strftime("%Y%m%d%H%M%S"),
-                            "window_hours": 24,  # Full day window for backfill
-                            "maxrecords": 250,  # Fetch max, then filter
-                            "sort": gdelt_sort  # Pass sort order to fetch
-                        }
+                    # Prepare params for Mediastack (BACKFILL: ONLY MEDIASTACK)
+                    params = {
+                        "query": filtered_query,
+                        "date_from": current_date.strftime("%Y-%m-%d"),
+                        "date_to": next_date.strftime("%Y-%m-%d"),
+                        "limit": min(max_articles_per_day, 100),  # Max 100 per request
+                    }
                     
                     raw = fetch(params)
                     models = list(normalize(raw, topic))
