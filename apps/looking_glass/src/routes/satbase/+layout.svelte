@@ -63,7 +63,7 @@
 
 	.satbase-layout {
 		position: relative;
-		min-h-screen;
+		min-height: 100vh;
 		background: linear-gradient(to bottom, rgb(15, 23, 42), rgb(2, 6, 23));
 		overflow-x: hidden;
 	}
