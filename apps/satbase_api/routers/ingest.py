@@ -787,17 +787,10 @@ def _run_delete_topic(job_id: str, topic_name: str) -> None:
                         continue
                     
                     # Filter out articles with this topic
-                    # Keep rows where topics list doesn't contain topic_name
-                    def filter_topic(topics):
-                        if topics is None:
-                            return True
-                        if not isinstance(topics, list):
-                            return True
-                        return topic_name not in topics
-                    
+                    # Use native Polars list.contains() for efficiency
                     original_height = df.height
                     df_filtered = df.filter(
-                        pl.col("topics").map_elements(filter_topic, return_dtype=pl.Boolean)
+                        ~pl.col("topics").list.contains(topic_name)
                     )
                     
                     deleted_in_file = original_height - df_filtered.height
