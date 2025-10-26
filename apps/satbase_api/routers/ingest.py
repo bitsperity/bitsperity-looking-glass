@@ -205,7 +205,7 @@ def _run_news(job_id: str, query: str, topic: str | None = None, hours: int | No
         _persist_job(job_id)
 
 
-def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date) -> None:
+def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date, topic: str | None = None) -> None:
     """Backfill historical news using ALL adapters that support historical queries"""
     _JOBS[job_id]["status"] = "running"
     _persist_job(job_id)
@@ -242,8 +242,8 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date) 
                     }
                     
                     raw = fetch(params)
-                    models = list(normalize(raw))
-                    info = sink(models, current_date)
+                    models = list(normalize(raw, topic))  # Pass topic for annotation
+                    info = sink(models, current_date, topic)  # Pass topic for annotation
                     
                     if adapter_name not in results:
                         results[adapter_name] = {"days": 0, "total_count": 0, "partitions": []}
@@ -280,6 +280,76 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date) 
         _JOBS[job_id].update({"status": "error", "error": str(e)})
         _persist_job(job_id)
         log("news_backfill_error", error=str(e))
+
+
+def _run_fetch_missing_bodies(job_id: str, max_articles: int = 300, days_back: int = 3) -> None:
+    _JOBS[job_id]["status"] = "running"
+    _persist_job(job_id)
+
+    try:
+        s = load_settings()
+        stage = Path(s.stage_dir)
+        from datetime import timedelta
+        import polars as pl
+        from libs.satbase_core.storage.stage import partition_path, upsert_parquet_by_id, delete_by_ids
+        from libs.satbase_core.adapters.http import fetch_text_with_retry
+
+        fetched = 0
+        deleted = 0
+        today = date.today()
+        for d_off in range(0, days_back):
+            d = today - timedelta(days=d_off)
+            for source in ["news_rss", "gdelt"]:
+                docs_path = partition_path(stage, source, d) / "news_docs.parquet"
+                if not docs_path.exists():
+                    continue
+                try:
+                    df_docs = pl.read_parquet(docs_path)
+                except Exception:
+                    continue
+                if "id" not in df_docs.columns:
+                    continue
+
+                bodies_path = partition_path(stage, "news_body", d) / "news_body.parquet"
+                if bodies_path.exists():
+                    try:
+                        df_bodies = pl.read_parquet(bodies_path)
+                    except Exception:
+                        df_bodies = pl.DataFrame({"id": []})
+                else:
+                    df_bodies = pl.DataFrame({"id": []})
+
+                have_body = set(df_bodies["id"].to_list()) if df_bodies.height > 0 else set()
+                missing_df = df_docs.filter(~pl.col("id").is_in(list(have_body)))
+                if missing_df.height == 0:
+                    continue
+
+                for row in missing_df.to_dicts():
+                    if fetched >= max_articles:
+                        break
+                    url = row.get("url")
+                    nid = row.get("id")
+                    if not url or not nid:
+                        continue
+                    text = fetch_text_with_retry(url, max_retries=2, timeout=15)
+                    if text and len(text) > 100:
+                        upsert_parquet_by_id(stage, "news_body", d, "news_body", "id", [{
+                            "id": nid,
+                            "url": url,
+                            "content_text": text,
+                            "fetched_at": datetime.utcnow(),
+                            "published_at": row.get("published_at") or datetime.utcnow()
+                        }])
+                        fetched += 1
+                    else:
+                        delete_by_ids(stage, source, d, "news_docs", "id", [nid])
+                        deleted += 1
+
+        _JOBS[job_id].update({"status": "done", "result": {"fetched": fetched, "deleted": deleted, "days": days_back}})
+        _persist_job(job_id)
+    except Exception as e:
+        _JOBS[job_id].update({"status": "error", "error": str(e)})
+        _persist_job(job_id)
 
 
 @router.post("/ingest/prices/daily", status_code=status.HTTP_202_ACCEPTED)
@@ -341,6 +411,7 @@ async def ingest_news_backfill(body: dict[str, Any], background_tasks: Backgroun
     query = body.get("query", "semiconductor OR chip OR foundry")
     from_str = body.get("from")
     to_str = body.get("to")
+    topic = body.get("topic")  # NEW: optional topic for annotation
     
     if not from_str or not to_str:
         return JSONResponse({"error": "from/to date range required"}, status_code=400)
@@ -356,8 +427,8 @@ async def ingest_news_backfill(body: dict[str, Any], background_tasks: Backgroun
             status_code=400
         )
     
-    job_id = _new_job("news_backfill", {"query": query, "from": from_str, "to": to_str})
-    background_tasks.add_task(_run_news_backfill, job_id, query, dfrom, dto)
+    job_id = _new_job("news_backfill", {"query": query, "from": from_str, "to": to_str, "topic": topic})
+    background_tasks.add_task(_run_news_backfill, job_id, query, dfrom, dto, topic)
     
     return JSONResponse({
         "job_id": job_id,
@@ -367,6 +438,27 @@ async def ingest_news_backfill(body: dict[str, Any], background_tasks: Backgroun
         "adapters": [name for name, entry in registry_with_metadata().items() 
                      if entry.metadata.category == "news" and entry.metadata.supports_historical]
     }, status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.post("/ingest/news/fetch-missing-bodies")
+async def fetch_missing_bodies(body: dict[str, Any] | None = None, background_tasks: BackgroundTasks = None):
+    params = body or {}
+    max_articles: int = params.get("max_articles", 300)
+    days_back: int = params.get("days", 3)
+    job_id = _new_job("news_bodies", {"max_articles": max_articles, "days": days_back})
+    background_tasks.add_task(_run_fetch_missing_bodies, job_id, max_articles, days_back)
+    return JSONResponse({"job_id": job_id, "status": "accepted"}, status_code=status.HTTP_202_ACCEPTED)
+
+
+def enqueue_news_bodies(max_articles: int = 300, days: int = 3) -> str:
+    import httpx
+    job_id = _new_job("news_bodies", {"max_articles": max_articles, "days": days})
+    try:
+        with httpx.Client(timeout=2) as client:
+            client.post("http://localhost:8080/v1/ingest/news/fetch-missing-bodies", json={"max_articles": max_articles, "days": days})
+    except Exception:
+        pass
+    return job_id
 
 
 @router.get("/ingest/jobs")

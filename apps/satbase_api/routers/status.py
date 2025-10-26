@@ -135,12 +135,16 @@ def _analyze_news_coverage(stage_dir: Path) -> dict:
 
 
 def _scan_news_source(source_dir: Path) -> dict:
-    """Scan a news source directory and return stats"""
-    stats = {
+    """Scan a news source directory for parquet files and extract metadata"""
+    result = {
         "count": 0,
         "earliest": None,
         "latest": None
     }
+    
+    # Guard: if source_dir doesn't exist, return empty result
+    if not source_dir.exists():
+        return result
     
     dates = []
     total_count = 0
@@ -166,13 +170,14 @@ def _scan_news_source(source_dir: Path) -> dict:
         except Exception:
             continue
     
-    stats["count"] = total_count
+    # after loop, set result values
+    result["count"] = total_count
     
     if dates:
-        stats["earliest"] = min(dates)
-        stats["latest"] = max(dates)
+        result["earliest"] = min(dates)
+        result["latest"] = max(dates)
     
-    return stats
+    return result
 
 
 def _analyze_prices_coverage(stage_dir: Path) -> dict:

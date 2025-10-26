@@ -41,19 +41,33 @@ def upsert_parquet_by_id(base: Path, source: str, dt: date, table: str, id_field
             if id_field in combined.columns:
                 # For news_docs, merge topics when deduplicating
                 if table == "news_docs" and "topics" in combined.columns:
-                    # Group by id, merge topics lists, keep last for other fields
-                    def merge_topics(group):
-                        # Collect all unique topics across rows with same ID
-                        all_topics = set()
-                        for topics_list in group["topics"]:
-                            if isinstance(topics_list, list):
-                                all_topics.update(topics_list)
-                        # Keep last row, update topics
-                        result = group[-1:].clone()
-                        result["topics"] = [list(all_topics)]
-                        return result
+                    # Strategy: For each ID, collect all unique topics, keep newest data
                     
-                    combined = combined.group_by(id_field).map_groups(merge_topics)
+                    # Step 1: Add row index to track order (newer rows have higher index)
+                    indexed = combined.with_row_index("_row_idx")
+                    
+                    # Step 2: Collect all unique topics across all rows for each ID
+                    exploded = combined.select([id_field, "topics"]).explode("topics")
+                    topics_merged = (exploded
+                        .group_by(id_field)
+                        .agg(pl.col("topics").unique().sort().alias("topics_merged"))
+                    )
+                    
+                    # Step 3: Find the newest row for each ID (highest row index = most recent)
+                    newest_rows = indexed.group_by(id_field).agg(
+                        pl.max("_row_idx").alias("_max_idx")
+                    )
+                    
+                    # Step 4: Keep only newest row per ID
+                    indexed = indexed.join(newest_rows, on=id_field, how="left")
+                    indexed = indexed.filter(pl.col("_row_idx") == pl.col("_max_idx"))
+                    indexed = indexed.drop(["_row_idx", "_max_idx"])
+                    
+                    # Step 5: Join with merged topics and replace old topics with merged ones
+                    result = indexed.join(topics_merged, on=id_field, how="left")
+                    result = result.drop("topics").rename({"topics_merged": "topics"})
+                    
+                    combined = result
                 else:
                     combined = combined.unique(subset=[id_field], keep="last")
             
@@ -204,4 +218,18 @@ def scan_parquet_glob(base: Path, source: str, table: str, date_from: date, date
     
     # Final fallback: empty lazyframe
     return pl.LazyFrame()
+
+
+def delete_by_ids(base: Path, source: str, dt: date, table: str, id_field: str, ids: list[str]) -> Path | None:
+    p = partition_path(base, source, dt)
+    out = p / f"{table}.parquet"
+    if not out.exists():
+        return None
+    try:
+        df = pl.read_parquet(out)
+        filtered = df.filter(~pl.col(id_field).is_in(ids))
+        filtered.write_parquet(out)
+        return out
+    except Exception:
+        return None
 

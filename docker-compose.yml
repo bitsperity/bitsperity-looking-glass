@@ -34,10 +34,18 @@ services:
     restart: unless-stopped
 
   satbase-scheduler:
-    build: ./apps/satbase_scheduler
+    build:
+      context: .
+      dockerfile: apps/satbase_scheduler/Dockerfile
     network_mode: host
     environment:
       - SATBASE_API_URL=http://localhost:8080
+      - ENABLE_RELOAD=false
+    volumes:
+      - ./apps/satbase_scheduler/main.py:/app/main.py
+      - ./apps/satbase_scheduler/jobs:/app/jobs
+      - ./apps/satbase_scheduler/config.py:/app/config.py
+      - ./libs:/app/libs
     depends_on:
       - satbase-api
     restart: unless-stopped

@@ -32,40 +32,34 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
 
 def normalize(entries: Iterable[dict], topic: str | None = None) -> Iterable[NewsDoc]:
     """
-    Fetch RSS metadata + text content in one pass.
-    Only yields NewsDoc if text content successfully fetched.
+    Normalize RSS entries to NewsDoc objects (metadata only, no full-text fetch).
     """
+    count = 0
     for raw in entries:
-        title = raw.get("title", "")
-        link = raw.get("link", "")
-        published_parsed = raw.get("published_parsed")
-        if published_parsed:
-            # Use naive datetime (no timezone) for consistency with other adapters
-            published_at = datetime(*published_parsed[:6])
-        else:
-            # Use UTC but without timezone info
-            published_at = datetime.utcnow()
-        # ID based only on URL for stable cross-run matching with bodies
-        nid = sha1_hex(link)
-        
-        # naive mapping: watchlist symbols in title/text
-        tickers = []
         try:
-            symbols = load_watchlist_symbols()
-            m = match_text_to_symbols(f"{title} {raw.get('summary', '')}", symbols)
-            if m:
-                tickers = m
-        except Exception:
-            pass
-        
-        # Initialize topics from parameter if provided
-        topics = [topic] if topic else []
-        
-        # UNIFIED FETCH: Attempt to fetch text content inline
-        text_content = fetch_text_with_retry(link, max_retries=2, timeout=15)
-        
-        # Only yield if text successfully extracted
-        if text_content and len(text_content) > 100:
+            title = raw.get("title", "")
+            link = raw.get("link", "")
+
+            # ID based only on URL for stable matching
+            nid = sha1_hex(link)
+
+            # Published time (naive datetime for consistency)
+            published_parsed = raw.get("published_parsed")
+            if published_parsed:
+                published_at = datetime(*published_parsed[:6])
+            else:
+                published_at = datetime.utcnow()
+
+            # Watchlist-based ticker extraction
+            tickers: list[str] = []
+            try:
+                symbols = load_watchlist_symbols()
+                m = match_text_to_symbols(f"{title} {raw.get('summary', '')}", symbols)
+                if m:
+                    tickers = m
+            except Exception:
+                pass
+
             doc = NewsDoc(
                 id=nid,
                 source="google_rss",
@@ -73,17 +67,16 @@ def normalize(entries: Iterable[dict], topic: str | None = None) -> Iterable[New
                 text=raw.get("summary", ""),
                 url=link,
                 published_at=published_at,
-                tickers=tickers,  # Always list, never None
-                regions=[],  # Always list, never None
-                themes=[],  # Always list, never None
-                topics=topics,
+                tickers=tickers,
+                topics=[topic] if topic else []
             )
-            # Attach text_content for body storage
-            doc.text_content = text_content  # type: ignore
             yield doc
-        else:
-            # Skip entirely - broken URL or no text
-            log("news_fetch_skipped", id=nid, url=link, reason="no_text")
+            count += 1
+        except Exception as e:
+            log("news_normalize_error", source="rss", entry=str(e))
+            continue
+
+    log("rss_normalize", count=count, topic=topic)
 
 
 def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None) -> dict:
@@ -106,20 +99,20 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
         # Extract text_content for body table (attached by normalize)
         text_content = getattr(doc, 'text_content', None)
         
+        # Always store metadata row (even without body)
+        doc_dict = doc.model_dump()
+        doc_dict.pop('text_content', None)
+        
+        # Ensure topics is set
+        if topic and (not doc_dict.get("topics") or topic not in doc_dict["topics"]):
+            if "topics" not in doc_dict:
+                doc_dict["topics"] = []
+            if isinstance(doc_dict["topics"], list) and topic not in doc_dict["topics"]:
+                doc_dict["topics"].append(topic)
+        
+        news_rows.append(doc_dict)
+        
         if text_content:
-            # Store metadata (exclude text_content)
-            doc_dict = doc.model_dump()
-            doc_dict.pop('text_content', None)  # Remove if present
-            
-            # Ensure topics is set
-            if topic and (not doc_dict.get("topics") or topic not in doc_dict["topics"]):
-                if "topics" not in doc_dict:
-                    doc_dict["topics"] = []
-                if isinstance(doc_dict["topics"], list) and topic not in doc_dict["topics"]:
-                    doc_dict["topics"].append(topic)
-            
-            news_rows.append(doc_dict)
-            
             # Store body separately
             body_rows.append({
                 'id': doc.id,
@@ -132,47 +125,29 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
     if not news_rows:
         return {"path": None, "body_path": None, "count": 0, "bodies": 0, "status": "empty"}
     
-    # VALIDATION: Ensure counts match (1:1 invariant)
-    if len(news_rows) != len(body_rows):
-        raise ValueError(
-            f"CRITICAL: Data integrity violation - {len(news_rows)} docs but {len(body_rows)} bodies. "
-            "This should never happen. Aborting write to prevent corruption."
-        )
-    
-    # VALIDATION: Ensure IDs match exactly
-    news_ids = {r['id'] for r in news_rows}
-    body_ids = {r['id'] for r in body_rows}
-    
-    if news_ids != body_ids:
-        missing_in_bodies = news_ids - body_ids
-        missing_in_docs = body_ids - news_ids
-        raise ValueError(
-            f"CRITICAL: ID mismatch between docs and bodies. "
-            f"Missing in bodies: {missing_in_bodies}, Missing in docs: {missing_in_docs}. "
-            "Aborting write to prevent corruption."
-        )
-    
     # Write news_docs with UPSERT to prevent duplicates
     s = load_settings()
     news_path = upsert_parquet_by_id(s.stage_dir, "news_rss", partition_dt, "news_docs", "id", news_rows)
     
-    # Write news_body with UPSERT (already using it)
-    body_path = upsert_parquet_by_id(s.stage_dir, "news_body", partition_dt, "news_body", "id", body_rows)
+    body_path = None
+    if body_rows:
+        body_path = upsert_parquet_by_id(s.stage_dir, "news_body", partition_dt, "news_body", "id", body_rows)
     
     log("news_sink_complete", 
+        source="rss",
         news_count=len(news_rows), 
         bodies_count=len(body_rows), 
-        unique_ids=len(news_ids),
+        unique_ids=len({r['id'] for r in news_rows}),
         news_path=str(news_path), 
-        body_path=str(body_path),
-        status="success_with_deduplication")
+        body_path=str(body_path) if body_path else None,
+        status="success_docs_only" if not body_rows else "success")
     
     return {
         "path": str(news_path),
-        "body_path": str(body_path),
+        "body_path": str(body_path) if body_path else None,
         "count": len(news_rows),
         "bodies": len(body_rows),
-        "unique_ids": len(news_ids),
-        "status": "success"
+        "unique_ids": len({r['id'] for r in news_rows}),
+        "status": "success_docs_only" if not body_rows else "success"
     }
 
