@@ -390,11 +390,10 @@ export async function getJobsList(params?: {
   offset?: number;
 }): Promise<any> {
   const queryParams = new URLSearchParams();
-  if (params?.status) queryParams.set('status', params.status);
+  if (params?.status) queryParams.set('status_filter', params.status);
   if (params?.limit) queryParams.set('limit', params.limit.toString());
-  if (params?.offset) queryParams.set('offset', params.offset.toString());
 
-  return apiGet(`/v1/admin/jobs${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+  return apiGet(`/v1/ingest/jobs${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
 }
 
 /**

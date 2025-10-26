@@ -58,8 +58,12 @@
   }
   
   function categorizeJobs() {
-    activeJobs = jobs.filter(j => j.status === 'queued' || j.status === 'running');
-    completedJobs = jobs.filter(j => j.status === 'done');
+    // Jobs are considered complete if status is done OR if progress is 100%
+    const isJobComplete = (j: Job) => 
+      j.status === 'done' || (j.progress_total && j.progress_total > 0 && j.progress_current === j.progress_total);
+    
+    activeJobs = jobs.filter(j => !isJobComplete(j) && (j.status === 'queued' || j.status === 'running'));
+    completedJobs = jobs.filter(j => isJobComplete(j) && j.status !== 'error' && j.status !== 'timeout' && j.status !== 'cancelled');
     failedJobs = jobs.filter(j => j.status === 'error' || j.status === 'timeout' || j.status === 'cancelled');
   }
   
@@ -119,6 +123,24 @@
       setTimeout(() => error = null, 3000);
     } catch (e) {
       error = `Failed to cleanup jobs: ${String(e)}`;
+    } finally {
+      cleanupLoading = false;
+    }
+  }
+
+  async function resetAllJobs() {
+    if (!confirm('⚠️ This will DELETE ALL job history. Are you sure?')) {
+      return;
+    }
+    cleanupLoading = true;
+    error = null;
+    try {
+      const res = await apiPost<{ deleted: number; message: string }>('/v1/ingest/jobs/reset', {});
+      await loadJobs();
+      error = `✓ ${res.message}`;
+      setTimeout(() => error = null, 3000);
+    } catch (e) {
+      error = `Failed to reset jobs: ${String(e)}`;
     } finally {
       cleanupLoading = false;
     }
@@ -241,6 +263,13 @@
       <Button variant="secondary" size="sm" on:click={loadJobs} disabled={loading}>
         {loading ? '⟳' : '↻'} Refresh
       </Button>
+      <button
+        on:click={resetAllJobs}
+        disabled={cleanupLoading}
+        class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-red-400 hover:text-red-300 hover:bg-neutral-700 disabled:opacity-50 transition-colors"
+      >
+        🗑️ Reset
+      </button>
     </div>
   </div>
   
@@ -335,7 +364,10 @@
       <h2 class="text-lg font-semibold text-neutral-100 mb-3">⚡ Active Jobs ({activeJobs.length})</h2>
       <div class="space-y-2">
         {#each activeJobs as job}
-          <div class="bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3 hover:bg-neutral-800/70 transition-colors">
+          <button 
+            on:click={() => expandedJobId = expandedJobId === job.job_id ? null : job.job_id}
+            class="w-full text-left bg-neutral-800/50 border border-neutral-700/50 rounded-lg p-3 hover:bg-neutral-800/70 transition-colors"
+          >
             <div class="flex items-center justify-between gap-3">
               <div class="flex items-center gap-3 flex-1 min-w-0">
                 <span class="text-xl">{getStatusIcon(job.status)}</span>
@@ -362,11 +394,37 @@
                   {/if}
                 </div>
               </div>
-              <div class="text-xs text-neutral-400">
-                {formatDuration(job)}
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-neutral-400 font-mono">{formatDuration(job)}</span>
+                <svg class="w-4 h-4 text-neutral-500 transition-transform {expandedJobId === job.job_id ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
               </div>
             </div>
-          </div>
+            
+            {#if expandedJobId === job.job_id}
+              <div class="mt-3 pt-3 border-t border-neutral-700/30 space-y-2">
+                <div>
+                  <div class="text-xs font-semibold text-neutral-400 mb-1">Job ID</div>
+                  <div class="font-mono text-xs text-neutral-300 bg-neutral-900/50 p-2 rounded break-all">{job.job_id}</div>
+                </div>
+                {#if job.payload}
+                  <div>
+                    <div class="text-xs font-semibold text-neutral-400 mb-1">Payload</div>
+                    <pre class="font-mono text-xs text-neutral-300 bg-neutral-900/50 p-2 rounded overflow-x-auto">{JSON.stringify(job.payload, null, 2)}</pre>
+                  </div>
+                {/if}
+                {#if job.progress_total}
+                  <div>
+                    <div class="text-xs font-semibold text-neutral-400 mb-1">Progress</div>
+                    <div class="text-xs text-neutral-300">
+                      {job.progress_current || 0} / {job.progress_total} ({getProgressPercent(job) || 0}%)
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </button>
         {/each}
       </div>
     </Card>
@@ -434,9 +492,18 @@
     <Card>
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-lg font-semibold text-red-300">⚠️ Failed Jobs ({failedJobs.length})</h2>
-        <Button variant="secondary" size="sm" on:click={cleanupStaleJobs} disabled={cleanupLoading}>
-          🧹 Cleanup
-        </Button>
+        <div class="flex items-center gap-2">
+          <Button variant="secondary" size="sm" on:click={cleanupStaleJobs} disabled={cleanupLoading}>
+            🧹 Cleanup
+          </Button>
+          <button
+            on:click={resetAllJobs}
+            disabled={cleanupLoading}
+            class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-red-400 hover:text-red-300 hover:bg-neutral-700 disabled:opacity-50 transition-colors"
+          >
+            🗑️ Reset All
+          </button>
+        </div>
       </div>
       <div class="space-y-2">
         {#each failedJobs as job}

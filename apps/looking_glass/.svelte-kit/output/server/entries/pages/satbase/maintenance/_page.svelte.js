@@ -1,5 +1,6 @@
 import { c as create_ssr_component, v as validate_component, f as add_attribute, e as escape } from "../../../../chunks/ssr.js";
-import { C as Card, B as Button } from "../../../../chunks/Button.js";
+import { C as Card } from "../../../../chunks/Card.js";
+import { B as Button } from "../../../../chunks/Button.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let loading = false;
   const today = /* @__PURE__ */ (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);

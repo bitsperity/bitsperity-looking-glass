@@ -864,6 +864,8 @@ class NewsDB:
                     job["payload"] = json.loads(job["payload"])
                 if job["result"]:
                     job["result"] = json.loads(job["result"])
+                # Normalize field names for API
+                job["kind"] = job.pop("job_type", None)
                 jobs.append(job)
             
             return jobs
@@ -895,3 +897,51 @@ class NewsDB:
                     (stats[3] or 0) / max(1, (stats[0] or 1)) * 100, 1
                 )
             }
+    
+    def get_jobs(self, limit: int = 100, status_filter: str | None = None) -> list[dict]:
+        """Get jobs from database - maps status_filter to status parameter."""
+        return self.list_jobs(status=status_filter, limit=limit)
+    
+    def get_job_by_id(self, job_id: str) -> dict | None:
+        """Get job by ID - alias for get_job."""
+        return self.get_job(job_id)
+    
+    def delete_job(self, job_id: str) -> bool:
+        """Mark job as cancelled/deleted."""
+        try:
+            with self.conn() as conn:
+                conn.execute(
+                    "UPDATE job_tracking SET status = ? WHERE job_id = ?",
+                    ("cancelled", job_id)
+                )
+                return True
+        except Exception as e:
+            log("delete_job_error", job_id=job_id, error=str(e))
+            return False
+    
+    def cleanup_stale_jobs(self) -> list[str]:
+        """Clean up jobs stuck in 'running' state for more than 1 hour."""
+        cleaned_job_ids = []
+        try:
+            with self.conn() as conn:
+                # Find jobs stuck in running state for more than 1 hour
+                one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
+                
+                stuck_jobs = conn.execute("""
+                    SELECT job_id, job_type, payload FROM job_tracking
+                    WHERE status = 'running' 
+                    AND started_at < ?
+                    AND started_at IS NOT NULL
+                """, (one_hour_ago,)).fetchall()
+                
+                for job_row in stuck_jobs:
+                    job_id = job_row[0]
+                    conn.execute(
+                        "UPDATE job_tracking SET status = ?, error = ? WHERE job_id = ?",
+                        ("timeout", "Job interrupted (likely server restart)", job_id)
+                    )
+                    cleaned_job_ids.append(job_id)
+        except Exception as e:
+            log("cleanup_stale_jobs_error", error=str(e))
+        
+        return cleaned_job_ids

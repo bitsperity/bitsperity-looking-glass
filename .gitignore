@@ -15,6 +15,7 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+.svelte-kit/
 
 # Test results
 test-results/

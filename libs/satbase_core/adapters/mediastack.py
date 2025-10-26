@@ -206,7 +206,8 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
     result = {
         "count": success_count,
         "summary_only": summary_only_count,
-        "errors": error_count,
+        "errors": errors if errors else [],
+        "error_count": error_count,
         "total_saved": success_count + summary_only_count,
         "storage": "sqlite"
     }
