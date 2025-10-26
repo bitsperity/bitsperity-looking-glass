@@ -262,8 +262,18 @@ def _run_news_backfill(
             if entry.metadata.category == "news" and entry.metadata.supports_historical
         }
         
+        # Prioritize Mediastack if available (better quality, historical support)
+        # Then GDELT for fallback
+        adapter_order = ["mediastack", "gdelt_doc_v2"]
+        ordered_adapters = {}
+        for adapter_name in adapter_order:
+            if adapter_name in historical_adapters:
+                ordered_adapters[adapter_name] = historical_adapters.pop(adapter_name)
+        # Add any remaining adapters
+        ordered_adapters.update(historical_adapters)
+        
         log("news_backfill_start", 
-            adapters=list(historical_adapters.keys()), 
+            adapters=list(ordered_adapters.keys()), 
             date_from=date_from.isoformat(), 
             date_to=date_to.isoformat(),
             topic=topic,
@@ -285,22 +295,32 @@ def _run_news_backfill(
             _JOBS[job_id]["progress"]["current_articles"] = 0
             _persist_job(job_id)
             
-            for adapter_name, entry in historical_adapters.items():
+            for adapter_name, entry in ordered_adapters.items():
                 try:
                     fetch, normalize, sink = entry.fns
                     
                     # Build query with tone filters
                     filtered_query = query + tone_query_suffix
                     
-                    # Prepare params for GDELT with optimized settings
-                    params = {
-                        "query": filtered_query,
-                        "startdatetime": current_date.strftime("%Y%m%d%H%M%S"),
-                        "enddatetime": next_date.strftime("%Y%m%d%H%M%S"),
-                        "window_hours": 24,  # Full day window for backfill
-                        "maxrecords": 250,  # Fetch max, then filter
-                        "sort": gdelt_sort  # Pass sort order to fetch
-                    }
+                    # Prepare params - format varies by adapter
+                    if adapter_name == "mediastack":
+                        # Mediastack uses date_from/date_to in YYYY-MM-DD format
+                        params = {
+                            "query": filtered_query,
+                            "date_from": current_date.strftime("%Y-%m-%d"),
+                            "date_to": next_date.strftime("%Y-%m-%d"),
+                            "limit": min(max_articles_per_day, 100),  # Max 100 per request
+                        }
+                    else:
+                        # GDELT uses startdatetime/enddatetime in YYYYMMDDHHmmss format
+                        params = {
+                            "query": filtered_query,
+                            "startdatetime": current_date.strftime("%Y%m%d%H%M%S"),
+                            "enddatetime": next_date.strftime("%Y%m%d%H%M%S"),
+                            "window_hours": 24,  # Full day window for backfill
+                            "maxrecords": 250,  # Fetch max, then filter
+                            "sort": gdelt_sort  # Pass sort order to fetch
+                        }
                     
                     raw = fetch(params)
                     models = list(normalize(raw, topic))

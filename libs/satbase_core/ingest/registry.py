@@ -30,7 +30,7 @@ def registry_with_metadata() -> dict[str, AdapterEntry]:
     """Registry with full adapter metadata and capabilities"""
     from ..adapters import stooq, fred, btc_oracle
     from ..adapters import gdelt_doc_v2, news_google_rss, eod_yfinance
-    from ..adapters import news_body_fetcher
+    from ..adapters import news_body_fetcher, mediastack
 
     return {
         "gdelt_doc_v2": AdapterEntry(
@@ -41,6 +41,15 @@ def registry_with_metadata() -> dict[str, AdapterEntry]:
                 description="GDELT Document API v2 - supports historical queries with date ranges"
             ),
             fns=(gdelt_doc_v2.fetch, gdelt_doc_v2.normalize, gdelt_doc_v2.sink)
+        ),
+        "mediastack": AdapterEntry(
+            metadata=AdapterMetadata(
+                name="mediastack",
+                category="news",
+                supports_historical=True,
+                description="Mediastack API - professional news aggregator with unlimited historical data (Standard plan+)"
+            ),
+            fns=(mediastack.fetch, mediastack.normalize, mediastack.sink)
         ),
         "news_google_rss": AdapterEntry(
             metadata=AdapterMetadata(
