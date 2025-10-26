@@ -310,13 +310,13 @@
 						{#each Object.entries(heatmapData) as [topic, monthData]}
 							<tr class="data-row">
 								<td class="topic-cell">{topic}</td>
-								{#each Object.values(monthData) as count}
+								{#each Array(12) as _, monthIdx}
 									<td 
 										class="heatmap-cell" 
-										style="--intensity: {Math.min((count || 0) / 50, 1)}"
-										title="{count || 0} articles"
+										style="--intensity: {Math.min((monthData[monthIdx] || 0) / 50, 1)}"
+										title="{monthData[monthIdx] || 0} articles"
 									>
-										<span class="cell-value">{count > 0 ? count : ''}</span>
+										<span class="cell-value">{monthData[monthIdx] > 0 ? monthData[monthIdx] : ''}</span>
 									</td>
 								{/each}
 							</tr>
