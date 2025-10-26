@@ -235,3 +235,50 @@ export async function getTrendingTickers(params?: {
 
   return apiGet(`/v1/news/trending/tickers?${queryParams.toString()}`);
 }
+
+/**
+ * Get all topics with global counts
+ */
+export async function getTopicsAll(from?: string, to?: string): Promise<any> {
+  const queryParams = new URLSearchParams();
+  if (from) queryParams.set('from', from);
+  if (to) queryParams.set('to', to);
+
+  return apiGet(`/v1/news/topics/all${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+}
+
+/**
+ * Get time-series topic statistics
+ */
+export async function getTopicsStats(
+  from?: string,
+  to?: string,
+  granularity: 'month' | 'year' = 'month'
+): Promise<any> {
+  const queryParams = new URLSearchParams();
+  if (from) queryParams.set('from', from);
+  if (to) queryParams.set('to', to);
+  queryParams.set('granularity', granularity);
+
+  return apiGet(`/v1/news/topics/stats${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+}
+
+/**
+ * Get topic coverage data for heatmap
+ */
+export async function getTopicsCoverage(
+  topics: string,
+  from?: string,
+  to?: string,
+  granularity: 'month' | 'year' = 'month',
+  format: 'flat' | 'matrix' = 'flat'
+): Promise<any> {
+  const queryParams = new URLSearchParams();
+  queryParams.set('topics', topics);
+  if (from) queryParams.set('from', from);
+  if (to) queryParams.set('to', to);
+  queryParams.set('granularity', granularity);
+  queryParams.set('format', format);
+
+  return apiGet(`/v1/news/topics/coverage?${queryParams.toString()}`);
+}
