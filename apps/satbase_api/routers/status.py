@@ -99,6 +99,13 @@ def _analyze_news_coverage(stage_dir: Path) -> dict:
         result["sources"]["rss"] = rss_stats
         result["total_articles"] += rss_stats["count"]
     
+    # Analyze Mediastack news
+    mediastack_dir = stage_dir / "mediastack"
+    if mediastack_dir.exists():
+        mediastack_stats = _scan_news_source(mediastack_dir)
+        result["sources"]["mediastack"] = mediastack_stats
+        result["total_articles"] += mediastack_stats["count"]
+    
     # Calculate overall date range
     source_dates = []
     for source_stats in result["sources"].values():

@@ -85,6 +85,16 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         "tickers": pl.List(pl.Utf8),
         "regions": pl.List(pl.Utf8),
         "themes": pl.List(pl.Utf8),
+        "topics": pl.List(pl.Utf8),
+        "text_content": pl.Utf8,
+        # Mediastack fields (may be null in some partitions)
+        "author": pl.Utf8,
+        "description": pl.Utf8,
+        "image": pl.Utf8,
+        "category": pl.Utf8,
+        "language": pl.Utf8,
+        "country": pl.Utf8,
+        "source_name": pl.Utf8,
     }
     
     # Collect with graceful fallback if a source has no files
@@ -107,7 +117,7 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         df_r = df_r.with_columns(pl.col("published_at").cast(pl.Utf8))
     if "published_at" in df_m.columns:
         df_m = df_m.with_columns(pl.col("published_at").cast(pl.Utf8))
-    df = pl.concat([df_g, df_r, df_m], how="vertical_relaxed")
+    df = pl.concat([df_g, df_r, df_m], how="diagonal_relaxed")
     
     # Ensure tickers column is List[Utf8] and null-safe
     if "tickers" in df.columns:
@@ -351,7 +361,7 @@ def news_heatmap(
         df_m = pl.DataFrame(schema={"id": pl.Utf8, "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
     
     # Combine all sources
-    df = pl.concat([df_g, df_r, df_m], how="vertical_relaxed")
+    df = pl.concat([df_g, df_r, df_m], how="diagonal_relaxed")
     
     if df.height == 0:
         return {
@@ -488,7 +498,7 @@ def trending_tickers(
         df_m = pl.DataFrame(schema={"tickers": pl.List(pl.Utf8), "title": pl.Utf8, "text": pl.Utf8, "published_at": pl.Utf8})
     
     # Combine all sources
-    df = pl.concat([df_g, df_r, df_m], how="vertical_relaxed")
+    df = pl.concat([df_g, df_r, df_m], how="diagonal_relaxed")
     
     if df.height == 0:
         return {
