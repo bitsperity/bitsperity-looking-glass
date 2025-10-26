@@ -63,9 +63,11 @@
 
 	.satbase-layout {
 		position: relative;
-		min-height: 100vh;
+		height: 100vh;
 		background: linear-gradient(to bottom, rgb(15, 23, 42), rgb(2, 6, 23));
-		overflow-x: hidden;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.background-gradient {
@@ -81,8 +83,11 @@
 	:global(main.satbase-main) {
 		position: relative;
 		z-index: 1;
-		padding-top: 2rem;
-		padding-bottom: 4rem;
+		flex: 1;
+		overflow-y: auto;
+		overflow-x: hidden;
+		padding-top: 1rem;
+		padding-bottom: 2rem;
 	}
 
 	.container {
