@@ -228,6 +228,15 @@ def _run_news_backfill(
     results: dict[str, Any] = {}
     
     try:
+        # Build tone query suffix (for potential filtering, though Mediastack doesn't use it)
+        tone_query_suffix = ""
+        if tone_filter == "positive":
+            tone_query_suffix = " tone>5"
+        elif tone_filter == "negative":
+            tone_query_suffix = " tone<-5"
+        elif tone_filter == "neutral":
+            tone_query_suffix = " tone>-1 tone<1"
+        
         # Find Mediastack adapter (ONLY source for backfill)
         historical_adapters = {
             name: entry for name, entry in registry_full.items()
