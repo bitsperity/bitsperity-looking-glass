@@ -47,7 +47,7 @@ def upsert_parquet_by_id(base: Path, source: str, dt: date, table: str, id_field
                     indexed = combined.with_row_index("_row_idx")
                     
                     # Step 2: Collect all unique topics across all rows for each ID
-                    exploded = combined.select([id_field, "topics"]).explode("topics")
+                    exploded = indexed.select([id_field, "topics"]).explode("topics")
                     topics_merged = (exploded
                         .group_by(id_field)
                         .agg(pl.col("topics").unique().sort().alias("topics_merged"))
@@ -175,10 +175,11 @@ def scan_parquet_glob(base: Path, source: str, table: str, date_from: date, date
                     # Skip files that fail to load
                     continue
             if dfs:
-                combined = pl.concat(dfs, how="vertical_relaxed")
-                # Deduplicate by 'id' column if it exists (critical after vertical_relaxed merge)
+                combined = pl.concat(dfs, how="diagonal_relaxed")
+                # Deduplicate by 'id' column if it exists (critical after diagonal_relaxed merge)
+                # NOTE: This may merge topics from different dates for same article ID
                 if combined.height > 0 and "id" in combined.columns:
-                    combined = combined.unique(subset=["id"], keep="first")
+                    combined = combined.unique(subset=["id"], keep="last")  # keep last = newest
                 return combined.lazy()
         except Exception:
             # If concat fails, fall back to scan_parquet with first file only
