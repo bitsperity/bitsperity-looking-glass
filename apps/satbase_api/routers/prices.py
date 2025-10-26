@@ -269,6 +269,16 @@ async def ticker_fundamentals(ticker: str):
         return {"error": str(e)}
 
 
+# ========== ADMIN ROUTES ==========
+
+@router.post("/prices/admin/unmark-invalid/{ticker}")
+async def unmark_invalid_ticker(ticker: str):
+    """Unmark a ticker as invalid so it can be re-fetched."""
+    db = _get_prices_db()
+    db.unmark_invalid(ticker)
+    return {"status": "ok", "ticker": ticker.upper(), "message": "Ticker unmarked as invalid"}
+
+
 # ========== GENERIC {ticker} ROUTES (after specific routes) ==========
 
 @router.get("/prices/{ticker}")
