@@ -63,6 +63,9 @@
 	"/coalescence/costs": [
 		"src/routes/+layout.ts"
 	],
+	"/coalescence/rules": [
+		"src/routes/+layout.ts"
+	],
 	"/coalescence/runs": [
 		"src/routes/+layout.ts"
 	],
@@ -101,6 +104,8 @@
 		"src/routes/+layout.ts"
 	],
 	"/satbase": [
+		"src/routes/satbase/+page.ts",
+		"src/routes/+layout.ts",
 		"src/routes/+layout.ts"
 	],
 	"/satbase/convert": [
@@ -112,10 +117,19 @@
 	"/satbase/macro": [
 		"src/routes/+layout.ts"
 	],
+	"/satbase/maintenance": [
+		"src/routes/+layout.ts"
+	],
 	"/satbase/news": [
 		"src/routes/+layout.ts"
 	],
+	"/satbase/overview": [
+		"src/routes/+layout.ts"
+	],
 	"/satbase/prices": [
+		"src/routes/+layout.ts"
+	],
+	"/satbase/topics": [
 		"src/routes/+layout.ts"
 	],
 	"/satbase/watchlist": [

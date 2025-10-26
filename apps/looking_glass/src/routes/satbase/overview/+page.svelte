@@ -5,12 +5,15 @@
 
 	let coverage: any = null;
 	let topicsSummary: any = null;
+	let heatmapData: any = null;
 	let loading = true;
 	let topicsLoading = false;
+	let heatmapLoading = false;
 	let error = '';
 	let lastUpdated = new Date();
 	let cacheTimeRemaining = 0;
 	let autoRefreshInterval: NodeJS.Timeout;
+	let selectedYear = new Date().getFullYear();
 
 	onMount(async () => {
 		try {
@@ -25,10 +28,26 @@
 				limit: 5, 
 				days: 30 
 			});
+
+			// Load heatmap data in background
+			heatmapLoading = true;
+			const allTopics = topicsSummary?.topics?.map((t: any) => t.name).join(',') || '';
+			if (allTopics) {
+				const fromDate = `${selectedYear}-01-01`;
+				const toDate = `${selectedYear}-12-31`;
+				heatmapData = await satbaseApi.getTopicsCoverage(
+					allTopics,
+					fromDate,
+					toDate,
+					'month',
+					'matrix'
+				);
+			}
 		} catch (err) {
 			error = `Failed to load overview: ${err}`;
 		} finally {
 			topicsLoading = false;
+			heatmapLoading = false;
 		}
 
 		// Update cache time remaining every second
@@ -62,6 +81,29 @@
 		: 0;
 
 	$: formattedTime = lastUpdated.toLocaleTimeString();
+
+	// Reload heatmap when year changes
+	$: if (selectedYear && topicsSummary?.topics) {
+		(async () => {
+			try {
+				heatmapLoading = true;
+				const allTopics = topicsSummary.topics.map((t: any) => t.name).join(',');
+				const fromDate = `${selectedYear}-01-01`;
+				const toDate = `${selectedYear}-12-31`;
+				heatmapData = await satbaseApi.getTopicsCoverage(
+					allTopics,
+					fromDate,
+					toDate,
+					'month',
+					'matrix'
+				);
+			} catch (err) {
+				error = `Failed to load heatmap: ${err}`;
+			} finally {
+				heatmapLoading = false;
+			}
+		})();
+	}
 </script>
 
 <div class="page-header">
@@ -182,6 +224,52 @@
 			<a href="/satbase/topics" class="link-button">View all topics →</a>
 		{:else}
 			<p class="no-data">No topics found in the last 30 days</p>
+		{/if}
+	</section>
+
+	<!-- Topic Heatmap -->
+	<section class="section-card">
+		<div class="flex items-center justify-between mb-4">
+			<h2>🔥 Topic Heatmap</h2>
+			<div class="year-selector">
+				<button on:click={() => (selectedYear -= 1)}>←</button>
+				<span class="year-display">{selectedYear}</span>
+				<button on:click={() => (selectedYear += 1)}>→</button>
+			</div>
+		</div>
+		{#if heatmapLoading}
+			<div class="heatmap-skeleton">
+				<div class="skeleton-bar" />
+				<div class="skeleton-bar" />
+				<div class="skeleton-bar" />
+			</div>
+		{:else if heatmapData && Object.keys(heatmapData).length > 0}
+			<div class="heatmap-container">
+				<div class="heatmap-table">
+					<div class="heatmap-header">
+						<div class="heatmap-label" />
+						{#each ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as month}
+							<div class="heatmap-month">{month}</div>
+						{/each}
+					</div>
+					{#each Object.entries(heatmapData) as [topic, monthData]}
+						<div class="heatmap-row">
+							<div class="heatmap-label">{topic}</div>
+							{#each Object.values(monthData) as count}
+								<div 
+									class="heatmap-cell" 
+									style="--intensity: {Math.min(count / 50, 1)}"
+									title="{count} articles"
+								>
+									{count > 0 ? count : ''}
+								</div>
+							{/each}
+						</div>
+					{/each}
+				</div>
+			</div>
+		{:else}
+			<p class="no-data">No heatmap data available</p>
 		{/if}
 	</section>
 
@@ -490,5 +578,114 @@
 			gap: 0.5rem;
 			align-items: flex-end;
 		}
+	}
+
+	/* Heatmap Styles */
+	.year-selector {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		background: var(--color-bg-card);
+		padding: 0.5rem 1rem;
+		border-radius: var(--radius-md);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+	}
+
+	.year-selector button {
+		background: transparent;
+		border: none;
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		font-size: 1.1rem;
+		transition: color 200ms ease;
+	}
+
+	.year-selector button:hover {
+		color: var(--color-accent);
+	}
+
+	.year-display {
+		font-weight: 600;
+		color: var(--color-text);
+		min-width: 60px;
+		text-align: center;
+	}
+
+	.heatmap-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.skeleton-bar {
+		height: 30px;
+		background: linear-gradient(90deg, var(--color-bg-card), var(--color-border));
+		border-radius: var(--radius-md);
+		animation: pulse 2s var(--easing) infinite;
+	}
+
+	.heatmap-container {
+		overflow-x: auto;
+		border: 1px solid rgba(71, 85, 105, 0.2);
+		border-radius: var(--radius-md);
+	}
+
+	.heatmap-table {
+		display: grid;
+		grid-template-columns: 80px repeat(12, 50px);
+		gap: 1px;
+		padding: 1rem;
+		background: rgba(71, 85, 105, 0.1);
+	}
+
+	.heatmap-header {
+		display: contents;
+	}
+
+	.heatmap-row {
+		display: contents;
+	}
+
+	.heatmap-label {
+		padding: 0.5rem;
+		font-weight: 600;
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+		text-align: center;
+		min-width: 80px;
+	}
+
+	.heatmap-month {
+		padding: 0.5rem;
+		font-weight: 600;
+		font-size: 0.75rem;
+		color: var(--color-text-secondary);
+		text-align: center;
+		min-width: 50px;
+	}
+
+	.heatmap-cell {
+		--intensity: 0;
+		padding: 0.5rem;
+		background: linear-gradient(
+			135deg,
+			hsl(270, 100%, 70%, calc(var(--intensity) * 0.5)),
+			hsl(200, 100%, 60%, calc(var(--intensity) * 0.7))
+		);
+		border-radius: var(--radius-sm);
+		text-align: center;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+		min-width: 50px;
+		transition: all 200ms ease;
+		border: 1px solid rgba(71, 85, 105, 0.2);
+		cursor: pointer;
+	}
+
+	.heatmap-cell:hover {
+		transform: scale(1.1);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+		z-index: 10;
 	}
 </style>

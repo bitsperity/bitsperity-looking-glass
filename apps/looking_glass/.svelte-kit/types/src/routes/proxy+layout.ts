@@ -3,7 +3,7 @@ import type { LayoutLoad } from './$types';
 
 export const load = async ({ url }: Parameters<LayoutLoad>[0]) => {
   const first = url.pathname.split('/')[1] || 'satbase';
-  const section = ['satbase', 'tesseract', 'manifold', 'ariadne'].includes(first) ? first : 'satbase';
+  const section = ['coalescence', 'satbase', 'tesseract', 'manifold', 'ariadne'].includes(first) ? first : 'satbase';
   return {
     section,
     apiBase: import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8080',
