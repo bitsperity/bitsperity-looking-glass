@@ -349,3 +349,34 @@ export async function addTopic(symbol: string, expiresAt?: string): Promise<any>
 export async function deleteTopic(topicName: string): Promise<any> {
   return apiDelete(`/v1/news/topics/${topicName}`);
 }
+
+/**
+ * Get news backend health status
+ */
+export async function getNewsHealth(): Promise<any> {
+  return apiGet(`/v1/news/health`);
+}
+
+/**
+ * Get comprehensive news metrics and data quality
+ */
+export async function getNewsMetrics(): Promise<any> {
+  return apiGet(`/v1/news/metrics`);
+}
+
+/**
+ * Get trend analysis (7/30 day trends)
+ */
+export async function getNewsAnalytics(params?: { days?: number }): Promise<any> {
+  const queryParams = new URLSearchParams();
+  if (params?.days) queryParams.set('days', params.days.toString());
+  
+  return apiGet(`/v1/news/analytics${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+}
+
+/**
+ * Get job statistics
+ */
+export async function getJobStats(): Promise<any> {
+  return apiGet(`/v1/admin/jobs/stats`);
+}

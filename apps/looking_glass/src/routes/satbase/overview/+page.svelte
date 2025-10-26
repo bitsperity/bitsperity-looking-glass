@@ -6,9 +6,16 @@
 	let coverage: any = null;
 	let topicsSummary: any = null;
 	let heatmapData: any = null;
+	let healthStatus: any = null;
+	let metricsData: any = null;
+	let analyticsData: any = null;
+	let jobStats: any = null;
+	
 	let loading = true;
 	let topicsLoading = false;
 	let heatmapLoading = false;
+	let healthLoading = false;
+	let metricsLoading = false;
 	let error = '';
 	let lastUpdated = new Date();
 	let cacheTimeRemaining = 0;
@@ -22,20 +29,36 @@
 			loading = false;
 			lastUpdated = new Date();
 
-			// Then load topics summary in background
+			// Load additional data in parallel
+			healthLoading = true;
+			metricsLoading = true;
 			topicsLoading = true;
+			heatmapLoading = true;
+
+			// Fetch health status
+			healthStatus = await satbaseApi.getNewsHealth();
+			healthLoading = false;
+
+			// Fetch metrics
+			metricsData = await satbaseApi.getNewsMetrics();
+			metricsLoading = false;
+
+			// Fetch analytics
+			analyticsData = await satbaseApi.getNewsAnalytics({ days: 7 });
+
+			// Fetch job stats
+			jobStats = await satbaseApi.getJobStats();
+
+			// Then load topics summary in background
 			topicsSummary = await satbaseApi.getTopicsSummary({ 
 				limit: 5, 
-				days: 365  // Changed from 30 to 365 - show all topics available
+				days: 365
 			});
 
 			// Load heatmap data in background
-			heatmapLoading = true;
-			// CHANGE: Load ALL topics for the selected year (intelligent endpoint)
 			const fromDate = `${selectedYear}-01-01`;
 			const toDate = `${selectedYear}-12-31`;
 			
-			// Get ALL topics for this year (no limit - returns everything)
 			const topicsForYear = await satbaseApi.getTopicsAll(fromDate, toDate);
 			
 			const allTopics = topicsForYear?.topics?.map((t: any) => t.name).join(',') || '';
@@ -48,7 +71,6 @@
 					'matrix'
 				);
 
-				// Transform matrix format to {topic: {month_index: count}}
 				if (response?.matrix && response?.topics && response?.periods) {
 					const transformed: Record<string, Record<number, number>> = {};
 					response.topics.forEach((topic: string) => {
@@ -253,6 +275,63 @@
 					<p class="kpi-subtitle">active feeds</p>
 				</div>
 			</div>
+		</div>
+	</section>
+
+	<!-- System Status Card - NEW -->
+	<section class="system-status-section">
+		<div class="status-grid">
+			{#if healthLoading}
+				<div class="skeleton-card" />
+			{:else if healthStatus}
+				<div class="status-card" class:status-healthy={healthStatus.status === 'healthy'} class:status-degraded={healthStatus.status === 'degraded'} class:status-stale={healthStatus.status === 'stale'}>
+					<div class="status-header">
+						<span class="status-badge" class:badge-healthy={healthStatus.status === 'healthy'} class:badge-degraded={healthStatus.status === 'degraded'} class:badge-stale={healthStatus.status === 'stale'}>
+							{healthStatus.status === 'healthy' ? '🟢' : healthStatus.status === 'stale' ? '🟡' : '🔴'} {healthStatus.status.toUpperCase()}
+						</span>
+					</div>
+					<div class="status-content">
+						<div class="status-item">
+							<span class="status-label">Last Ingestion</span>
+							<span class="status-value">{healthStatus.staleness_hours ? healthStatus.staleness_hours + 'h ago' : 'just now'}</span>
+						</div>
+						<div class="status-item">
+							<span class="status-label">24h Crawl Rate</span>
+							<span class="status-value">{healthStatus.crawl_success_rate}%</span>
+						</div>
+						<div class="status-item">
+							<span class="status-label">Today's Articles</span>
+							<span class="status-value">{healthStatus.articles_today}</span>
+						</div>
+					</div>
+				</div>
+			{/if}
+			
+			{#if metricsLoading}
+				<div class="skeleton-card" />
+			{:else if metricsData}
+				<div class="quality-card">
+					<h3>Data Quality Scorecard</h3>
+					<div class="quality-grid">
+						<div class="quality-item">
+							<span class="quality-label">Body Coverage</span>
+							<span class="quality-value">{Math.round((metricsData.total_articles / (metricsData.total_articles + metricsData.duplicate_count || 1)) * 100)}%</span>
+						</div>
+						<div class="quality-item">
+							<span class="quality-label">Duplicates</span>
+							<span class="quality-value">{metricsData.duplicate_count || 0}</span>
+						</div>
+						<div class="quality-item">
+							<span class="quality-label">Languages</span>
+							<span class="quality-value">{Object.keys(metricsData.languages || {}).length}</span>
+						</div>
+						<div class="quality-item">
+							<span class="quality-label">Avg Size</span>
+							<span class="quality-value">{metricsData.body_text?.avg_length ? Math.round(metricsData.body_text.avg_length / 1024) + 'KB' : 'N/A'}</span>
+						</div>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</section>
 
@@ -763,5 +842,130 @@
 		font-weight: 600;
 		color: var(--color-text-secondary);
 		display: block;
+	}
+
+	/* New styles for System Status Card */
+	.system-status-section {
+		margin-bottom: 2rem;
+	}
+
+	.status-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 1.5rem;
+	}
+
+	.status-card {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		backdrop-filter: blur(10px);
+		transition: all var(--duration-300) var(--easing);
+	}
+
+	.status-card:hover {
+		border-color: rgba(34, 197, 211, 0.5);
+		background: rgba(51, 65, 85, 0.7);
+		box-shadow: 0 0 20px rgba(34, 197, 211, 0.1);
+	}
+
+	.status-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+	}
+
+	.status-badge {
+		font-size: 1.25rem;
+		font-weight: 700;
+		padding: 0.5rem 1rem;
+		border-radius: var(--radius-md);
+		color: white;
+		flex-shrink: 0;
+	}
+
+	.badge-healthy {
+		background: linear-gradient(135deg, var(--color-success), var(--color-primary));
+	}
+
+	.badge-degraded {
+		background: linear-gradient(135deg, var(--color-warning), var(--color-primary));
+	}
+
+	.badge-stale {
+		background: linear-gradient(135deg, var(--color-info), var(--color-primary));
+	}
+
+	.status-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.status-item {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+	}
+
+	.status-label {
+		font-weight: 500;
+	}
+
+	.status-value {
+		font-weight: 600;
+		color: var(--color-accent);
+	}
+
+	.quality-card {
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		backdrop-filter: blur(10px);
+	}
+
+	.quality-card h3 {
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--color-text);
+		margin-bottom: 1rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+		padding-bottom: 0.75rem;
+	}
+
+	.quality-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		gap: 1rem;
+	}
+
+	.quality-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.quality-label {
+		font-size: 0.75rem;
+		color: var(--color-text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.quality-value {
+		font-size: 1.25rem;
+		font-weight: 700;
+		background: linear-gradient(135deg, var(--color-accent), var(--color-primary));
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
 	}
 </style>
