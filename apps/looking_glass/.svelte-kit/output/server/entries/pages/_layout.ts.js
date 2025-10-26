@@ -1,6 +1,6 @@
 const load = async ({ url }) => {
   const first = url.pathname.split("/")[1] || "satbase";
-  const section = ["satbase", "tesseract", "manifold", "ariadne"].includes(first) ? first : "satbase";
+  const section = ["coalescence", "satbase", "tesseract", "manifold", "ariadne"].includes(first) ? first : "satbase";
   return {
     section,
     apiBase: "http://127.0.0.1:8080",

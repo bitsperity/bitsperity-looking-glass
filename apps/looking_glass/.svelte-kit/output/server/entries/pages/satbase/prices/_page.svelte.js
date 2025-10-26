@@ -1,4 +1,4 @@
-import { c as create_ssr_component, d as add_attribute, f as each, e as escape } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, f as add_attribute, d as each, e as escape } from "../../../../chunks/ssr.js";
 import "lightweight-charts";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let watchlist = [];

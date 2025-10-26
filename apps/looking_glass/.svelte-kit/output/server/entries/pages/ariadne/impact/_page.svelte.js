@@ -1,4 +1,4 @@
-import { c as create_ssr_component, v as validate_component, d as add_attribute } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, v as validate_component, f as add_attribute } from "../../../../chunks/ssr.js";
 import { A as AutocompleteInput, b as fetchEventNameSuggestions } from "../../../../chunks/ariadneSuggestions.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let eventQuery = "";

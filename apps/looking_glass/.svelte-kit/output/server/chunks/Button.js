@@ -1,0 +1,40 @@
+import { c as create_ssr_component, f as add_attribute, e as escape } from "./ssr.js";
+const Card = create_ssr_component(($$result, $$props, $$bindings, slots) => {
+  let { href = null } = $$props;
+  let { padding = "p-4" } = $$props;
+  let { hover = false } = $$props;
+  let { classes = "" } = $$props;
+  if ($$props.href === void 0 && $$bindings.href && href !== void 0) $$bindings.href(href);
+  if ($$props.padding === void 0 && $$bindings.padding && padding !== void 0) $$bindings.padding(padding);
+  if ($$props.hover === void 0 && $$bindings.hover && hover !== void 0) $$bindings.hover(hover);
+  if ($$props.classes === void 0 && $$bindings.classes && classes !== void 0) $$bindings.classes(classes);
+  return `${href ? `<a${add_attribute("href", href, 0)} target="_blank" rel="noreferrer" class="${"block bg-neutral-800/50 backdrop-blur border border-neutral-700/50 rounded-lg " + escape(padding, true) + " " + escape(classes, true) + " transition-all duration-200 " + escape(
+    hover ? "hover:bg-neutral-800/70 hover:border-neutral-600/50 hover:shadow-lg" : "",
+    true
+  )}">${slots.default ? slots.default({}) : ``}</a>` : `<div class="${"bg-neutral-800/50 backdrop-blur border border-neutral-700/50 rounded-lg " + escape(padding, true) + " " + escape(classes, true)}">${slots.default ? slots.default({}) : ``}</div>`}`;
+});
+const Button = create_ssr_component(($$result, $$props, $$bindings, slots) => {
+  let { variant = "secondary" } = $$props;
+  let { size = "md" } = $$props;
+  let { disabled = false } = $$props;
+  let { loading = false } = $$props;
+  const variants = {
+    primary: "bg-blue-600 hover:bg-blue-700 text-white border-transparent",
+    secondary: "bg-neutral-700 hover:bg-neutral-600 text-neutral-100 border-neutral-600",
+    ghost: "bg-transparent hover:bg-neutral-800 text-neutral-300 border-neutral-700"
+  };
+  const sizes = {
+    sm: "px-3 py-1.5 text-sm",
+    md: "px-4 py-2 text-sm",
+    lg: "px-6 py-3 text-base"
+  };
+  if ($$props.variant === void 0 && $$bindings.variant && variant !== void 0) $$bindings.variant(variant);
+  if ($$props.size === void 0 && $$bindings.size && size !== void 0) $$bindings.size(size);
+  if ($$props.disabled === void 0 && $$bindings.disabled && disabled !== void 0) $$bindings.disabled(disabled);
+  if ($$props.loading === void 0 && $$bindings.loading && loading !== void 0) $$bindings.loading(loading);
+  return `<button ${disabled ? "disabled" : ""} class="${"inline-flex items-center justify-center gap-2 border rounded-lg font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed " + escape(variants[variant], true) + " " + escape(sizes[size], true)}">${loading ? `<svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>` : ``} ${slots.default ? slots.default({}) : ``}</button>`;
+});
+export {
+  Button as B,
+  Card as C
+};

@@ -1,7 +1,8 @@
-import { c as create_ssr_component, v as validate_component, d as add_attribute, f as each, e as escape } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, v as validate_component, f as add_attribute, d as each, e as escape } from "../../../../chunks/ssr.js";
 import { N as NewsCard } from "../../../../chunks/NewsCard.js";
-import { B as Badge, a as Button } from "../../../../chunks/Badge.js";
+import { B as Button } from "../../../../chunks/Button.js";
 import { I as Input } from "../../../../chunks/Input.js";
+import { B as Badge } from "../../../../chunks/Badge.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let items = [];
   let include_body = true;
@@ -30,7 +31,13 @@ const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
           return `${escape(items.length)} articles`;
         }
       }
-    )}</div></div></div>  <div class="flex-shrink-0 max-w-5xl w-full mx-auto px-6 pb-4 space-y-4"> <div class="bg-neutral-800/30 border border-neutral-700/50 rounded-xl p-5"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">${validate_component(Input, "Input").$$render(
+    )}</div></div></div>  <div class="flex-shrink-0 max-w-5xl w-full mx-auto px-6 pb-2 border-b border-neutral-700/50"><div class="flex gap-1"><button class="${"px-4 py-2 rounded-t-lg font-medium transition-colors " + escape(
+      "bg-neutral-800/60 text-neutral-100 border-b-2 border-blue-500",
+      true
+    )}">📰 Browse</button> <button class="${"px-4 py-2 rounded-t-lg font-medium transition-colors " + escape(
+      "text-neutral-400 hover:text-neutral-200",
+      true
+    )}">🔍 Quality Check</button></div></div> ${`  <div class="flex-shrink-0 max-w-5xl w-full mx-auto px-6 pb-4 space-y-4"> <div class="bg-neutral-800/30 border border-neutral-700/50 rounded-xl p-5"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">${validate_component(Input, "Input").$$render(
       $$result,
       { label: "From", type: "date", value: from },
       {
@@ -92,7 +99,7 @@ const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
       }
     })}</div></div></div>  ${``}</div>  ${``}  <div class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-6 pb-6"> ${``}  ${``}  ${items.length > 0 ? `<div class="grid gap-4">${each(items, (item) => {
       return `${validate_component(NewsCard, "NewsCard").$$render($$result, { item }, {}, {})}`;
-    })}</div>` : `${items.length === 0 ? `<div class="flex flex-col items-center justify-center py-16 text-center" data-svelte-h="svelte-15xqe1w"><svg class="w-16 h-16 text-neutral-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2.5 2.5 0 00-2.5-2.5H15"></path></svg> <h3 class="text-lg font-semibold text-neutral-300 mb-1">No articles found</h3> <p class="text-sm text-neutral-500">Try adjusting your filters or date range</p></div>` : ``}`}</div></div>`;
+    })}</div>` : `${items.length === 0 ? `<div class="flex flex-col items-center justify-center py-16 text-center" data-svelte-h="svelte-yrt8v8"><svg class="w-16 h-16 text-neutral-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9.5a2.5 2.5 0 00-2.5-2.5H15"></path></svg> <h3 class="text-lg font-semibold text-neutral-300 mb-1">No articles found</h3> <p class="text-sm text-neutral-500">Try adjusting your filters or date range</p></div>` : ``}`}</div>`}</div>`;
   } while (!$$settled);
   return $$rendered;
 });

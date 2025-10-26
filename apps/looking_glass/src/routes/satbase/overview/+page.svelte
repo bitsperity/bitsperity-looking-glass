@@ -67,8 +67,10 @@
 
 					heatmapData = transformed;
 				} else {
-					heatmapData = response;
+					heatmapData = {};
 				}
+			} else {
+				heatmapData = {};
 			}
 		} catch (err) {
 			error = `Failed to load overview: ${err}`;
@@ -146,7 +148,7 @@
 
 					heatmapData = transformed;
 				} else {
-					heatmapData = response;
+					heatmapData = {};
 				}
 			} catch (err) {
 				error = `Failed to load heatmap: ${err}`;

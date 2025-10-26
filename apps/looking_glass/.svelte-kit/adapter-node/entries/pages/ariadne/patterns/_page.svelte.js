@@ -1,4 +1,4 @@
-import { c as create_ssr_component, e as escape, v as validate_component, d as add_attribute, f as each } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, e as escape, v as validate_component, f as add_attribute, d as each } from "../../../../chunks/ssr.js";
 import { C as ConfidenceBadge } from "../../../../chunks/ConfidenceBadge.js";
 import { A as AutocompleteInput, c as fetchPatternCategorySuggestions } from "../../../../chunks/ariadneSuggestions.js";
 const PatternCard = create_ssr_component(($$result, $$props, $$bindings, slots) => {

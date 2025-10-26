@@ -1,4 +1,4 @@
-import { c as create_ssr_component, d as add_attribute, e as escape, f as each, v as validate_component } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, f as add_attribute, e as escape, d as each, v as validate_component } from "../../../../chunks/ssr.js";
 import { C as ConfidenceBadge } from "../../../../chunks/ConfidenceBadge.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let minAnnotations = 3;

@@ -1,4 +1,4 @@
-import { c as create_ssr_component, g as createEventDispatcher, d as add_attribute } from "./ssr.js";
+import { c as create_ssr_component, g as createEventDispatcher, f as add_attribute } from "./ssr.js";
 const ARIADNE_BASE = "http://127.0.0.1:8082";
 async function http(path, init) {
   const resp = await fetch(`${ARIADNE_BASE}${path}`, init);

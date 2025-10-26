@@ -1,4 +1,4 @@
-import { c as create_ssr_component, d as add_attribute } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, f as add_attribute } from "../../../../chunks/ssr.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let on = /* @__PURE__ */ (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   let usd = 1e3;

@@ -1,4 +1,4 @@
-import { c as create_ssr_component, e as escape, d as add_attribute } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, e as escape, f as add_attribute } from "../../../../chunks/ssr.js";
 const ssr = false;
 function colorForLabel(label) {
   const colors = {

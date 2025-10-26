@@ -1,4 +1,4 @@
-import { c as create_ssr_component, v as validate_component, d as add_attribute, f as each, e as escape } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, v as validate_component, f as add_attribute, d as each, e as escape } from "../../../../chunks/ssr.js";
 import { T as ThoughtCard } from "../../../../chunks/ThoughtCard.js";
 import { M as ManifoldNav } from "../../../../chunks/ManifoldNav.js";
 import { T as ThoughtPreviewModal } from "../../../../chunks/ThoughtPreviewModal.js";

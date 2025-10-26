@@ -1,4 +1,4 @@
-import { c as create_ssr_component, b as subscribe, e as escape, d as add_attribute } from "../../../../../chunks/ssr.js";
+import { c as create_ssr_component, b as subscribe, e as escape, f as add_attribute } from "../../../../../chunks/ssr.js";
 import { p as page } from "../../../../../chunks/stores.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let $page, $$unsubscribe_page;

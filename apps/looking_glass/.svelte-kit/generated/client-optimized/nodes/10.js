@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/ariadne/hypotheses/[id]/+page.svelte";
+export { default as component } from "../../../../src/routes/ariadne/hypotheses/+page.svelte";

@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/coalescence/+page.svelte";
+export { default as component } from "../../../../src/routes/ariadne/write/+page.svelte";
