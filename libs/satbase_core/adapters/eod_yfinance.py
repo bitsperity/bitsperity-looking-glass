@@ -14,7 +14,7 @@ from pathlib import Path
 
 def fetch(params: dict[str, Any]) -> List[DailyBar]:
     tickers: list[str] = params.get("tickers", [])
-    period = params.get("period", "1y")  # fallback, wenn kein last_date
+    period = params.get("period", "30y")  # Default to 30 years for full historical data
     interval = params.get("interval", "1d")
     s = load_settings()
     db_path = Path(s.stage_dir).parent / "prices.db"
@@ -23,15 +23,21 @@ def fetch(params: dict[str, Any]) -> List[DailyBar]:
     out: List[DailyBar] = []
     for t in tickers:
         try:
+            # Denormalize for yfinance: BTCUSD → BTC-USD, etc
+            yf_ticker = t.upper()
+            if len(t) == 6 and t[:3] in ('BTC', 'ETH', 'ADA', 'XRP', 'DOG'):
+                # Crypto format: BTCUSD → BTC-USD
+                yf_ticker = f"{t[:3]}-{t[3:]}"
+            
             # Warnungen dämpfen
             warnings.filterwarnings("ignore", category=FutureWarning)
             
             last_dt = db.get_latest_date(t.upper())
             if last_dt is not None:
                 start = (last_dt + timedelta(days=1)).isoformat()
-                df = yf.download(t, start=start, interval=interval, progress=False, auto_adjust=False)
+                df = yf.download(yf_ticker, start=start, interval=interval, progress=False, auto_adjust=False)
             else:
-                df = yf.download(t, period=period, interval=interval, progress=False, auto_adjust=False)
+                df = yf.download(yf_ticker, period=period, interval=interval, progress=False, auto_adjust=False)
             
             if df is None or df.empty:
                 # Mark as invalid if yfinance has no data

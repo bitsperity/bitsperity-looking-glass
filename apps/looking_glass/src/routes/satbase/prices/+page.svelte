@@ -64,8 +64,9 @@
     const diffDays = Math.floor((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24));
     
     // Check for YTD first (from is Jan 1 of this year)
+    // Use string construction to avoid timezone issues
     const now = new Date();
-    const yearStart = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    const yearStart = `${now.getFullYear()}-01-01`;
     
     if (from === yearStart) {
       activePreset = 'YTD';
@@ -132,6 +133,8 @@
     
     loading = true;
     err = null;
+    
+    // BTC View now works transparently - backend fetches BTCUSD if needed
     
     try {
       const res = await getPricesSingle(selectedTicker, from, to, btcView);
@@ -441,7 +444,12 @@
           </label>
 
           <label class="flex items-center gap-2 cursor-pointer text-xs">
-            <input type="checkbox" bind:checked={chartScale} value="log" class="rounded" />
+            <input 
+              type="checkbox" 
+              checked={chartScale === 'log'}
+              on:change={(e) => chartScale = e.currentTarget.checked ? 'log' : 'linear'}
+              class="rounded" 
+            />
             <span class="text-neutral-300">Log Scale</span>
           </label>
 
@@ -458,6 +466,31 @@
               {#if tickerStatus.invalid}
                 <div class="px-2 py-1 rounded bg-red-500/20 text-red-400">Invalid</div>
               {/if}
+              
+              <button
+                on:click={async () => {
+                  loading = true;
+                  try {
+                    const res = await fetch('http://127.0.0.1:8080/v1/prices/ingest', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tickers: [selectedTicker], period: '30y' })
+                    });
+                    if (!res.ok) throw new Error(`${res.status}`);
+                    await new Promise(r => setTimeout(r, 1500));
+                    await loadStatus();
+                    await loadChart();
+                  } catch (e) {
+                    err = `Refetch failed: ${String(e)}`;
+                  } finally {
+                    loading = false;
+                  }
+                }}
+                disabled={loading}
+                class="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded text-xs font-medium"
+              >
+                {loading ? 'Fetching...' : '⬇️ Refetch Data'}
+              </button>
             </div>
           {/if}
 
@@ -466,7 +499,7 @@
             disabled={loading}
             class="ml-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded text-xs font-medium"
           >
-            {loading ? 'Loading...' : 'Refresh'}
+            {loading ? 'Loading...' : '🔄 Refresh'}
           </button>
         </div>
       </div>
@@ -495,7 +528,7 @@
           </div>
         {:else if selectedTicker && chartData.length > 0}
           <div class="h-full bg-neutral-900/50 rounded-lg border border-neutral-800/50">
-            <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} />
+            <CandlestickChart data={chartData} ticker={selectedTicker} {btcView} {chartScale} />
           </div>
         {:else if selectedTicker}
           <div class="h-full flex items-center justify-center">

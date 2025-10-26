@@ -21,12 +21,21 @@ def _normalize_symbol(ticker: str, params: dict[str, Any]) -> str:
     
     Priority:
     1. ticker_map (explicit mapping)
-    2. If ticker has '.', use as-is (e.g. AFX.DE, SAP.DE)
-    3. Else: add default market_suffix (default: .us)
+    2. Crypto tickers (BTC/ETH/etc) → use as-is or map to stooq format
+    3. If ticker has '.', use as-is (e.g. AFX.DE, SAP.DE)
+    4. Else: add default market_suffix (default: .us)
     """
     mapping: dict[str, str] = params.get("ticker_map", {}) or {}
     if ticker in mapping:
         return mapping[ticker]
+    
+    # Special handling for crypto - Stooq uses specific crypto format
+    # For now, let yfinance handle crypto (more reliable)
+    # But if we get a crypto ticker, return it for explicit error handling
+    crypto_tickers = {'BTC', 'ETH', 'DOGE', 'ADA', 'XRP'}
+    if any(ticker.upper().startswith(c) for c in crypto_tickers):
+        # Return uppercase to signal this should use yfinance fallback
+        return ticker.upper()
     
     # If ticker already has market suffix, use as-is
     if "." in ticker:
@@ -80,7 +89,15 @@ def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
     result: dict[str, list[DailyBar]] = {}
     invalid_tickers: list[str] = []
     
+    # Crypto tickers that Stooq doesn't handle well
+    crypto_tickers = {'BTC', 'ETH', 'DOGE', 'ADA', 'XRP'}
+    
     for t in tickers:
+        # Skip crypto tickers - let yfinance handle them
+        if any(t.upper().startswith(c) for c in crypto_tickers):
+            result[t.upper()] = []
+            continue
+        
         sym = _normalize_symbol(t, params)
         url = f"{BASE}?s={sym}&i=d"
         try:
@@ -104,7 +121,7 @@ def fetch(params: dict[str, Any]) -> dict[str, list[DailyBar]]:
             bars = [b for b in bars if b.date > last_dt]
         result[t.upper()] = bars
     
-    # If any tickers were invalid, raise an error
+    # If any tickers were invalid (excluding crypto which is expected), raise an error
     if invalid_tickers:
         raise ValueError(f"Invalid ticker(s): {', '.join(invalid_tickers)}")
     

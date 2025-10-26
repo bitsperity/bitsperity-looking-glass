@@ -45,118 +45,76 @@ async def _fetch_ticker_background(ticker: str):
             pass
 
 
-@router.get("/prices/{ticker}")
-async def get_prices(
-    ticker: str,
-    from_: str | None = Query(None, alias="from"),
-    to: str | None = None,
-    btc_view: bool = False,
-    sync_timeout_s: int = 3,
-    background_tasks: BackgroundTasks = None
-):
-    """
-    Get price bars for a ticker.
-    
-    Query params:
-    - from: ISO date (YYYY-MM-DD)
-    - to: ISO date (YYYY-MM-DD)
-    - btc_view: Return values in BTC (default: false)
-    - sync_timeout_s: Max seconds to wait for data fetch (default: 3, max: 30)
-    """
-    db = _get_prices_db()
-    
-    # Validate ticker not in invalid list
-    status_info = db.get_status(ticker)
-    if status_info['invalid']:
-        return JSONResponse(
-            {"error": f"Invalid ticker: {ticker.upper()}", "reason": status_info['invalid_reason']},
-            status_code=status.HTTP_404_NOT_FOUND
-        )
-    
-    # Query bars
-    from_date = date.fromisoformat(from_) if from_ else None
-    to_date = date.fromisoformat(to) if to else None
-    
-    bars = db.query_bars(ticker, from_date, to_date)
-    
-    # If no bars: trigger background fetch (fetch_on_miss)
-    if not bars:
-        if background_tasks:
-            background_tasks.add_task(_fetch_ticker_background, ticker)
-        return JSONResponse(
-            {"status": "fetch_on_miss", "retry_after": sync_timeout_s},
-            status_code=status.HTTP_202_ACCEPTED
-        )
-    
-    # Apply BTC view if requested
-    if btc_view:
-        btc_bars = db.query_bars("BTCUSD", from_date, to_date)
-        if not btc_bars:
-            # If no BTC data, fetch it
-            if background_tasks:
-                background_tasks.add_task(_fetch_ticker_background, "BTCUSD")
-            return JSONResponse(
-                {"status": "fetch_on_miss", "retry_after": sync_timeout_s},
-                status_code=status.HTTP_202_ACCEPTED
-            )
+def _fetch_btcusd_sync(db: PricesDB, from_date, to_date) -> list:
+    """Fetch BTCUSD data synchronously using yfinance (most reliable for crypto)."""
+    try:
+        import yfinance as yf
+        from datetime import timedelta
         
-        # Create BTC lookup dict by date
-        btc_dict = {bar['date']: bar['close'] for bar in btc_bars}
+        # Fetch BTCUSD from yfinance
+        btc_ticker = yf.Ticker("BTC-USD")
+        hist = btc_ticker.history(start=str(from_date) if from_date else "1970-01-01", 
+                                  end=str(to_date) if to_date else "2099-12-31")
         
-        # Convert bars to BTC
-        converted = []
-        for bar in bars:
-            if bar['date'] in btc_dict:
-                btc_close = btc_dict[bar['date']]
-                converted.append({
-                    'date': bar['date'],
-                    'open': bar['open'] / btc_close,
-                    'high': bar['high'] / btc_close,
-                    'low': bar['low'] / btc_close,
-                    'close': bar['close'] / btc_close,
-                    'volume': bar['volume'],
-                    'source': bar['source'],
-                })
-        bars = converted
-    
-    return {
-        "ticker": ticker.upper(),
-        "bars": bars,
-        "last_date": bars[0]['date'] if bars else None,
-        "source": status_info['source'],
-        "from": from_,
-        "to": to,
-        "btc_view": btc_view,
-    }
+        if hist.empty:
+            return []
+        
+        # Convert to DailyBar format and save
+        from libs.satbase_core.models.price import DailyBar
+        bars = []
+        for idx, row in hist.iterrows():
+            dt = idx.date()
+            bars.append(DailyBar(
+                ticker="BTCUSD",
+                date=dt,
+                open=float(row['Open']),
+                high=float(row['High']),
+                low=float(row['Low']),
+                close=float(row['Close']),
+                volume=int(row['Volume']) if row['Volume'] else 0,
+                source="yfinance"
+            ))
+        
+        # Save to DB
+        if bars:
+            db.upsert_daily_bars("BTCUSD", [b.model_dump() for b in bars], source="yfinance")
+        
+        # Return queried bars
+        return db.query_bars("BTCUSD", from_date, to_date)
+    except Exception as e:
+        print(f"Failed to fetch BTCUSD: {e}")
+        return []
 
 
-@router.get("/prices/status/{ticker}")
-async def get_prices_status(ticker: str):
-    """Get price data status for a ticker."""
-    db = _get_prices_db()
-    status_info = db.get_status(ticker)
+# ========== SPECIFIC ROUTES (must be before generic {ticker} route) ==========
+
+@router.get("/prices/search")
+async def search_tickers(q: str, limit: int = 10):
+    """Search for stocks by ticker or company name using Yahoo Finance."""
+    if not q or len(q) < 1:
+        return {"query": q, "count": 0, "results": []}
     
-    # Calculate missing days if we have data
-    missing_days = []
-    if status_info['latest_date']:
-        try:
-            from datetime import timedelta
-            from_date = date.fromisoformat(status_info['latest_date']) - timedelta(days=30)
-            to_date = date.fromisoformat(status_info['latest_date'])
-            missing_days = db.get_missing_days(ticker, from_date, to_date)
-        except:
-            pass
-    
-    return {
-        "ticker": ticker.upper(),
-        "latest_date": status_info['latest_date'],
-        "bar_count": status_info['bar_count'],
-        "missing_days": missing_days,
-        "source": status_info['source'],
-        "source_fail_count": status_info['source_fail_count'],
-        "invalid": status_info['invalid'],
-        "invalid_reason": status_info['invalid_reason'],
-    }
+    try:
+        search_results = yf.Search(q, max_results=limit, news_count=0)
+        quotes = search_results.quotes
+        
+        results = []
+        for quote in quotes:
+            symbol = quote.get("symbol", "")
+            # Normalize yfinance symbols: BTC-USD → BTCUSD, etc
+            symbol = symbol.replace("-", "").replace("=", "")
+            
+            results.append({
+                "symbol": symbol,
+                "name": quote.get("shortname") or quote.get("longname", ""),
+                "exchange": quote.get("exchDisp", ""),
+                "type": quote.get("quoteType", ""),
+                "sector": quote.get("sector", ""),
+            })
+        
+        return {"query": q, "count": len(results), "results": results}
+    except Exception as e:
+        return {"query": q, "count": 0, "results": [], "error": str(e)}
 
 
 @router.post("/prices/ingest")
@@ -190,29 +148,33 @@ async def ingest_prices(
     }
 
 
-@router.get("/prices/search")
-async def search_tickers(q: str, limit: int = 10):
-    """Search for stocks by ticker or company name using Yahoo Finance."""
-    if not q or len(q) < 1:
-        return {"query": q, "count": 0, "results": []}
+@router.get("/prices/status/{ticker}")
+async def get_prices_status(ticker: str):
+    """Get price data status for a ticker."""
+    db = _get_prices_db()
+    status_info = db.get_status(ticker)
     
-    try:
-        search_results = yf.Search(q, max_results=limit, news_count=0)
-        quotes = search_results.quotes
-        
-        results = []
-        for quote in quotes:
-            results.append({
-                "symbol": quote.get("symbol", ""),
-                "name": quote.get("shortname") or quote.get("longname", ""),
-                "exchange": quote.get("exchDisp", ""),
-                "type": quote.get("quoteType", ""),
-                "sector": quote.get("sector", ""),
-            })
-        
-        return {"query": q, "count": len(results), "results": results}
-    except Exception as e:
-        return {"query": q, "count": 0, "results": [], "error": str(e)}
+    # Calculate missing days if we have data
+    missing_days = []
+    if status_info['latest_date']:
+        try:
+            from datetime import timedelta
+            from_date = date.fromisoformat(status_info['latest_date']) - timedelta(days=30)
+            to_date = date.fromisoformat(status_info['latest_date'])
+            missing_days = db.get_missing_days(ticker, from_date, to_date)
+        except:
+            pass
+    
+    return {
+        "ticker": ticker.upper(),
+        "latest_date": status_info['latest_date'],
+        "bar_count": status_info['bar_count'],
+        "missing_days": missing_days,
+        "source": status_info['source'],
+        "source_fail_count": status_info['source_fail_count'],
+        "invalid": status_info['invalid'],
+        "invalid_reason": status_info['invalid_reason'],
+    }
 
 
 @router.get("/prices/info/{ticker}")
@@ -305,4 +267,86 @@ async def ticker_fundamentals(ticker: str):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+# ========== GENERIC {ticker} ROUTES (after specific routes) ==========
+
+@router.get("/prices/{ticker}")
+async def get_prices(
+    ticker: str,
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = None,
+    btc_view: bool = False,
+    sync_timeout_s: int = 3,
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Get price bars for a ticker.
+    
+    Query params:
+    - from: ISO date (YYYY-MM-DD)
+    - to: ISO date (YYYY-MM-DD)
+    - btc_view: Return values in BTC (default: false)
+    - sync_timeout_s: Max seconds to wait for data fetch (default: 3, max: 30)
+    """
+    db = _get_prices_db()
+    
+    # Validate ticker not in invalid list
+    status_info = db.get_status(ticker)
+    if status_info['invalid']:
+        return JSONResponse(
+            {"error": f"Invalid ticker: {ticker.upper()}", "reason": status_info['invalid_reason']},
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Query bars
+    from_date = date.fromisoformat(from_) if from_ else None
+    to_date = date.fromisoformat(to) if to else None
+    
+    bars = db.query_bars(ticker, from_date, to_date)
+    
+    # If no bars: trigger background fetch (fetch_on_miss)
+    if not bars:
+        if background_tasks:
+            background_tasks.add_task(_fetch_ticker_background, ticker)
+        return JSONResponse(
+            {"status": "fetch_on_miss", "retry_after": sync_timeout_s},
+            status_code=status.HTTP_202_ACCEPTED
+        )
+    
+    # Apply BTC view if requested
+    if btc_view:
+        btc_bars = db.query_bars("BTCUSD", from_date, to_date)
+        if not btc_bars:
+            # Fetch BTCUSD synchronously (crypto prices are reliable from yfinance)
+            btc_bars = _fetch_btcusd_sync(db, from_date, to_date)
+        
+        # Convert bars to BTC
+        if btc_bars:
+            btc_dict = {bar['date']: bar['close'] for bar in btc_bars}
+            
+            converted = []
+            for bar in bars:
+                if bar['date'] in btc_dict:
+                    btc_close = btc_dict[bar['date']]
+                    converted.append({
+                        'date': bar['date'],
+                        'open': bar['open'] / btc_close,
+                        'high': bar['high'] / btc_close,
+                        'low': bar['low'] / btc_close,
+                        'close': bar['close'] / btc_close,
+                        'volume': bar['volume'],
+                        'source': bar['source'],
+                    })
+            bars = converted
+    
+    return {
+        "ticker": ticker.upper(),
+        "bars": bars,
+        "last_date": bars[0]['date'] if bars else None,
+        "source": status_info['source'],
+        "from": from_,
+        "to": to,
+        "btc_view": btc_view,
+    }
 

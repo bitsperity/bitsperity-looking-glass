@@ -5,6 +5,7 @@
   export let data: CandlestickData[] = [];
   export let ticker: string = '';
   export let btcView: boolean = false;
+  export let chartScale: 'linear' | 'log' = 'linear';
   
   let chartContainer: HTMLDivElement;
   let chart: IChartApi | null = null;
@@ -34,6 +35,7 @@
       },
       rightPriceScale: {
         borderColor: '#404040',
+        mode: chartScale === 'log' ? 1 : 0,  // 1 = log, 0 = normal
       },
       timeScale: {
         borderColor: '#404040',
@@ -64,6 +66,14 @@
     } else {
       initChart();
     }
+  }
+  
+  $: if (chart) {
+    chart.applyOptions({
+      rightPriceScale: {
+        mode: chartScale === 'log' ? 1 : 0,
+      },
+    });
   }
   
   onMount(() => {
