@@ -73,6 +73,8 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
     start = params.get("startdatetime")
     end = params.get("enddatetime")
     window_hours = int(params.get("window_hours", 1))
+    maxrecords = int(params.get("maxrecords", 250))
+    sort = params.get("sort", "HybridRel")
     s = load_settings()
 
     # wenn keine Start/Ende übergeben: letzte 24h in 1h Fenstern
@@ -98,17 +100,18 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
                 params={
                     "query": q,
                     "mode": "artlist",
-                    "start_date": cur.strftime("%Y-%m-%d"),  # CORRECTED: YYYY-MM-DD format
-                    "end_date": nxt.strftime("%Y-%m-%d"),    # CORRECTED: YYYY-MM-DD format
+                    "start_date": cur.strftime("%Y-%m-%d"),  # YYYY-MM-DD format
+                    "end_date": nxt.strftime("%Y-%m-%d"),    # YYYY-MM-DD format
                     "format": "json",
-                    "maxrecords": 250,
+                    "maxrecords": min(maxrecords, 250),  # GDELT max is 250
+                    "sort": sort,  # NEW: support sort parameter
                 },
                 headers=default_headers(s.user_agent_email),
                 timeout=s.http_timeout,
             )
             docs = data.get("articles", []) or data.get("documents", []) or []
             out.extend(docs)
-            log("gdelt_window", start=cur.strftime("%Y-%m-%dT%H:%M:%SZ"), end=nxt.strftime("%Y-%m-%dT%H:%M:%SZ"), hits=len(docs))
+            log("gdelt_window", start=cur.strftime("%Y-%m-%dT%H:%M:%SZ"), end=nxt.strftime("%Y-%m-%dT%H:%M:%SZ"), hits=len(docs), sort=sort)
         except Exception as e:
             # Log the actual error for debugging
             log("gdelt_window_error", 
@@ -123,7 +126,9 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
         windows=window_attempts, 
         total=len(out), 
         window_hours=window_hours,
-        query=q[:50])
+        query=q[:50],
+        sort=sort,
+        maxrecords=maxrecords)
     return out
 
 

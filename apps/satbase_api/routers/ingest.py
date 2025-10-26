@@ -205,21 +205,55 @@ def _run_news(job_id: str, query: str, topic: str | None = None, hours: int | No
         _persist_job(job_id)
 
 
-def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date, topic: str | None = None) -> None:
-    """Backfill historical news using ALL adapters that support historical queries"""
+def _run_news_backfill(
+    job_id: str, 
+    query: str, 
+    date_from: date, 
+    date_to: date, 
+    topic: str | None = None,
+    max_articles_per_day: int = 50,
+    tone_filter: str = "all",
+    sort_order: str = "relevance"
+) -> None:
+    """Backfill historical news with intelligent filtering per day"""
     _JOBS[job_id]["status"] = "running"
     _JOBS[job_id]["progress"] = {
         "total_days": (date_to - date_from).days + 1,
         "processed_days": 0,
         "current_date": None,
         "total_articles": 0,
+        "articles_kept": 0,  # NEW: track how many we keep after filtering
         "current_articles": 0,
-        "errors": []
+        "errors": [],
+        "filters": {
+            "max_per_day": max_articles_per_day,
+            "tone": tone_filter,
+            "sort": sort_order
+        }
     }
     _persist_job(job_id)
     
     registry_full = registry_with_metadata()
     results: dict[str, Any] = {}
+    
+    # Build GDELT query filters based on tone_filter
+    tone_query_suffix = ""
+    if tone_filter == "positive":
+        tone_query_suffix = " tone>5"
+    elif tone_filter == "negative":
+        tone_query_suffix = " tone<-5"
+    elif tone_filter == "neutral":
+        tone_query_suffix = " tone>-1 tone<1"
+    
+    # Map sort_order to GDELT sort parameter
+    sort_map = {
+        "relevance": "HybridRel",
+        "newest": "DateDesc",
+        "oldest": "DateAsc",
+        "most_positive": "ToneDesc",
+        "most_negative": "ToneAsc"
+    }
+    gdelt_sort = sort_map.get(sort_order, "HybridRel")
     
     try:
         # Find all news adapters that support historical queries
@@ -228,15 +262,22 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date, 
             if entry.metadata.category == "news" and entry.metadata.supports_historical
         }
         
-        log("news_backfill_start", adapters=list(historical_adapters.keys()), 
-            date_from=date_from.isoformat(), date_to=date_to.isoformat(), topic=topic)
+        log("news_backfill_start", 
+            adapters=list(historical_adapters.keys()), 
+            date_from=date_from.isoformat(), 
+            date_to=date_to.isoformat(),
+            topic=topic,
+            max_per_day=max_articles_per_day,
+            tone_filter=tone_filter,
+            sort_order=sort_order)
         
-        # Process date range day by day to avoid huge API requests
+        # Process date range day by day
         current_date = date_from
         day_count = 0
+        
         while current_date <= date_to:
-            next_date = current_date + timedelta(days=1)
             day_count += 1
+            next_date = current_date + timedelta(days=1)
             
             # Update progress: current date
             _JOBS[job_id]["progress"]["current_date"] = current_date.isoformat()
@@ -248,57 +289,82 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date, 
                 try:
                     fetch, normalize, sink = entry.fns
                     
-                    # Prepare params with date range
-                    # GDELT expects startdatetime/enddatetime in YYYYMMDDHHMMSS format
+                    # Build query with tone filters
+                    filtered_query = query + tone_query_suffix
+                    
+                    # Prepare params for GDELT with optimized settings
                     params = {
-                        "query": query,
+                        "query": filtered_query,
                         "startdatetime": current_date.strftime("%Y%m%d%H%M%S"),
                         "enddatetime": next_date.strftime("%Y%m%d%H%M%S"),
-                        "window_hours": 6  # Larger windows for historical backfill
+                        "window_hours": 24,  # Full day window for backfill
+                        "maxrecords": 250,  # Fetch max, then filter
+                        "sort": gdelt_sort  # Pass sort order to fetch
                     }
                     
                     raw = fetch(params)
-                    models = list(normalize(raw, topic))  # Pass topic for annotation
-                    info = sink(models, current_date, topic)  # Pass topic for annotation
+                    models = list(normalize(raw, topic))
+                    
+                    # Filter to keep only top N by relevance (already sorted by fetch)
+                    filtered_models = models[:max_articles_per_day]
+                    
+                    info = sink(filtered_models, current_date, topic)
                     
                     if adapter_name not in results:
-                        results[adapter_name] = {"days": 0, "total_count": 0, "partitions": []}
+                        results[adapter_name] = {
+                            "days": 0, 
+                            "total_fetched": 0,  # Total before filtering
+                            "total_kept": 0,    # Total after filtering
+                            "partitions": []
+                        }
                     
                     results[adapter_name]["days"] += 1
                     article_count = info.get("count", 0)
-                    results[adapter_name]["total_count"] += article_count
+                    results[adapter_name]["total_fetched"] += len(models)  # What we got
+                    results[adapter_name]["total_kept"] += article_count   # What we saved
                     results[adapter_name]["partitions"].append({
                         "date": current_date.isoformat(),
-                        "count": article_count,
+                        "fetched": len(models),
+                        "kept": article_count,
                         "path": info.get("path")
                     })
                     
-                    # Update progress: articles for this day
+                    # Update progress
                     _JOBS[job_id]["progress"]["current_articles"] += article_count
-                    _JOBS[job_id]["progress"]["total_articles"] += article_count
+                    _JOBS[job_id]["progress"]["total_articles"] += len(models)
+                    _JOBS[job_id]["progress"]["articles_kept"] += article_count
                     _persist_job(job_id)
                     
-                    log("news_backfill_day", adapter=adapter_name, date=current_date.isoformat(), 
-                        count=article_count, topic=topic)
+                    log("news_backfill_day", 
+                        adapter=adapter_name, 
+                        date=current_date.isoformat(), 
+                        fetched=len(models),
+                        kept=article_count,
+                        topic=topic,
+                        tone_filter=tone_filter)
                     
                 except Exception as e:
                     error_msg = f"{adapter_name} on {current_date.isoformat()}: {str(e)}"
                     _JOBS[job_id]["progress"]["errors"].append(error_msg)
                     _persist_job(job_id)
                     
-                    log("news_backfill_day_error", adapter=adapter_name, 
-                        date=current_date.isoformat(), error=str(e), topic=topic)
-                    # Continue with other adapters/dates even if one fails
+                    log("news_backfill_day_error", 
+                        adapter=adapter_name, 
+                        date=current_date.isoformat(), 
+                        error=str(e), 
+                        topic=topic)
             
             current_date = next_date
         
         _JOBS[job_id].update({"status": "done", "result": results, "progress": _JOBS[job_id]["progress"]})
         _persist_job(job_id)
-        log("news_backfill_complete", results=results, total_articles=_JOBS[job_id]["progress"]["total_articles"], topic=topic)
         
-        # Automatically fetch bodies for the news we just fetched
-        log("news_backfill_auto_bodies", date_from=date_from.isoformat(), date_to=date_to.isoformat())
-        body_job_id = _new_job("news_bodies", {"from": date_from.isoformat(), "to": date_to.isoformat(), "auto": True})
+        log("news_backfill_complete", 
+            results=results, 
+            total_fetched=_JOBS[job_id]["progress"]["total_articles"],
+            total_kept=_JOBS[job_id]["progress"]["articles_kept"],
+            topic=topic,
+            tone_filter=tone_filter)
         
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e), "progress": _JOBS[job_id]["progress"]})
@@ -431,14 +497,48 @@ async def ingest_news_bodies(body: dict[str, Any]):
 
 @router.post("/ingest/news/backfill", status_code=status.HTTP_202_ACCEPTED)
 async def ingest_news_backfill(body: dict[str, Any], background_tasks: BackgroundTasks):
-    """Backfill historical news data using all adapters that support historical queries"""
+    """
+    Backfill historical news data with intelligent filtering and relevance ranking.
+    
+    Parameters:
+    - query: Search query (required)
+    - from: Start date YYYY-MM-DD (required)
+    - to: End date YYYY-MM-DD (required)
+    - topic: Topic annotation for the articles (optional)
+    - max_articles_per_day: Max articles to keep per day, sorted by relevance (default: 50)
+    - tone_filter: Filter by tone - "positive" (>5), "negative" (<-5), "neutral" (-1 to 1), or "all" (default: "all")
+    - sort_order: "relevance" (default), "newest", "oldest", "most_positive", "most_negative"
+    """
     query = body.get("query", "semiconductor OR chip OR foundry")
     from_str = body.get("from")
     to_str = body.get("to")
-    topic = body.get("topic")  # NEW: optional topic for annotation
+    topic = body.get("topic")
+    
+    # New filter parameters
+    max_articles_per_day = int(body.get("max_articles_per_day", 50))
+    tone_filter = body.get("tone_filter", "all")  # positive, negative, neutral, all
+    sort_order = body.get("sort_order", "relevance")  # relevance, newest, oldest, most_positive, most_negative
     
     if not from_str or not to_str:
         return JSONResponse({"error": "from/to date range required"}, status_code=400)
+    
+    if max_articles_per_day < 1 or max_articles_per_day > 250:
+        return JSONResponse(
+            {"error": "max_articles_per_day must be between 1 and 250"},
+            status_code=400
+        )
+    
+    if tone_filter not in ["positive", "negative", "neutral", "all"]:
+        return JSONResponse(
+            {"error": f"tone_filter must be: positive, negative, neutral, or all"},
+            status_code=400
+        )
+    
+    if sort_order not in ["relevance", "newest", "oldest", "most_positive", "most_negative"]:
+        return JSONResponse(
+            {"error": f"sort_order must be: relevance, newest, oldest, most_positive, most_negative"},
+            status_code=400
+        )
     
     dfrom = date.fromisoformat(from_str)
     dto = date.fromisoformat(to_str)
@@ -451,15 +551,33 @@ async def ingest_news_backfill(body: dict[str, Any], background_tasks: Backgroun
             status_code=400
         )
     
-    job_id = _new_job("news_backfill", {"query": query, "from": from_str, "to": to_str, "topic": topic})
-    background_tasks.add_task(_run_news_backfill, job_id, query, dfrom, dto, topic)
+    job_id = _new_job("news_backfill", {
+        "query": query, 
+        "from": from_str, 
+        "to": to_str, 
+        "topic": topic,
+        "max_articles_per_day": max_articles_per_day,
+        "tone_filter": tone_filter,
+        "sort_order": sort_order
+    })
+    background_tasks.add_task(
+        _run_news_backfill, 
+        job_id, 
+        query, 
+        dfrom, 
+        dto, 
+        topic,
+        max_articles_per_day,
+        tone_filter,
+        sort_order
+    )
     
     return JSONResponse({
         "job_id": job_id,
         "status": "accepted",
         "retry_after": 5,
-        "message": f"Backfilling news for {days} days using all capable adapters",
-        "adapters": [name for name, entry in registry_with_metadata().items() 
+        "message": f"Backfilling {days} days with {max_articles_per_day} articles/day (tone: {tone_filter}, sort: {sort_order})",
+        "adapters": [name for name, entry in registry_with_metadata().items()
                      if entry.metadata.category == "news" and entry.metadata.supports_historical]
     }, status_code=status.HTTP_202_ACCEPTED)
 
