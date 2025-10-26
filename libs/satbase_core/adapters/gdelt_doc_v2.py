@@ -65,16 +65,11 @@ def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
     return doc
 
 
-def fetch(params: dict[str, Any]) -> List[dict]:
-    # Klammern und URL-encoding für zuverlässigere Server-Seite-Queries
+def fetch(params: dict[str, Any]) -> Iterable[dict]:
     raw_q = params.get("query", "")
-    # GDELT requires words with dashes to be quoted: C-UAS -> "C-UAS"
-    # Replace dash-words with quoted versions
-    import re
-    if raw_q:
-        # Find all words with dashes that aren't already quoted
-        raw_q = re.sub(r'(?<!")(\b[\w]+-[\w-]+\b)(?!")', r'"\1"', raw_q)
-    q = f"({raw_q})" if raw_q else ""
+    # GDELT API: Pass query as-is, don't wrap in parentheses
+    # The API expects plain keywords separated by spaces or operators
+    q = raw_q.strip() if raw_q else ""
     start = params.get("startdatetime")
     end = params.get("enddatetime")
     window_hours = int(params.get("window_hours", 1))
@@ -92,6 +87,7 @@ def fetch(params: dict[str, Any]) -> List[dict]:
 
     out: List[dict] = []
     cur = start_dt
+    window_attempts = 0
     while cur < end_dt:
         nxt = min(cur + timedelta(hours=window_hours), end_dt)
         try:
@@ -111,11 +107,21 @@ def fetch(params: dict[str, Any]) -> List[dict]:
             docs = data.get("articles", []) or data.get("documents", []) or []
             out.extend(docs)
             log("gdelt_window", start=cur.strftime("%Y-%m-%dT%H:%M:%SZ"), end=nxt.strftime("%Y-%m-%dT%H:%M:%SZ"), hits=len(docs))
-        except Exception:
-            # Fenster überspringen, weiter
-            log("gdelt_window_error", start=cur.strftime("%Y-%m-%dT%H:%M:%SZ"), end=nxt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        except Exception as e:
+            # Log the actual error for debugging
+            log("gdelt_window_error", 
+                start=cur.strftime("%Y-%m-%dT%H:%M:%SZ"), 
+                end=nxt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                error=str(e)[:100],
+                window_hours=window_hours)
         cur = nxt
-    log("gdelt_summary", windows=(((end_dt - start_dt).total_seconds()) // (window_hours * 3600) + 1), total=len(out))
+        window_attempts += 1
+    
+    log("gdelt_summary", 
+        windows=window_attempts, 
+        total=len(out), 
+        window_hours=window_hours,
+        query=q[:50])
     return out
 
 
