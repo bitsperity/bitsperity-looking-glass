@@ -308,40 +308,57 @@ def _run_news_backfill(
                     # Filter to keep only top N by relevance (already sorted by fetch)
                     filtered_models = models[:max_articles_per_day]
                     
-                    info = sink(filtered_models, current_date, topic)
+                    # GROUP ARTICLES BY THEIR ACTUAL published_at DATE
+                    # This is critical for proper data organization!
+                    from datetime import datetime as dt
+                    articles_by_date: dict[date, list] = {}
                     
-                    if adapter_name not in results:
-                        results[adapter_name] = {
-                            "days": 0, 
-                            "total_fetched": 0,  # Total before filtering
-                            "total_kept": 0,    # Total after filtering
-                            "partitions": []
-                        }
+                    for article in filtered_models:
+                        # Extract date from published_at
+                        if hasattr(article, 'published_at') and article.published_at:
+                            # published_at is a datetime object
+                            article_date = article.published_at.date() if hasattr(article.published_at, 'date') else article.published_at
+                            if article_date not in articles_by_date:
+                                articles_by_date[article_date] = []
+                            articles_by_date[article_date].append(article)
                     
-                    results[adapter_name]["days"] += 1
-                    article_count = info.get("count", 0)
-                    results[adapter_name]["total_fetched"] += len(models)  # What we got
-                    results[adapter_name]["total_kept"] += article_count   # What we saved
-                    results[adapter_name]["partitions"].append({
-                        "date": current_date.isoformat(),
-                        "fetched": len(models),
-                        "kept": article_count,
-                        "path": info.get("path")
-                    })
-                    
-                    # Update progress
-                    _JOBS[job_id]["progress"]["current_articles"] += article_count
-                    _JOBS[job_id]["progress"]["total_articles"] += len(models)
-                    _JOBS[job_id]["progress"]["articles_kept"] += article_count
-                    _persist_job(job_id)
-                    
-                    log("news_backfill_day", 
-                        adapter=adapter_name, 
-                        date=current_date.isoformat(), 
-                        fetched=len(models),
-                        kept=article_count,
-                        topic=topic,
-                        tone_filter=tone_filter)
+                    # Save articles by their REAL published_at date
+                    for article_date, articles in articles_by_date.items():
+                        info = sink(articles, article_date, topic)
+                        
+                        article_count = info.get("count", 0)
+                        
+                        if adapter_name not in results:
+                            results[adapter_name] = {
+                                "days": 0, 
+                                "total_fetched": 0,
+                                "total_kept": 0,
+                                "partitions": []
+                            }
+                        
+                        results[adapter_name]["days"] += 1
+                        results[adapter_name]["total_fetched"] += len(filtered_models)
+                        results[adapter_name]["total_kept"] += article_count
+                        results[adapter_name]["partitions"].append({
+                            "date": article_date.isoformat(),  # Use REAL article date
+                            "fetched": len(filtered_models),
+                            "kept": article_count,
+                            "path": info.get("path")
+                        })
+                        
+                        # Update progress
+                        _JOBS[job_id]["progress"]["current_articles"] += article_count
+                        _JOBS[job_id]["progress"]["total_articles"] += len(filtered_models)
+                        _JOBS[job_id]["progress"]["articles_kept"] += article_count
+                        _persist_job(job_id)
+                        
+                        log("news_backfill_day", 
+                            adapter=adapter_name, 
+                            date=article_date.isoformat(),  # Use REAL article date in logs
+                            fetched=len(filtered_models),
+                            kept=article_count,
+                            topic=topic,
+                            tone_filter=tone_filter)
                     
                 except Exception as e:
                     error_msg = f"{adapter_name} on {current_date.isoformat()}: {str(e)}"
