@@ -738,3 +738,100 @@ def backfill_monitor(job_id: str):
     }
 
 
+@router.delete("/ingest/news/topics/{topic_name}", status_code=status.HTTP_200_OK)
+async def delete_articles_by_topic(topic_name: str, background_tasks: BackgroundTasks):
+    """
+    Delete all articles with a specific topic from news_docs.
+    
+    DESTRUCTIVE: This removes articles by filtering out a topic name.
+    Use this to clean up mis-annotated topics (e.g., "Bitcoin-Positive" → "Bitcoin").
+    
+    Parameters:
+    - topic_name: Topic name to delete (e.g., "Bitcoin-Positive")
+    
+    Returns:
+    - Job ID for monitoring deletion progress
+    """
+    job_id = _new_job("delete_topic", {"topic_name": topic_name})
+    background_tasks.add_task(_run_delete_topic, job_id, topic_name)
+    
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "accepted",
+        "message": f"Deleting all articles with topic '{topic_name}'",
+        "destructive": True
+    }, status_code=status.HTTP_202_ACCEPTED)
+
+
+def _run_delete_topic(job_id: str, topic_name: str) -> None:
+    """Delete all articles with a specific topic"""
+    _JOBS[job_id]["status"] = "running"
+    _persist_job(job_id)
+    
+    s = load_settings()
+    deleted_count = 0
+    
+    try:
+        # Scan all news_docs across all sources and dates
+        for source in ["gdelt", "news_rss"]:
+            source_dir = Path(s.stage_dir) / source
+            if not source_dir.exists():
+                continue
+            
+            # Find all news_docs.parquet files
+            for parquet_file in source_dir.rglob("news_docs.parquet"):
+                try:
+                    df = pl.read_parquet(parquet_file)
+                    
+                    if "topics" not in df.columns:
+                        continue
+                    
+                    # Filter out articles with this topic
+                    # Keep rows where topics list doesn't contain topic_name
+                    def filter_topic(topics):
+                        if topics is None:
+                            return True
+                        if not isinstance(topics, list):
+                            return True
+                        return topic_name not in topics
+                    
+                    original_height = df.height
+                    df_filtered = df.filter(
+                        pl.col("topics").map_elements(filter_topic, return_dtype=pl.Boolean)
+                    )
+                    
+                    deleted_in_file = original_height - df_filtered.height
+                    
+                    if deleted_in_file > 0:
+                        # Overwrite file with filtered data
+                        df_filtered.write_parquet(parquet_file)
+                        deleted_count += deleted_in_file
+                        log("delete_topic_file", 
+                            source=source,
+                            file=str(parquet_file.relative_to(Path(s.stage_dir))),
+                            deleted=deleted_in_file,
+                            topic=topic_name)
+                    
+                except Exception as e:
+                    log("delete_topic_file_error", 
+                        file=str(parquet_file),
+                        error=str(e),
+                        topic=topic_name)
+                    continue
+        
+        _JOBS[job_id]["status"] = "done"
+        _JOBS[job_id]["result"] = {
+            "topic": topic_name,
+            "deleted_articles": deleted_count,
+            "status": "success"
+        }
+        _persist_job(job_id)
+        log("delete_topic_complete", topic=topic_name, deleted_count=deleted_count)
+        
+    except Exception as e:
+        _JOBS[job_id]["status"] = "error"
+        _JOBS[job_id]["error"] = str(e)
+        _persist_job(job_id)
+        log("delete_topic_error", error=str(e), topic=topic_name)
+
+
