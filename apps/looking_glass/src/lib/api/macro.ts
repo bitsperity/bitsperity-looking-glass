@@ -1,6 +1,6 @@
-import { apiGet, ApiError, apiPollJob } from './client';
+import { apiGet, ApiError } from './client';
 
-export type MacroObs = { date: string; value: number };
+export type MacroObs = { date: string; value: number; series_id: string };
 
 export type FredSeries = {
   id: string;
@@ -17,14 +17,58 @@ export async function searchFredSeries(query: string, limit: number = 20) {
 }
 
 export async function getSeries(series_id: string, from: string, to: string) {
-  try {
-    return await apiGet<{ items: MacroObs[] }>(`/v1/macro/fred/series/${series_id}?from=${from}&to=${to}`);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 202 && e.body?.job_id) {
-      await apiPollJob(e.body.job_id);
-      return await apiGet<{ items: MacroObs[] }>(`/v1/macro/fred/series/${series_id}?from=${from}&to=${to}`);
+  let retries = 0;
+  const MAX_RETRIES = 5;
+  
+  while (retries < MAX_RETRIES) {
+    try {
+      return await apiGet<{ items: MacroObs[] }>(`/v1/macro/series/${series_id}?from=${from}&to=${to}&sync_timeout_s=2`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 202) {
+        // Fetch-on-miss: data being fetched in background
+        retries++;
+        if (retries >= MAX_RETRIES) {
+          throw new Error(`Timeout waiting for ${series_id} data after ${MAX_RETRIES} retries`);
+        }
+        // Wait and retry
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
+      }
+      throw e;
     }
-    throw e;
   }
+  
+  throw new Error(`Failed to fetch ${series_id} after ${MAX_RETRIES} retries`);
+}
+
+export async function getSeriesStatus(series_id: string) {
+  return await apiGet<{
+    series_id: string;
+    observation_count: number;
+    latest_date: string | null;
+    latest_value: number | null;
+    title: string | null;
+    units: string | null;
+    frequency: string | null;
+    observation_start: string | null;
+    observation_end: string | null;
+  }>(`/v1/macro/status/${series_id}`);
+}
+
+export async function getCategories(category?: string) {
+  const url = category 
+    ? `/v1/macro/categories?category=${encodeURIComponent(category)}`
+    : '/v1/macro/categories';
+  return await apiGet<any>(url);
+}
+
+export async function ingestSeries(series: string[], from?: string, to?: string) {
+  const res = await fetch('http://127.0.0.1:8080/v1/macro/ingest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ series, from, to })
+  });
+  if (!res.ok) throw new Error(`Ingest failed: ${res.status}`);
+  return res.json();
 }
 
