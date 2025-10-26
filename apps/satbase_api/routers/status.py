@@ -3,25 +3,74 @@ from datetime import datetime
 import polars as pl
 from fastapi import APIRouter
 from libs.satbase_core.config.settings import load_settings
+import time
+from typing import Optional
 
 router = APIRouter()
 
+# In-memory cache with TTL
+class CoverageCache:
+    def __init__(self, ttl_seconds: int = 300):
+        self.ttl = ttl_seconds
+        self.data: Optional[dict] = None
+        self.timestamp: float = 0
+    
+    def get(self) -> Optional[dict]:
+        """Get cached data if still valid"""
+        if self.data is None:
+            return None
+        
+        if time.time() - self.timestamp > self.ttl:
+            self.data = None
+            return None
+        
+        return self.data
+    
+    def set(self, data: dict):
+        """Store data in cache"""
+        self.data = data
+        self.timestamp = time.time()
+    
+    def is_stale(self) -> bool:
+        """Check if cache needs refresh"""
+        return self.data is None or (time.time() - self.timestamp > self.ttl)
+
+# Global cache instance
+_coverage_cache = CoverageCache(ttl_seconds=300)  # 5 minutes
+
 @router.get("/status/coverage")
-def get_coverage():
+def get_coverage(cached: bool = True):
     """
     Get complete data coverage overview.
     
     Returns inventory of all available data: news, prices, macro indicators.
+    
+    Query Parameters:
+    - cached (bool): Use cached data if available (default: true). Set to false to force refresh.
+    
     Agents use this to understand what data they have access to.
     """
+    # Check cache first if requested
+    if cached:
+        cached_data = _coverage_cache.get()
+        if cached_data is not None:
+            return cached_data
+    
+    # Compute coverage
     s = load_settings()
     stage_dir = Path(s.stage_dir)
     
     coverage = {
         "news": _analyze_news_coverage(stage_dir),
         "prices": _analyze_prices_coverage(stage_dir),
-        "macro": _analyze_macro_coverage(stage_dir)
+        "macro": _analyze_macro_coverage(stage_dir),
+        "_cached": False,
+        "_timestamp": datetime.now().isoformat()
     }
+    
+    # Store in cache
+    _coverage_cache.set(coverage)
+    coverage["_cached"] = False
     
     return coverage
 

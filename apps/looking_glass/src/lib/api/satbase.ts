@@ -116,6 +116,49 @@ export async function getCoverage(): Promise<CoverageData> {
 }
 
 /**
+ * Get complete data coverage overview (with caching)
+ * 
+ * By default uses cached data (5 min TTL) for instant responses.
+ * Set forceRefresh=true to bypass cache.
+ */
+export async function getCoverageCached(forceRefresh = false): Promise<CoverageData> {
+  const params = new URLSearchParams();
+  params.set('cached', forceRefresh ? 'false' : 'true');
+  return apiGet<CoverageData>(`/v1/status/coverage?${params.toString()}`);
+}
+
+/**
+ * Get lightweight topics summary for dashboard/overview
+ * 
+ * Much faster than getTopicsAll() because:
+ * - Only scans last X days (default 30, not 365)
+ * - Returns only top N topics (default 10)
+ * - Uses optimized Polars aggregation backend
+ * 
+ * Use this for:
+ * - Dashboard KPI cards
+ * - Overview page trending topics
+ * - Homepage widgets
+ */
+export async function getTopicsSummary(params?: {
+  limit?: number;  // Max topics (1-100, default 10)
+  days?: number;   // Look back N days (1-365, default 30)
+}): Promise<{
+  period: { from: string; to: string; days: number };
+  topics: Array<{ name: string; count: number }>;
+  total_unique_topics: number;
+  total_articles_with_topics: number;
+}> {
+  const queryParams = new URLSearchParams();
+  if (params?.limit) queryParams.set('limit', params.limit.toString());
+  if (params?.days) queryParams.set('days', params.days.toString());
+
+  return apiGet(
+    `/v1/news/topics/summary${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+  );
+}
+
+/**
  * Get news with optional body content
  */
 export async function listNews(params: {

@@ -50,7 +50,7 @@ def get_configured_topics():
 
 
 @router.get("/news/topics/all")
-def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None = None):
+def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None = None, limit: int = Query(50, ge=1, le=500)):
     """
     Get all topics mentioned in articles, with global counts.
     
@@ -58,6 +58,11 @@ def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None
     - All topics from articles (extracted from topics field)
     - Count of articles per topic
     - Topics are deduplicated across all articles
+    
+    Query Parameters:
+    - from (str): Start date (YYYY-MM-DD), defaults to 365 days ago
+    - to (str): End date (YYYY-MM-DD), defaults to today
+    - limit (int): Max topics to return (1-500, default 50)
     """
     s = load_settings()
     
@@ -70,9 +75,9 @@ def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None
     dfrom = date.fromisoformat(from_)
     dto = date.fromisoformat(to)
     
-    topic_counts = defaultdict(int)
+    # Collect and aggregate topics using Polars
+    all_dfs = []
     
-    # Scan both news sources
     for source in ["gdelt", "news_rss"]:
         try:
             lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
@@ -81,28 +86,129 @@ def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None
             if df.height == 0:
                 continue
             
-            # Ensure topics column exists and is list
-            if "topics" in df.columns:
-                for row in df.to_dicts():
-                    topics_list = row.get("topics") or []
-                    if isinstance(topics_list, list):
-                        for topic in topics_list:
-                            if topic:
-                                topic_counts[topic] += 1
+            # Ensure topics column exists
+            if "topics" not in df.columns:
+                continue
+            
+            # Use Polars aggregation: explode topics, group by topic, count
+            topic_counts = (df
+                .select("topics")
+                .explode("topics")
+                .filter(pl.col("topics").is_not_null() & (pl.col("topics") != ""))
+                .group_by("topics")
+                .agg(pl.count().alias("count"))
+                .sort("count", descending=True)
+            )
+            
+            all_dfs.append(topic_counts)
         except Exception:
             continue
     
-    # Sort by count descending
-    sorted_topics = sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)
+    # Merge and deduplicate across sources
+    if all_dfs:
+        combined = pl.concat(all_dfs)
+        topic_counts = (combined
+            .group_by("topics")
+            .agg(pl.sum("count").alias("count"))
+            .sort("count", descending=True)
+            .limit(limit)
+        )
+        
+        topics_list = [
+            {"name": row["topics"], "count": row["count"]}
+            for row in topic_counts.to_dicts()
+        ]
+    else:
+        topics_list = []
     
     return {
         "period": {"from": from_, "to": to},
-        "topics": [
-            {"name": topic, "count": count}
-            for topic, count in sorted_topics
-        ],
-        "total_unique_topics": len(topic_counts),
-        "total_articles_with_topics": sum(topic_counts.values())
+        "topics": topics_list,
+        "total_unique_topics": len(topics_list),
+        "total_articles_with_topics": sum(t["count"] for t in topics_list)
+    }
+
+
+@router.get("/news/topics/summary")
+def get_topic_summary(limit: int = Query(10, ge=1, le=100), days: int = Query(30, ge=1, le=365)):
+    """
+    Get lightweight topics summary for dashboard/overview.
+    
+    Returns top N topics from the last X days with minimal processing.
+    This is much faster than get_all_topics() because it scans fewer days.
+    
+    Use this for:
+    - Dashboard overview cards
+    - Quick trending topics check
+    - Homepage widgets
+    
+    Query Parameters:
+    - limit (int): Max topics to return (1-100, default 10)
+    - days (int): Look back N days (1-365, default 30)
+    """
+    s = load_settings()
+    
+    # Calculate date range
+    to = date.today().isoformat()
+    from_ = (date.today() - timedelta(days=days)).isoformat()
+    
+    dfrom = date.fromisoformat(from_)
+    dto = date.fromisoformat(to)
+    
+    # Quick aggregation on limited date range
+    all_dfs = []
+    
+    for source in ["gdelt", "news_rss"]:
+        try:
+            lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
+            df = lf.collect()
+            
+            if df.height == 0:
+                continue
+            
+            if "topics" not in df.columns:
+                continue
+            
+            # Fast Polars aggregation
+            topic_counts = (df
+                .select("topics")
+                .explode("topics")
+                .filter(pl.col("topics").is_not_null() & (pl.col("topics") != ""))
+                .group_by("topics")
+                .agg(pl.count().alias("count"))
+                .sort("count", descending=True)
+            )
+            
+            all_dfs.append(topic_counts)
+        except Exception:
+            continue
+    
+    # Combine results
+    if all_dfs:
+        combined = pl.concat(all_dfs)
+        topic_counts = (combined
+            .group_by("topics")
+            .agg(pl.sum("count").alias("count"))
+            .sort("count", descending=True)
+            .limit(limit)
+        )
+        
+        topics_list = [
+            {"name": row["topics"], "count": row["count"]}
+            for row in topic_counts.to_dicts()
+        ]
+        total_unique = combined.select("topics").unique().height
+        total_articles = combined.select(pl.sum("count")).item()
+    else:
+        topics_list = []
+        total_unique = 0
+        total_articles = 0
+    
+    return {
+        "period": {"from": from_, "to": to, "days": days},
+        "topics": topics_list,
+        "total_unique_topics": total_unique,
+        "total_articles_with_topics": total_articles
     }
 
 

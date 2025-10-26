@@ -1,26 +1,55 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import * as satbaseApi from '$lib/api/satbase';
+	import { getCachedCoverage, invalidateCache, getCacheRefreshTimeRemaining } from '$lib/stores/satbase-cache';
 
 	let coverage: any = null;
-	let topicsAll: any = null;
+	let topicsSummary: any = null;
 	let loading = true;
+	let topicsLoading = false;
 	let error = '';
+	let lastUpdated = new Date();
+	let cacheTimeRemaining = 0;
+	let autoRefreshInterval: NodeJS.Timeout;
 
 	onMount(async () => {
 		try {
-			const [cov, topics] = await Promise.all([
-				satbaseApi.getCoverage(),
-				satbaseApi.getTopicsAll()
-			]);
-			coverage = cov;
-			topicsAll = topics;
+			// Load coverage first (from cache, instant)
+			coverage = await getCachedCoverage();
+			loading = false;
+			lastUpdated = new Date();
+
+			// Then load topics summary in background
+			topicsLoading = true;
+			topicsSummary = await satbaseApi.getTopicsSummary({ 
+				limit: 5, 
+				days: 30 
+			});
 		} catch (err) {
 			error = `Failed to load overview: ${err}`;
 		} finally {
-			loading = false;
+			topicsLoading = false;
 		}
+
+		// Update cache time remaining every second
+		autoRefreshInterval = setInterval(() => {
+			cacheTimeRemaining = getCacheRefreshTimeRemaining();
+		}, 1000);
+
+		return () => {
+			if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+		};
 	});
+
+	async function manualRefresh() {
+		try {
+			coverage = await getCachedCoverage(true);
+			lastUpdated = new Date();
+			cacheTimeRemaining = 300; // 5 minutes
+		} catch (err) {
+			error = `Refresh failed: ${err}`;
+		}
+	}
 
 	function formatCount(n: number): string {
 		if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
@@ -28,17 +57,31 @@
 		return n.toString();
 	}
 
-	function getQualityPercentage(): number {
-		if (!coverage?.news) return 0;
-		const total = coverage.news.total_articles || 1;
-		const withBodies = coverage.news.articles_with_bodies || 0;
-		return Math.round((withBodies / total) * 100);
-	}
+	$: qualityPercentage = coverage?.news
+		? Math.round((coverage.news.articles_with_bodies / coverage.news.total_articles) * 100)
+		: 0;
+
+	$: formattedTime = lastUpdated.toLocaleTimeString();
 </script>
 
 <div class="page-header">
-	<h1>📊 Overview</h1>
-	<p>Satbase data health and coverage at a glance</p>
+	<div class="flex items-center justify-between">
+		<div>
+			<h1>📊 Overview</h1>
+			<p>Satbase data health and coverage at a glance</p>
+		</div>
+		<div class="refresh-controls">
+			<button on:click={manualRefresh} class="refresh-button" title="Force refresh (bypasses cache)">
+				🔄 Refresh
+			</button>
+			<div class="cache-status">
+				<span class="status-text">Updated {formattedTime}</span>
+				{#if cacheTimeRemaining > 0}
+					<span class="cache-age">Fresh for {cacheTimeRemaining}s</span>
+				{/if}
+			</div>
+		</div>
+	</div>
 </div>
 
 {#if loading}
@@ -71,7 +114,7 @@
 				<div class="kpi-icon">📥</div>
 				<div class="kpi-content">
 					<p class="kpi-label">Content Fetched</p>
-					<p class="kpi-value">{getQualityPercentage()}%</p>
+					<p class="kpi-value">{qualityPercentage}%</p>
 					<p class="kpi-subtitle">{formatCount(coverage?.news?.articles_with_bodies || 0)} articles</p>
 				</div>
 			</div>
@@ -91,7 +134,7 @@
 				<div class="kpi-icon">🏷️</div>
 				<div class="kpi-content">
 					<p class="kpi-label">Topics</p>
-					<p class="kpi-value">{topicsAll?.total_unique_topics || 0}</p>
+					<p class="kpi-value">{topicsSummary?.total_unique_topics || 0}</p>
 					<p class="kpi-subtitle">configured for tracking</p>
 				</div>
 			</div>
@@ -119,11 +162,17 @@
 	</section>
 
 	<!-- Top Topics -->
-	{#if topicsAll?.topics && topicsAll.topics.length > 0}
-		<section class="section-card">
-			<h2>📋 Top Topics</h2>
+	<section class="section-card">
+		<h2>📋 Trending Topics (Last 30 Days)</h2>
+		{#if topicsLoading}
+			<div class="topics-skeleton">
+				<div class="skeleton-item" />
+				<div class="skeleton-item" />
+				<div class="skeleton-item" />
+			</div>
+		{:else if topicsSummary?.topics && topicsSummary.topics.length > 0}
 			<div class="topics-list">
-				{#each topicsAll.topics.slice(0, 5) as topic}
+				{#each topicsSummary.topics.slice(0, 5) as topic}
 					<div class="topic-item">
 						<span class="topic-name">{topic.name}</span>
 						<span class="topic-count">{formatCount(topic.count)}</span>
@@ -131,8 +180,10 @@
 				{/each}
 			</div>
 			<a href="/satbase/topics" class="link-button">View all topics →</a>
-		</section>
-	{/if}
+		{:else}
+			<p class="no-data">No topics found in the last 30 days</p>
+		{/if}
+	</section>
 
 	<!-- Data Health -->
 	<section class="section-card">
@@ -141,9 +192,9 @@
 			<div class="health-item">
 				<span class="health-label">Content Quality</span>
 				<div class="health-bar">
-					<div class="health-fill" style="width: {getQualityPercentage()}%" />
+					<div class="health-fill" style="width: {qualityPercentage}%" />
 				</div>
-				<span class="health-value">{getQualityPercentage()}%</span>
+				<span class="health-value">{qualityPercentage}%</span>
 			</div>
 		</div>
 	</section>
@@ -166,6 +217,57 @@
 		font-size: 0.875rem;
 	}
 
+	.flex {
+		display: flex;
+	}
+
+	.items-center {
+		align-items: center;
+	}
+
+	.justify-between {
+		justify-content: space-between;
+	}
+
+	.refresh-controls {
+		display: flex;
+		gap: 1rem;
+		align-items: center;
+	}
+
+	.refresh-button {
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, var(--color-accent), var(--color-primary));
+		border: none;
+		border-radius: var(--radius-md);
+		color: white;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all var(--duration-200) var(--easing);
+		font-size: 0.875rem;
+	}
+
+	.refresh-button:hover {
+		box-shadow: 0 0 12px rgba(34, 197, 211, 0.3);
+		transform: translateY(-1px);
+	}
+
+	.cache-status {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		font-size: 0.75rem;
+	}
+
+	.status-text {
+		color: var(--color-text-secondary);
+	}
+
+	.cache-age {
+		color: var(--color-accent);
+		font-weight: 500;
+	}
+
 	.error-box {
 		padding: 1.5rem;
 		background: rgba(239, 68, 68, 0.1);
@@ -185,6 +287,19 @@
 		height: 150px;
 		background: linear-gradient(90deg, var(--color-bg-card), var(--color-border));
 		border-radius: var(--radius-lg);
+		animation: pulse 2s var(--easing) infinite;
+	}
+
+	.topics-skeleton {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.skeleton-item {
+		height: 40px;
+		background: linear-gradient(90deg, var(--color-bg-card), var(--color-border));
+		border-radius: var(--radius-md);
 		animation: pulse 2s var(--easing) infinite;
 	}
 
@@ -298,6 +413,13 @@
 		font-weight: 600;
 	}
 
+	.no-data {
+		color: var(--color-text-secondary);
+		font-size: 0.875rem;
+		text-align: center;
+		padding: 2rem;
+	}
+
 	.link-button {
 		display: inline-block;
 		color: var(--color-accent);
@@ -361,6 +483,12 @@
 
 		.section-card {
 			padding: 1.5rem;
+		}
+
+		.refresh-controls {
+			flex-direction: column;
+			gap: 0.5rem;
+			align-items: flex-end;
 		}
 	}
 </style>
