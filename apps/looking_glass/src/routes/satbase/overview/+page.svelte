@@ -229,14 +229,18 @@
 
 	<!-- Topic Heatmap -->
 	<section class="section-card">
-		<div class="flex items-center justify-between mb-4">
-			<h2>🔥 Topic Heatmap</h2>
+		<div class="heatmap-header-section">
+			<div>
+				<h2>🔥 Topic Heatmap</h2>
+				<p class="heatmap-subtitle">Coverage by month and topic</p>
+			</div>
 			<div class="year-selector">
-				<button on:click={() => (selectedYear -= 1)}>←</button>
+				<button on:click={() => (selectedYear -= 1)} title="Previous year">←</button>
 				<span class="year-display">{selectedYear}</span>
-				<button on:click={() => (selectedYear += 1)}>→</button>
+				<button on:click={() => (selectedYear += 1)} title="Next year">→</button>
 			</div>
 		</div>
+
 		{#if heatmapLoading}
 			<div class="heatmap-skeleton">
 				<div class="skeleton-bar" />
@@ -244,29 +248,33 @@
 				<div class="skeleton-bar" />
 			</div>
 		{:else if heatmapData && Object.keys(heatmapData).length > 0}
-			<div class="heatmap-container">
-				<div class="heatmap-table">
-					<div class="heatmap-header">
-						<div class="heatmap-label" />
-						{#each ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as month}
-							<div class="heatmap-month">{month}</div>
-						{/each}
-					</div>
-					{#each Object.entries(heatmapData) as [topic, monthData]}
-						<div class="heatmap-row">
-							<div class="heatmap-label">{topic}</div>
-							{#each Object.values(monthData) as count}
-								<div 
-									class="heatmap-cell" 
-									style="--intensity: {Math.min(count / 50, 1)}"
-									title="{count} articles"
-								>
-									{count > 0 ? count : ''}
-								</div>
+			<div class="heatmap-wrapper">
+				<table class="heatmap-table">
+					<thead>
+						<tr class="header-row">
+							<th class="topic-header">Topic</th>
+							{#each ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as month}
+								<th class="month-header">{month}</th>
 							{/each}
-						</div>
-					{/each}
-				</div>
+						</tr>
+					</thead>
+					<tbody>
+						{#each Object.entries(heatmapData) as [topic, monthData]}
+							<tr class="data-row">
+								<td class="topic-cell">{topic}</td>
+								{#each Object.values(monthData) as count}
+									<td 
+										class="heatmap-cell" 
+										style="--intensity: {Math.min((count || 0) / 50, 1)}"
+										title="{count || 0} articles"
+									>
+										<span class="cell-value">{count > 0 ? count : ''}</span>
+									</td>
+								{/each}
+							</tr>
+						{/each}
+					</tbody>
+				</table>
 			</div>
 		{:else}
 			<p class="no-data">No heatmap data available</p>
@@ -624,68 +632,83 @@
 		animation: pulse 2s var(--easing) infinite;
 	}
 
-	.heatmap-container {
+	.heatmap-wrapper {
 		overflow-x: auto;
 		border: 1px solid rgba(71, 85, 105, 0.2);
 		border-radius: var(--radius-md);
+		padding: 1rem;
+		background: var(--color-bg-card);
 	}
 
 	.heatmap-table {
-		display: grid;
-		grid-template-columns: 80px repeat(12, 50px);
-		gap: 1px;
-		padding: 1rem;
-		background: rgba(71, 85, 105, 0.1);
-	}
-
-	.heatmap-header {
-		display: contents;
-	}
-
-	.heatmap-row {
-		display: contents;
-	}
-
-	.heatmap-label {
-		padding: 0.5rem;
-		font-weight: 600;
+		width: 100%;
+		border-collapse: collapse;
 		font-size: 0.875rem;
-		color: var(--color-text-secondary);
-		text-align: center;
-		min-width: 80px;
 	}
 
-	.heatmap-month {
-		padding: 0.5rem;
-		font-weight: 600;
-		font-size: 0.75rem;
-		color: var(--color-text-secondary);
+	.heatmap-table thead {
+		background: rgba(71, 85, 105, 0.3);
+		border-bottom: 2px solid rgba(71, 85, 105, 0.4);
+	}
+
+	.header-row th {
+		padding: 0.75rem 0.5rem;
 		text-align: center;
-		min-width: 50px;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+		border-right: 1px solid rgba(71, 85, 105, 0.2);
+	}
+
+	.topic-header {
+		text-align: left;
+		width: 100px;
+	}
+
+	.month-header {
+		width: 50px;
+		font-size: 0.75rem;
+	}
+
+	.data-row {
+		border-bottom: 1px solid rgba(71, 85, 105, 0.1);
+		transition: background-color 150ms ease;
+	}
+
+	.data-row:hover {
+		background: rgba(71, 85, 105, 0.15);
+	}
+
+	.topic-cell {
+		padding: 0.75rem 1rem;
+		font-weight: 600;
+		color: var(--color-text);
+		border-right: 1px solid rgba(71, 85, 105, 0.2);
+		width: 100px;
+		text-align: left;
 	}
 
 	.heatmap-cell {
-		--intensity: 0;
 		padding: 0.5rem;
+		text-align: center;
+		border-right: 1px solid rgba(71, 85, 105, 0.1);
 		background: linear-gradient(
 			135deg,
-			hsl(270, 100%, 70%, calc(var(--intensity) * 0.5)),
-			hsl(200, 100%, 60%, calc(var(--intensity) * 0.7))
+			hsla(270, 100%, 70%, calc(var(--intensity) * 0.3)),
+			hsla(200, 100%, 60%, calc(var(--intensity) * 0.5))
 		);
-		border-radius: var(--radius-sm);
-		text-align: center;
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: var(--color-text-secondary);
-		min-width: 50px;
-		transition: all 200ms ease;
-		border: 1px solid rgba(71, 85, 105, 0.2);
+		transition: all 150ms ease;
 		cursor: pointer;
 	}
 
 	.heatmap-cell:hover {
-		transform: scale(1.1);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-		z-index: 10;
+		transform: scale(1.05);
+		box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.3);
+	}
+
+	.cell-value {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+		display: block;
 	}
 </style>
