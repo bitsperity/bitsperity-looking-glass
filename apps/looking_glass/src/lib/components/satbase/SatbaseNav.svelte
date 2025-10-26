@@ -11,8 +11,10 @@
 		{ label: 'Jobs', href: '/satbase/jobs', icon: '🔧', key: 'jobs' }
 	];
 
-	function isActive(href: string): boolean {
-		return $page.url.pathname === href;
+	$: currentPath = $page.url.pathname;
+
+	function isActive(href: string, path: string): boolean {
+		return path === href;
 	}
 </script>
 
@@ -21,17 +23,17 @@
 		<a
 			href={section.href}
 			class={`relative px-5 py-3 font-medium transition-all duration-200 flex items-center gap-2 group ${
-				isActive(section.href)
+				isActive(section.href, currentPath)
 					? 'text-emerald-400'
 					: 'text-neutral-400 hover:text-neutral-200'
 			}`}
 		>
 			<span class="text-xl transition-transform group-hover:scale-110">{section.icon}</span>
 			<span>{section.label}</span>
-			{#if isActive(section.href)}
+			{#if isActive(section.href, currentPath)}
 				<div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan-400 to-emerald-500 shadow-lg shadow-emerald-500/50"></div>
 			{/if}
-			{#if !isActive(section.href)}
+			{#if !isActive(section.href, currentPath)}
 				<div class="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-neutral-600 to-neutral-700 opacity-0 group-hover:opacity-100 transition-opacity"></div>
 			{/if}
 		</a>
