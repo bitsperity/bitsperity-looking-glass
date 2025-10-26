@@ -35,13 +35,32 @@
 			if (allTopics) {
 				const fromDate = `${selectedYear}-01-01`;
 				const toDate = `${selectedYear}-12-31`;
-				heatmapData = await satbaseApi.getTopicsCoverage(
+				const response = await satbaseApi.getTopicsCoverage(
 					allTopics,
 					fromDate,
 					toDate,
 					'month',
 					'matrix'
 				);
+
+				// Transform matrix format to {topic: {month_index: count}}
+				if (response?.matrix && response?.topics && response?.periods) {
+					const transformed: Record<string, Record<string, number>> = {};
+					response.topics.forEach((topic: string) => {
+						transformed[topic] = {};
+					});
+
+					response.matrix.forEach((row: number[], periodIdx: number) => {
+						row.forEach((count: number, topicIdx: number) => {
+							const topic = response.topics[topicIdx];
+							transformed[topic][periodIdx] = count;
+						});
+					});
+
+					heatmapData = transformed;
+				} else {
+					heatmapData = response;
+				}
 			}
 		} catch (err) {
 			error = `Failed to load overview: ${err}`;
@@ -90,13 +109,32 @@
 				const allTopics = topicsSummary.topics.map((t: any) => t.name).join(',');
 				const fromDate = `${selectedYear}-01-01`;
 				const toDate = `${selectedYear}-12-31`;
-				heatmapData = await satbaseApi.getTopicsCoverage(
+				const response = await satbaseApi.getTopicsCoverage(
 					allTopics,
 					fromDate,
 					toDate,
 					'month',
 					'matrix'
 				);
+
+				// Transform matrix format to {topic: {month_index: count}}
+				if (response?.matrix && response?.topics && response?.periods) {
+					const transformed: Record<string, Record<string, number>> = {};
+					response.topics.forEach((topic: string) => {
+						transformed[topic] = {};
+					});
+
+					response.matrix.forEach((row: number[], periodIdx: number) => {
+						row.forEach((count: number, topicIdx: number) => {
+							const topic = response.topics[topicIdx];
+							transformed[topic][periodIdx] = count;
+						});
+					});
+
+					heatmapData = transformed;
+				} else {
+					heatmapData = response;
+				}
 			} catch (err) {
 				error = `Failed to load heatmap: ${err}`;
 			} finally {
