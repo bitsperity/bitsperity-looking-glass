@@ -120,13 +120,14 @@ def _analyze_news_coverage(stage_dir: Path) -> dict:
     body_dir = stage_dir / "news_body"
     if body_dir.exists():
         body_count = 0
-        # Optimized scan: use Polars lazy evaluation
-        for parquet_file in body_dir.glob("*.parquet"):
+        # Optimized scan: use Polars lazy evaluation with recursive glob
+        for parquet_file in body_dir.rglob("news_body.parquet"):  # Changed: glob -> rglob for recursive
             try:
                 # Lazy read just to get shape
                 lf = pl.scan_parquet(str(parquet_file))
                 body_count += lf.select(pl.len()).collect().item()
-            except Exception:
+            except Exception as e:
+                print(f"Error reading {parquet_file}: {e}")
                 continue
         result["articles_with_bodies"] = body_count
     
