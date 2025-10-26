@@ -36,11 +36,7 @@
 			const toDate = `${selectedYear}-12-31`;
 			
 			// Get ALL topics for this year (no limit - returns everything)
-			const topicsForYear = await satbaseApi.getTopicsAll({
-				from: fromDate,
-				to: toDate
-				// NO limit - get everything available in this year
-			});
+			const topicsForYear = await satbaseApi.getTopicsAll(fromDate, toDate);
 			
 			const allTopics = topicsForYear?.topics?.map((t: any) => t.name).join(',') || '';
 			if (allTopics) {
