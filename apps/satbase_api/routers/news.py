@@ -311,7 +311,7 @@ def check_integrity():
             },
             "status": "OK" if stats["total"] > 0 else "EMPTY",
             "message": "SQLite database is healthy and queryable"
-        }
+            }
     
     except Exception as e:
         return JSONResponse(
