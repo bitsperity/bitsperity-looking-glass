@@ -380,3 +380,19 @@ export async function getNewsAnalytics(params?: { days?: number }): Promise<any>
 export async function getJobStats(): Promise<any> {
   return apiGet(`/v1/admin/jobs/stats`);
 }
+
+/**
+ * Get list of all jobs with optional filtering
+ */
+export async function getJobsList(params?: {
+  status?: 'queued' | 'running' | 'done' | 'error';
+  limit?: number;
+  offset?: number;
+}): Promise<any> {
+  const queryParams = new URLSearchParams();
+  if (params?.status) queryParams.set('status', params.status);
+  if (params?.limit) queryParams.set('limit', params.limit.toString());
+  if (params?.offset) queryParams.set('offset', params.offset.toString());
+
+  return apiGet(`/v1/admin/jobs${queryParams.toString() ? '?' + queryParams.toString() : ''}`);
+}

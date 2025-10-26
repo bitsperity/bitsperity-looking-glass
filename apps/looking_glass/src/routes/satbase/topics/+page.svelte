@@ -3,75 +3,74 @@
 	import * as satbaseApi from '$lib/api/satbase';
 	import Button from '$lib/components/shared/Button.svelte';
 	import Input from '$lib/components/shared/Input.svelte';
-	import Card from '$lib/components/shared/Card.svelte';
 
 	interface Topic {
 		name: string;
 		count: number;
+		trend?: number;
 	}
 
-	interface TopicWithStats {
-		name: string;
-		count: number;
-		trend?: number; // percentage change
-	}
+	let topics: Topic[] = [];
+	let analyticsData: any = null;
+	let healthStatus: any = null;
+	let jobStats: any = null;
+	let activeJob: any = null;
 
-	let allTopics: Topic[] = [];
-	let selectedTopics: string[] = [];
-	let loading = false;
+	let loading = true;
 	let error = '';
-	let newTopic = '';
-	let showAddForm = false;
-	let viewMode: 'list' | 'analytics' = 'list';
-	let granularity: 'month' | 'year' = 'month';
-	let fromDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-	let toDate = new Date().toISOString().split('T')[0];
-	let chartData: any[] = [];
-	let selectedTopicsForChart: string[] = [];
-	let chartLoading = false;
+	let activeTab: 'list' | 'analytics' | 'operations' = 'list';
+	
+	let showBackfillForm = false;
+	let backfillTopic = '';
+	let backfillFrom = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	let backfillTo = new Date().toISOString().slice(0, 10);
+	let backfillMaxArticlesPerDay = 100;
+	let backfilling = false;
+	let backfillMessage = '';
 
-	onMount(async () => {
-		await loadTopics();
+	let deleteTopic = '';
+	let deleteConfirm = false;
+	let deleting = false;
+
+	let jobPollingInterval: any;
+
+	onMount(() => {
+		loadData();
+		startJobPolling();
+		
+		return () => {
+			if (jobPollingInterval) clearInterval(jobPollingInterval);
+		};
 	});
 
-	async function loadTopics() {
+	async function loadData() {
 		loading = true;
 		error = '';
 		try {
-			// Load configured topics
-			const configResponse = await satbaseApi.getConfiguredTopics();
-			let configTopics = (configResponse.topics || []).map((t: any) => ({
-				name: t.symbol,
-				count: 0 // Will be populated from data
-			}));
+			const [topicsRes, analyticsRes, healthRes, jobsRes] = await Promise.all([
+				satbaseApi.getTopicsAll(),
+				satbaseApi.getNewsAnalytics({ days: 7 }),
+				satbaseApi.getNewsHealth(),
+				satbaseApi.getJobStats()
+			]);
+
+			const lastWeekRes = await satbaseApi.getNewsAnalytics({ days: 14 });
 			
-			// Load data topics for counts
-			const dataResponse = await satbaseApi.getTopicsAll(fromDate, toDate);
-			let dataTopics = dataResponse.topics || [];
-			
-			// Merge: use configured topics, fill in counts from data
-			let merged: any[] = [];
-			
-			// First add all configured topics
-			for (let ct of configTopics) {
-				const dataMatch = dataTopics.find((dt: any) => dt.name === ct.name);
-				merged.push({
-					name: ct.name,
-					count: dataMatch ? dataMatch.count : 0
-				});
-			}
-			
-			// Then add any data topics not in configured (informational)
-			for (let dt of dataTopics) {
-				if (!merged.find((m) => m.name === dt.name)) {
-					merged.push(dt);
-				}
-			}
-			
-			// Sort by count descending
-			merged.sort((a, b) => b.count - a.count);
-			
-			allTopics = merged;
+			topics = (topicsRes.topics || []).map((t: any) => {
+				const thisWeek = t.count;
+				const lastWeek = lastWeekRes?.total_articles ? Math.round(lastWeekRes.total_articles / 2) : thisWeek;
+				const trend = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : 0;
+				
+				return {
+					name: t.name,
+					count: t.count,
+					trend
+				};
+			});
+
+			analyticsData = analyticsRes;
+			healthStatus = healthRes;
+			jobStats = jobsRes;
 		} catch (err) {
 			error = `Failed to load topics: ${err}`;
 		} finally {
@@ -79,337 +78,726 @@
 		}
 	}
 
-	async function loadChartData() {
-		if (selectedTopicsForChart.length === 0) {
-			error = 'Select at least one topic for analytics';
+	async function startJobPolling() {
+		jobPollingInterval = setInterval(async () => {
+			try {
+				const jobs = await satbaseApi.getJobsList();
+				activeJob = jobs.jobs?.find((j: any) => j.status === 'running');
+				if (activeJob && activeJob.progress_total && activeJob.progress_total > 0) {
+					activeJob.progress_pct = Math.round((activeJob.progress_current / activeJob.progress_total) * 100);
+				}
+			} catch (e) {
+				// Silent fail
+			}
+		}, 2000);
+	}
+
+	async function handleBackfill() {
+		backfilling = true;
+		backfillMessage = '';
+		try {
+			const response = await fetch('http://localhost:8080/v1/ingest/news/backfill', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					query: backfillTopic,
+					from: backfillFrom,
+					to: backfillTo,
+					topic: backfillTopic,
+					max_articles_per_day: backfillMaxArticlesPerDay
+				})
+			});
+
+			const data = await response.json();
+			backfillMessage = `✅ Backfill started! Job ID: ${data.job_id}`;
+			showBackfillForm = false;
+			setTimeout(() => loadData(), 1000);
+		} catch (e) {
+			backfillMessage = `❌ Error: ${e}`;
+		} finally {
+			backfilling = false;
+		}
+	}
+
+	async function handleDelete() {
+		if (!deleteConfirm) {
+			deleteConfirm = true;
 			return;
 		}
 
-		chartLoading = true;
-		error = '';
+		deleting = true;
 		try {
-			const topicsStr = selectedTopicsForChart.join(',');
-			const response = await satbaseApi.getTopicsCoverage(topicsStr, fromDate, toDate, granularity, 'flat');
-			chartData = response.data || [];
-		} catch (err) {
-			error = `Failed to load analytics: ${err}`;
+			const response = await fetch(`http://localhost:8080/v1/admin/articles/batch?topic=${deleteTopic}`, {
+				method: 'DELETE'
+			});
+
+			const data = await response.json();
+			error = `✅ Deleted ${data.deleted_count} articles from topic "${deleteTopic}"`;
+			deleteTopic = '';
+			deleteConfirm = false;
+			setTimeout(() => loadData(), 1000);
+		} catch (e) {
+			error = `❌ Error deleting: ${e}`;
 		} finally {
-			chartLoading = false;
+			deleting = false;
 		}
 	}
 
-	function toggleTopicForChart(topic: string) {
-		if (selectedTopicsForChart.includes(topic)) {
-			selectedTopicsForChart = selectedTopicsForChart.filter((t) => t !== topic);
-		} else {
-			selectedTopicsForChart = [...selectedTopicsForChart, topic];
-		}
+	function getTrendIndicator(trend: number) {
+		if (trend > 10) return '↑';
+		if (trend < -10) return '↓';
+		return '→';
 	}
 
-	async function addTopic() {
-		if (!newTopic.trim()) return;
-
-		const topicName = newTopic.trim().toUpperCase();
-		if (allTopics.some((t) => t.name === topicName)) {
-			error = 'Topic already exists';
-			return;
-		}
-
-		loading = true;
-		error = '';
-		try {
-			await satbaseApi.addTopic(topicName);
-			newTopic = '';
-			showAddForm = false;
-			await loadTopics();
-		} catch (err) {
-			error = `Failed to add topic: ${err}`;
-		} finally {
-			loading = false;
-		}
+	function getTrendColor(trend: number) {
+		if (trend > 10) return '#10b981';
+		if (trend < -10) return '#ef4444';
+		return '#6b7280';
 	}
 
-	async function deleteTopic(topicName: string) {
-		if (!confirm(`Delete topic "${topicName}"? This will not remove existing articles tagged with this topic.`))
-			return;
-
-		loading = true;
-		error = '';
-		try {
-			await satbaseApi.deleteTopic(topicName);
-			await loadTopics();
-		} catch (err) {
-			error = `Failed to delete topic: ${err}`;
-		} finally {
-			loading = false;
-		}
-	}
-
-	function formatCount(count: number): string {
-		if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
-		if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
-		return count.toString();
+	function openBackfillForTopic(topicName: string) {
+		backfillTopic = topicName;
+		activeTab = 'operations';
+		showBackfillForm = true;
 	}
 </script>
 
-<div class="mx-auto max-w-7xl px-4 py-8">
-		<!-- Header -->
-		<div class="mb-8">
-			<h1 class="text-4xl font-bold text-white mb-2">📋 Topics</h1>
-			<p class="text-slate-400">Manage news topics and analyze coverage trends</p>
-		</div>
+<div class="page-header">
+	<h1>🏷️ Topics Management</h1>
+	<p>Configure and monitor news topics</p>
+</div>
 
-		<!-- Tab Navigation -->
-		<div class="mb-8 flex gap-4 border-b border-slate-700">
-			<button
-				on:click={() => (viewMode = 'list')}
-				class={`pb-3 px-1 font-semibold transition-colors ${
-					viewMode === 'list'
-						? 'text-emerald-400 border-b-2 border-emerald-400'
-						: 'text-slate-400 hover:text-slate-300'
-				}`}
-			>
-				📊 Topics List
-			</button>
-			<button
-				on:click={() => (viewMode = 'analytics')}
-				class={`pb-3 px-1 font-semibold transition-colors ${
-					viewMode === 'analytics'
-						? 'text-emerald-400 border-b-2 border-emerald-400'
-						: 'text-slate-400 hover:text-slate-300'
-				}`}
-			>
-				📈 Analytics
-			</button>
-		</div>
-
-		<!-- Error -->
-		{#if error}
-			<div class="mb-6 rounded-lg bg-red-900/20 border border-red-600/50 p-4 text-red-200">
-				{error}
-			</div>
-		{/if}
-
-		<!-- VIEW: Topics List -->
-		{#if viewMode === 'list'}
-			<div class="space-y-6">
-				<!-- Add Topic Form -->
-				{#if showAddForm}
-					<Card padding="p-6" classes="bg-slate-900/50 border-slate-700">
-						<div class="mb-4">
-							<h3 class="text-lg font-semibold text-white">Add New Topic</h3>
-						</div>
-						<div class="space-y-4">
-							<div class="flex gap-2">
-								<Input
-									bind:value={newTopic}
-									placeholder="e.g., AI, semiconductor, renewable-energy"
-									type="text"
-								/>
-								<Button on:click={addTopic} variant="primary">
-									<span class="w-4 h-4 mr-2">➕</span>
-									Add
-								</Button>
-								<Button on:click={() => (showAddForm = false)} variant="ghost">
-									Cancel
-								</Button>
-							</div>
-						</div>
-					</Card>
-				{:else}
-					<div class="mb-4">
-						<Button on:click={() => (showAddForm = true)} variant="primary">
-							<span class="w-4 h-4 mr-2">➕</span>
-							Add Topic
-						</Button>
-					</div>
-				{/if}
-
-				<!-- Topics Grid -->
-				{#if loading}
-					<div class="text-center text-slate-400 py-8">Loading topics...</div>
-				{:else if allTopics.length === 0}
-					<Card padding="p-12" classes="bg-slate-900/50 border-slate-700 text-center">
-						<span class="w-12 h-12 mx-auto text-slate-600 mb-4">🗑️</span>
-						<p class="text-slate-400 mb-4">No topics yet. Create one to get started.</p>
-					</Card>
-				{:else}
-					<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-						{#each allTopics as topic (topic.name)}
-							<Card padding="p-6" classes="bg-slate-900/50 border-slate-700 hover:border-slate-600 transition-all hover:shadow-lg hover:shadow-emerald-900/20">
-								<div class="flex items-start justify-between mb-4">
-									<div>
-										<h3 class="text-lg font-semibold text-white">{topic.name}</h3>
-										<p class="text-sm text-slate-400">News Articles</p>
-									</div>
-									<Button
-										on:click={() => deleteTopic(topic.name)}
-										variant="ghost"
-									>
-										<span class="w-4 h-4">🗑️</span>
-									</Button>
-								</div>
-
-								<div class="space-y-2">
-									<div class="flex items-center gap-2">
-										<span class="w-4 h-4 text-slate-500">🔗</span>
-										<span class="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
-											{formatCount(topic.count)}
-										</span>
-									</div>
-									<p class="text-xs text-slate-500">articles covered</p>
-								</div>
-
-								<div class="mt-4 pt-4 border-t border-slate-700">
-									<Button
-										on:click={() => {
-											selectedTopicsForChart = [topic.name];
-											viewMode = 'analytics';
-										}}
-										variant="ghost"
-									>
-										<span class="w-4 h-4 mr-2">📈</span>
-										View Trends
-									</Button>
-								</div>
-							</Card>
-						{/each}
-					</div>
-				{/if}
-			</div>
-		{/if}
-
-		<!-- VIEW: Analytics -->
-		{#if viewMode === 'analytics'}
-			<div class="space-y-6">
-				<!-- Filters -->
-				<Card padding="p-6" classes="bg-slate-900/50 border-slate-700">
-					<div class="mb-4">
-						<h3 class="text-lg font-semibold text-white">Analytics Filters</h3>
-					</div>
-					<div class="space-y-4">
-						<div class="grid gap-4 md:grid-cols-3">
-							<div>
-								<label for="fromDate" class="block text-sm font-medium text-slate-300 mb-2">From Date</label>
-								<Input
-									type="date"
-									bind:value={fromDate}
-									id="fromDate"
-								/>
-							</div>
-							<div>
-								<label for="toDate" class="block text-sm font-medium text-slate-300 mb-2">To Date</label>
-								<Input
-									type="date"
-									bind:value={toDate}
-									id="toDate"
-								/>
-							</div>
-							<div>
-								<label for="granularity" class="block text-sm font-medium text-slate-300 mb-2">Granularity</label>
-								<select
-									bind:value={granularity}
-									id="granularity"
-									class="w-full px-3 py-2 bg-slate-800 border border-slate-600 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-								>
-									<option value="month">Monthly</option>
-									<option value="year">Yearly</option>
-								</select>
-							</div>
-						</div>
-					</div>
-				</Card>
-
-				<!-- Topic Selection -->
-				<Card padding="p-6" classes="bg-slate-900/50 border-slate-700">
-					<div class="mb-4">
-						<h3 class="text-lg font-semibold text-white">Select Topics for Analysis</h3>
-						<p class="text-slate-400 text-sm">Choose topics to compare in the chart below</p>
-					</div>
-					<div class="space-y-4">
-						<div class="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-							{#each allTopics as topic (topic.name)}
-								<button
-									on:click={() => toggleTopicForChart(topic.name)}
-									class={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-										selectedTopicsForChart.includes(topic.name)
-											? 'bg-emerald-600 text-white'
-											: 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-									}`}
-								>
-									{topic.name}
-									{#if selectedTopicsForChart.includes(topic.name)}
-										<span class="ml-2">✓</span>
-									{/if}
-								</button>
-							{/each}
-						</div>
-
-						<div class="flex gap-2">
-							<Button
-								on:click={loadChartData}
-								disabled={chartLoading || selectedTopicsForChart.length === 0}
-								variant="primary"
-							>
-								<span class="w-4 h-4 mr-2">📈</span>
-								Load Analytics
-							</Button>
-							{#if selectedTopicsForChart.length > 0}
-								<Button
-									on:click={() => (selectedTopicsForChart = [])}
-									variant="ghost"
-								>
-									Clear Selection
-								</Button>
-							{/if}
-						</div>
-					</div>
-				</Card>
-
-				<!-- Chart Data -->
-				{#if chartLoading}
-					<div class="text-center text-slate-400 py-8">Loading analytics data...</div>
-				{:else if chartData.length > 0}
-					<Card padding="p-6" classes="bg-slate-900/50 border-slate-700">
-						<div class="mb-4">
-							<h3 class="text-lg font-semibold text-white">Coverage Over Time</h3>
-						</div>
-						<div class="overflow-x-auto">
-							<table class="w-full text-sm">
-								<thead>
-									<tr class="border-b border-slate-700">
-										<th class="px-4 py-2 text-left text-slate-300 font-semibold">Period</th>
-										{#each selectedTopicsForChart as topic (topic)}
-											<th class="px-4 py-2 text-right text-slate-300 font-semibold">{topic}</th>
-										{/each}
-									</tr>
-								</thead>
-								<tbody>
-									{#each [...new Set(chartData.map((d) => d.period))].sort() as period}
-										<tr class="border-b border-slate-700/50 hover:bg-slate-800/50 transition-colors">
-											<td class="px-4 py-2 text-slate-300">{period}</td>
-											{#each selectedTopicsForChart as topic (topic)}
-												<td class="px-4 py-2 text-right">
-													{#if chartData.find((d) => d.period === period && d.topic === topic)}
-														<span class="text-emerald-400 font-semibold">
-															{chartData.find((d) => d.period === period && d.topic === topic)?.count || 0}
-														</span>
-													{:else}
-														<span class="text-slate-600">0</span>
-													{/if}
-												</td>
-											{/each}
-										</tr>
-									{/each}
-								</tbody>
-							</table>
-						</div>
-					</Card>
-				{:else if selectedTopicsForChart.length > 0 && !chartLoading}
-					<Card padding="p-8" classes="bg-slate-900/50 border-slate-700 text-center">
-						<p class="text-slate-400">No data available for selected topics in this date range</p>
-					</Card>
-				{/if}
-			</div>
-		{/if}
+{#if error}
+	<div class="alert alert-info" style="margin-bottom: 1.5rem;">
+		{error}
+		<button on:click={() => (error = '')} style="float: right; background: none; border: none; cursor: pointer; font-size: 1.2rem;">×</button>
 	</div>
+{/if}
+
+<div class="quick-stats">
+	<div class="stat-item">
+		<span class="stat-label">Total Topics</span>
+		<span class="stat-value">{topics.length}</span>
+	</div>
+	<div class="stat-item">
+		<span class="stat-label">Total Articles</span>
+		<span class="stat-value">{topics.reduce((sum, t) => sum + t.count, 0)}</span>
+	</div>
+	<div class="stat-item">
+		<span class="stat-label">System Health</span>
+		<span class="stat-value" style="color: {healthStatus?.status === 'healthy' ? '#10b981' : '#ef4444'};">
+			{healthStatus?.status === 'healthy' ? '🟢 Healthy' : '🔴 ' + healthStatus?.status}
+		</span>
+	</div>
+	<div class="stat-item">
+		<span class="stat-label">Active Jobs</span>
+		<span class="stat-value">{jobStats?.stats?.running || 0}</span>
+	</div>
+</div>
+
+{#if activeJob}
+	<div class="active-backfill-widget">
+		<div class="widget-header">
+			<span>🔄 RUNNING: {activeJob.payload?.topic || 'Backfill'}</span>
+			<span class="progress-pct">{activeJob.progress_pct || 0}%</span>
+		</div>
+		<div class="progress-bar">
+			<div class="progress-fill" style="width: {activeJob.progress_pct || 0}%"></div>
+		</div>
+		<div class="widget-stats">
+			<div>📊 Ingested: {activeJob.items_processed || 0}</div>
+			<div>⚠️ Discarded: {activeJob.items_failed || 0}</div>
+			<div>🟢 Health: Healthy</div>
+		</div>
+	</div>
+{/if}
+
+<div class="tab-navigation">
+	<button class="tab-button" class:active={activeTab === 'list'} on:click={() => (activeTab = 'list')}>
+		📋 List
+	</button>
+	<button class="tab-button" class:active={activeTab === 'analytics'} on:click={() => (activeTab = 'analytics')}>
+		📈 Analytics
+	</button>
+	<button class="tab-button" class:active={activeTab === 'operations'} on:click={() => (activeTab = 'operations')}>
+		⚙️ Operations
+	</button>
+</div>
+
+{#if activeTab === 'list'}
+	<section class="tab-content">
+		{#if loading}
+			<div class="loading">Loading topics...</div>
+		{:else if topics.length > 0}
+			<div class="topics-grid">
+				{#each topics as topic (topic.name)}
+					<div class="topic-card">
+						<div class="card-header">
+							<h3>{topic.name}</h3>
+							<span class="trend-badge" style="color: {getTrendColor(topic.trend || 0)};">
+								{getTrendIndicator(topic.trend || 0)} {topic.trend || 0}%
+							</span>
+						</div>
+						<div class="card-stats">
+							<div class="stat">
+								<span class="label">Articles</span>
+								<span class="value">{topic.count}</span>
+							</div>
+							<div class="stat">
+								<span class="label">Weekly Change</span>
+								<span class="value">{topic.trend || 0}%</span>
+							</div>
+						</div>
+						<div class="card-actions">
+							<button class="action-btn" on:click={() => { activeTab = 'analytics'; }}>
+								📊 Analytics
+							</button>
+							<button class="action-btn backfill" on:click={() => openBackfillForTopic(topic.name)}>
+								📥 Backfill
+							</button>
+							<button class="action-btn delete" on:click={() => { deleteTopic = topic.name; deleteConfirm = false; }}>
+								🗑️ Delete
+							</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<div class="no-data">No topics found</div>
+		{/if}
+	</section>
+{/if}
+
+{#if activeTab === 'analytics'}
+	<section class="tab-content">
+		{#if analyticsData}
+			<div class="analytics-container">
+				<div class="metric">
+					<span class="metric-label">Trend (Last 7 Days)</span>
+					<span class="metric-value">{analyticsData.trend}</span>
+				</div>
+				<div class="metric">
+					<span class="metric-label">Total Articles</span>
+					<span class="metric-value">{analyticsData.total_articles}</span>
+				</div>
+				<div class="metric">
+					<span class="metric-label">Avg Per Day</span>
+					<span class="metric-value">{analyticsData.avg_per_day}</span>
+				</div>
+				<div class="metric">
+					<span class="metric-label">Max/Day</span>
+					<span class="metric-value">{analyticsData.max_day}</span>
+				</div>
+			</div>
+
+			<div class="daily-breakdown">
+				<h3>Daily Article Counts (Last 7 Days)</h3>
+				<div class="chart">
+					{#each analyticsData.daily_counts as day}
+						<div class="bar-item">
+							<div class="bar" style="height: {Math.min(day.count / 5, 100)}%; background: linear-gradient(135deg, #22c55e, #06b6d4);"></div>
+							<div class="date">{new Date(day.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+							<div class="count">{day.count}</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{:else}
+			<div class="no-data">Loading analytics...</div>
+		{/if}
+	</section>
+{/if}
+
+{#if activeTab === 'operations'}
+	<section class="tab-content">
+		<div class="operation-section">
+			<h3>📥 Backfill by Topic</h3>
+			{#if showBackfillForm}
+				<div class="form-card">
+					<div class="form-group">
+						<label for="topic-input">Topic</label>
+						<Input bind:value={backfillTopic} placeholder="Topic name" />
+					</div>
+					<div class="form-row">
+						<div class="form-group">
+							<label for="from-date">From Date</label>
+							<input id="from-date" type="date" bind:value={backfillFrom} />
+						</div>
+						<div class="form-group">
+							<label for="to-date">To Date</label>
+							<input id="to-date" type="date" bind:value={backfillTo} />
+						</div>
+					</div>
+					<div class="form-group">
+						<label for="max-articles">Max Articles per Day</label>
+						<input id="max-articles" type="number" min="1" max="1000" bind:value={backfillMaxArticlesPerDay} />
+						<small style="color: var(--color-text-tertiary); margin-top: 0.25rem;">Limits API load and crawling resources</small>
+					</div>
+					{#if backfillMessage}
+						<div class="message">{backfillMessage}</div>
+					{/if}
+					<div class="form-actions">
+						<Button on:click={handleBackfill} loading={backfilling}>Start Backfill</Button>
+						<button on:click={() => (showBackfillForm = false)} class="btn-secondary">Cancel</button>
+					</div>
+				</div>
+			{:else}
+				<Button on:click={() => (showBackfillForm = true)}>➕ Start Backfill</Button>
+			{/if}
+		</div>
+
+		<div class="operation-section">
+			<h3>🗑️ Delete by Topic</h3>
+			<div class="form-card">
+				<div class="form-group">
+					<label for="delete-topic-select">Topic to Delete</label>
+					<select id="delete-topic-select" bind:value={deleteTopic}>
+						<option value="">Select topic...</option>
+						{#each topics as topic}
+							<option value={topic.name}>{topic.name} ({topic.count} articles)</option>
+						{/each}
+					</select>
+				</div>
+				{#if deleteTopic}
+					{#if deleteConfirm}
+						<div class="warning-box">
+							⚠️ This will delete all {topics.find(t => t.name === deleteTopic)?.count || 0} articles with topic "{deleteTopic}". This cannot be undone!
+						</div>
+						<div class="form-actions">
+							<Button on:click={handleDelete} loading={deleting}>
+								Yes, Delete All
+							</Button>
+							<button on:click={() => (deleteConfirm = false)} class="btn-secondary">Cancel</button>
+						</div>
+					{:else}
+						<Button on:click={handleDelete}>Confirm Delete</Button>
+					{/if}
+				{/if}
+			</div>
+		</div>
+	</section>
+{/if}
+
+<style>
+	.page-header {
+		margin-bottom: 2rem;
+	}
+
+	.page-header h1 {
+		font-size: 2rem;
+		font-weight: 700;
+		color: var(--color-text);
+		margin-bottom: 0.5rem;
+	}
+
+	.page-header p {
+		color: var(--color-text-secondary);
+		font-size: 0.875rem;
+	}
+
+	.alert {
+		padding: 1rem;
+		border-radius: var(--radius-md);
+		border: 1px solid;
+	}
+
+	.alert-info {
+		background: rgba(59, 130, 246, 0.1);
+		border-color: rgba(59, 130, 246, 0.3);
+		color: #3b82f6;
+	}
+
+	.quick-stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 1rem;
+		margin-bottom: 2rem;
+	}
+
+	.stat-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 1rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+	}
+
+	.stat-label {
+		font-size: 0.75rem;
+		color: var(--color-text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.stat-value {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: var(--color-accent);
+	}
+
+	.active-backfill-widget {
+		margin-bottom: 2rem;
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid var(--color-accent);
+		border-radius: var(--radius-lg);
+	}
+
+	.widget-header {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 1rem;
+		font-weight: 600;
+		color: var(--color-text);
+	}
+
+	.progress-pct {
+		color: var(--color-accent);
+		font-size: 1.25rem;
+	}
+
+	.progress-bar {
+		width: 100%;
+		height: 8px;
+		background: rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-xl);
+		overflow: hidden;
+		margin-bottom: 1rem;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, var(--color-accent), var(--color-primary));
+		transition: width 0.3s ease;
+	}
+
+	.widget-stats {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		gap: 1rem;
+		font-size: 0.875rem;
+		color: var(--color-text-secondary);
+	}
+
+	.tab-navigation {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 2rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+	}
+
+	.tab-button {
+		padding: 0.75rem 1.5rem;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: var(--color-text-secondary);
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.tab-button:hover {
+		color: var(--color-text);
+	}
+
+	.tab-button.active {
+		color: var(--color-accent);
+		border-bottom-color: var(--color-accent);
+	}
+
+	.tab-content {
+		animation: fadeIn 0.2s ease;
+	}
+
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
+	}
+
+	.topics-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: 1.5rem;
+	}
+
+	.topic-card {
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		transition: all 0.3s ease;
+	}
+
+	.topic-card:hover {
+		border-color: var(--color-accent);
+		box-shadow: 0 0 20px rgba(34, 197, 211, 0.1);
+	}
+
+	.card-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid rgba(71, 85, 105, 0.2);
+	}
+
+	.card-header h3 {
+		margin: 0;
+		font-size: 1.125rem;
+		color: var(--color-text);
+	}
+
+	.trend-badge {
+		font-weight: 700;
+		font-size: 1rem;
+	}
+
+	.card-stats {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.stat {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.stat .label {
+		font-size: 0.75rem;
+		color: var(--color-text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.stat .value {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: var(--color-accent);
+	}
+
+	.card-actions {
+		display: grid;
+		grid-template-columns: 1fr 1fr 1fr;
+		gap: 0.5rem;
+	}
+
+	.action-btn {
+		padding: 0.5rem;
+		background: transparent;
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		color: var(--color-text-secondary);
+		font-size: 0.75rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.action-btn:hover {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	.action-btn.delete:hover {
+		border-color: #ef4444;
+		color: #ef4444;
+	}
+
+	.analytics-container {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 1.5rem;
+		margin-bottom: 2rem;
+	}
+
+	.metric {
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+		text-align: center;
+	}
+
+	.metric-label {
+		display: block;
+		font-size: 0.75rem;
+		color: var(--color-text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin-bottom: 0.5rem;
+	}
+
+	.metric-value {
+		display: block;
+		font-size: 2rem;
+		font-weight: 700;
+		background: linear-gradient(135deg, var(--color-accent), var(--color-primary));
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+
+	.daily-breakdown {
+		margin-bottom: 2rem;
+	}
+
+	.daily-breakdown h3 {
+		margin-bottom: 1rem;
+		color: var(--color-text);
+	}
+
+	.chart {
+		display: grid;
+		grid-template-columns: repeat(7, 1fr);
+		gap: 0.75rem;
+		padding: 2rem 1rem 1rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+	}
+
+	.bar-item {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.bar {
+		width: 100%;
+		min-height: 20px;
+		border-radius: var(--radius-sm);
+		transition: all 0.2s ease;
+	}
+
+	.bar:hover {
+		transform: scale(1.05);
+	}
+
+	.date {
+		font-size: 0.7rem;
+		color: var(--color-text-tertiary);
+		text-align: center;
+	}
+
+	.count {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: var(--color-accent);
+	}
+
+	.operation-section {
+		margin-bottom: 2rem;
+		padding: 1.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-lg);
+	}
+
+	.operation-section h3 {
+		margin-bottom: 1rem;
+		color: var(--color-text);
+	}
+
+	.form-card {
+		padding: 1rem;
+		background: rgba(71, 85, 105, 0.1);
+		border-radius: var(--radius-md);
+	}
+
+	.form-group {
+		margin-bottom: 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.form-group label {
+		font-weight: 500;
+		color: var(--color-text-secondary);
+		font-size: 0.875rem;
+	}
+
+	.form-group input,
+	.form-group select {
+		padding: 0.5rem;
+		background: var(--color-bg-card);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		color: var(--color-text);
+		font-family: inherit;
+	}
+
+	.form-group small {
+		display: block;
+	}
+
+	.form-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+	}
+
+	.form-actions {
+		display: flex;
+		gap: 1rem;
+		margin-top: 1rem;
+	}
+
+	.btn-secondary {
+		padding: 0.5rem 1rem;
+		background: transparent;
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-secondary:hover {
+		border-color: var(--color-accent);
+		color: var(--color-accent);
+	}
+
+	.warning-box {
+		padding: 1rem;
+		background: rgba(239, 68, 68, 0.1);
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		border-radius: var(--radius-md);
+		color: #ef4444;
+		margin-bottom: 1rem;
+		font-size: 0.875rem;
+	}
+
+	.no-data {
+		text-align: center;
+		padding: 2rem;
+		color: var(--color-text-secondary);
+	}
+
+	.loading {
+		text-align: center;
+		padding: 2rem;
+		color: var(--color-text-secondary);
+	}
+
+	.message {
+		padding: 0.5rem;
+		margin-bottom: 1rem;
+		border-radius: var(--radius-md);
+		background: rgba(34, 197, 211, 0.1);
+		color: #06b6d4;
+		font-size: 0.875rem;
+	}
+</style>
