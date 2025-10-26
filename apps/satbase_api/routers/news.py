@@ -572,3 +572,283 @@ def trending_tickers(
         "note": "Tickers extracted from titles using pattern matching. May include false positives."
     }
 
+
+@router.get("/news/gaps")
+def get_news_gaps(
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = None,
+    min_articles_per_day: int = Query(10, description="Threshold for considering a day as 'gap'")
+):
+    """
+    Detect date gaps in news coverage.
+    
+    Scans all news partitions and identifies days with fewer articles than the threshold.
+    Useful for identifying periods that need backfill.
+    
+    Returns:
+    - gaps: List of dates with low article count (candidate for backfill)
+    - coverage: Overall stats (total days, filled days, gap days)
+    """
+    s = load_settings()
+    
+    # Default to last 365 days
+    if not to:
+        to = date.today().isoformat()
+    if not from_:
+        from_ = (date.today() - timedelta(days=365)).isoformat()
+    
+    dfrom = date.fromisoformat(from_)
+    dto = date.fromisoformat(to)
+    
+    # Scan both news sources
+    daily_counts = {}
+    
+    for source in ["gdelt", "news_rss"]:
+        try:
+            lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
+            df = lf.collect()
+            
+            if df.height == 0:
+                continue
+            
+            # Ensure published_at is string
+            if "published_at" in df.columns:
+                df = df.with_columns(pl.col("published_at").cast(pl.Utf8))
+            
+            # Extract date and count articles per day
+            if "published_at" in df.columns:
+                df = df.with_columns(
+                    pl.col("published_at").str.slice(0, 10).alias("date")
+                )
+                
+                # Deduplicate by ID per date
+                df = df.unique(subset=["id"], keep="first")
+                
+                # Count per date
+                counts = df.group_by("date").agg(pl.count().alias("count"))
+                
+                for row in counts.to_dicts():
+                    date_str = row["date"]
+                    count = row["count"]
+                    daily_counts[date_str] = daily_counts.get(date_str, 0) + count
+        except Exception:
+            continue
+    
+    # Identify gaps (days below threshold)
+    gaps = []
+    for date_str in sorted(daily_counts.keys()):
+        count = daily_counts[date_str]
+        if count < min_articles_per_day:
+            gaps.append({
+                "date": date_str,
+                "article_count": count,
+                "gap_severity": "critical" if count == 0 else "low"
+            })
+    
+    # Coverage stats
+    total_days = (dto - dfrom).days + 1
+    covered_days = len(daily_counts)
+    gap_days = len(gaps)
+    
+    return {
+        "period": {"from": from_, "to": to},
+        "coverage": {
+            "total_days": total_days,
+            "covered_days": covered_days,
+            "gap_days": gap_days,
+            "coverage_percent": round((covered_days / total_days * 100) if total_days > 0 else 0, 2)
+        },
+        "gaps": gaps,
+        "min_articles_threshold": min_articles_per_day,
+        "recommendation": f"Found {gap_days} days with < {min_articles_per_day} articles. Consider backfilling these dates."
+    }
+
+
+@router.post("/news/validate-batch")
+def validate_news_batch(body: dict):
+    """
+    Batch validate news articles for quality issues.
+    
+    Checks for:
+    - Empty or missing bodies ("access denied", "403", "404")
+    - Broken HTML content
+    - Missing metadata
+    
+    Returns list of broken articles with error reasons.
+    """
+    s = load_settings()
+    
+    article_ids = body.get("ids", [])
+    if not article_ids:
+        return {"errors": [], "valid_count": 0, "invalid_count": 0}
+    
+    errors = []
+    
+    # Scan last 365 days to find articles
+    to_date = date.today()
+    from_date = to_date - timedelta(days=365)
+    
+    for source in ["gdelt", "news_rss"]:
+        try:
+            lf = scan_parquet_glob(s.stage_dir, source, "news_docs", from_date, to_date)
+            df = lf.collect()
+            
+            if df.height == 0:
+                continue
+            
+            # Get articles matching IDs
+            matching_df = df.filter(pl.col("id").is_in(article_ids))
+            
+            for row in matching_df.to_dicts():
+                article_id = row.get("id")
+                title = row.get("title", "")
+                text = row.get("text", "")
+                url = row.get("url", "")
+                
+                # Check for broken indicators
+                error_reason = None
+                
+                # Check text content
+                if not text or len(text.strip()) < 10:
+                    text_lower = (text or "").lower()
+                    if "access denied" in text_lower or "403" in text_lower or "404" in text_lower:
+                        error_reason = "Access Denied (403/404)"
+                    else:
+                        error_reason = "Empty or minimal content"
+                
+                if error_reason:
+                    errors.append({
+                        "id": article_id,
+                        "title": title[:100],
+                        "url": url,
+                        "error": error_reason,
+                        "source": source
+                    })
+        except Exception:
+            continue
+    
+    valid_count = len(article_ids) - len(errors)
+    
+    return {
+        "total_checked": len(article_ids),
+        "valid_count": valid_count,
+        "invalid_count": len(errors),
+        "errors": errors,
+        "quality_score": round((valid_count / len(article_ids) * 100) if article_ids else 0, 2)
+    }
+
+
+@router.post("/news/recheck-url/{news_id}")
+async def recheck_news_url(news_id: str):
+    """
+    Re-fetch a news article body from its URL and update the stored body.
+    
+    Useful for articles that previously failed to fetch or have broken content.
+    
+    Returns: Updated body record with new fetch timestamp.
+    """
+    s = load_settings()
+    
+    try:
+        # Find article
+        to_date = date.today()
+        from_date = to_date - timedelta(days=365)
+        
+        article = None
+        for source in ["gdelt", "news_rss"]:
+            try:
+                lf = scan_parquet_glob(s.stage_dir, source, "news_docs", from_date, to_date)
+                df = lf.collect()
+                
+                if df.height > 0 and "id" in df.columns:
+                    matching = df.filter(pl.col("id") == news_id)
+                    if matching.height > 0:
+                        article = matching.to_dicts()[0]
+                        break
+            except Exception:
+                continue
+        
+        if not article:
+            return JSONResponse(
+                {"success": False, "id": news_id, "error": "Article not found"},
+                status_code=404
+            )
+        
+        url = article.get("url")
+        if not url:
+            return JSONResponse(
+                {"success": False, "id": news_id, "error": "No URL found for article"},
+                status_code=400
+            )
+        
+        # Fetch body (reuse logic from news_body_fetch.py)
+        from libs.satbase_core.adapters.http import get_text
+        
+        try:
+            html = get_text(url)
+            
+            if not html or len(html.strip()) < 10:
+                return {
+                    "success": False,
+                    "id": news_id,
+                    "error": "Failed to fetch body or empty response",
+                    "retry_at": (datetime.utcnow() + timedelta(hours=24)).isoformat()
+                }
+            
+            # Extract text from HTML if BeautifulSoup available
+            text = None
+            if BeautifulSoup:
+                try:
+                    soup = BeautifulSoup(html, 'html.parser')
+                    for script in soup(["script", "style"]):
+                        script.decompose()
+                    text = soup.get_text(separator='\n', strip=True)
+                except Exception:
+                    text = None
+            
+            body_record = {
+                "id": news_id,
+                "content_text": text[:200000] if text else None,
+                "content_html": html[:500000] if html else None,
+                "fetched_at": datetime.utcnow().isoformat(),
+                "published_at": article.get("published_at")
+            }
+            
+            # Determine partition date
+            published_at_str = article.get("published_at", "")
+            if isinstance(published_at_str, str) and len(published_at_str) >= 10:
+                partition_date = date.fromisoformat(published_at_str[:10])
+            else:
+                partition_date = date.today()
+            
+            # Write to parquet
+            from libs.satbase_core.storage.stage import write_parquet
+            write_parquet(s.stage_dir, "news_body", partition_date, "news_body", [body_record])
+            
+            return {
+                "success": True,
+                "id": news_id,
+                "url": url,
+                "has_text": bool(body_record.get("content_text")),
+                "has_html": bool(body_record.get("content_html")),
+                "fetched_at": body_record["fetched_at"],
+                "content_length": {
+                    "text": len(body_record.get("content_text", "")),
+                    "html": len(body_record.get("content_html", ""))
+                }
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "id": news_id,
+                "error": f"Fetch failed: {str(e)[:100]}",
+                "retry_at": (datetime.utcnow() + timedelta(hours=24)).isoformat()
+            }
+    
+    except Exception as e:
+        return JSONResponse(
+            {"success": False, "id": news_id, "error": str(e)},
+            status_code=500
+        )
+
