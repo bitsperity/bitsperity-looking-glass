@@ -15,6 +15,7 @@ class NewsDoc(BaseModel):
     regions: list[str] | None = None
     themes: list[str] | None = None
     topics: list[str] = []  # Topics this article was ingested/matched against
+    text_content: str | None = None  # Full article text (added by adapters during unified fetch)
 
 
 class NewsBody(BaseModel):

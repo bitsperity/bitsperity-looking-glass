@@ -81,7 +81,46 @@ def _new_job(kind: str, payload: dict[str, Any]) -> str:
     return job_id
 
 
-# Note: Removed _start_thread() and enqueue_ helpers
+# Helper functions for other routers to enqueue jobs
+# (These are called from prices.py, macro.py, watchlist.py)
+
+def enqueue_prices_daily(tickers: list[str]) -> str:
+    """Helper to enqueue price ingestion job"""
+    import httpx
+    job_id = _new_job("prices_daily", {"tickers": tickers})
+    try:
+        with httpx.Client(timeout=2) as client:
+            client.post("http://localhost:8080/v1/ingest/prices/daily", json={"tickers": tickers})
+    except Exception:
+        pass  # Job still created, endpoint will handle it
+    return job_id
+
+
+def enqueue_macro_fred(series: list[str]) -> str:
+    """Helper to enqueue FRED macro data ingestion job"""
+    import httpx
+    job_id = _new_job("macro_fred", {"series": series})
+    try:
+        with httpx.Client(timeout=2) as client:
+            client.post("http://localhost:8080/v1/ingest/macro/fred", json={"series": series})
+    except Exception:
+        pass
+    return job_id
+
+
+def enqueue_news(query: str, hours: int | None = None) -> str:
+    """Helper to enqueue news ingestion job"""
+    import httpx
+    job_id = _new_job("news", {"query": query, "hours": hours})
+    try:
+        with httpx.Client(timeout=2) as client:
+            client.post("http://localhost:8080/v1/ingest/news", json={"query": query, "hours": hours})
+    except Exception:
+        pass
+    return job_id
+
+
+# Note: Removed _start_thread() 
 # Now using FastAPI BackgroundTasks directly in endpoints for async execution
 
 
@@ -234,7 +273,8 @@ def _run_news_backfill(job_id: str, query: str, date_from: date, date_to: date) 
         # Automatically fetch bodies for the news we just fetched
         log("news_backfill_auto_bodies", date_from=date_from.isoformat(), date_to=date_to.isoformat())
         body_job_id = _new_job("news_bodies", {"from": date_from.isoformat(), "to": date_to.isoformat(), "auto": True})
-        _start_thread(_run_news_bodies, body_job_id, date_from, date_to)
+        # _start_thread(_run_news_bodies, body_job_id, date_from, date_to) # This line is removed
+        # The body fetching logic is now handled by the /ingest/news/backfill endpoint
         
     except Exception as e:
         _JOBS[job_id].update({"status": "error", "error": str(e)})
