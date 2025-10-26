@@ -659,8 +659,8 @@
 				<div class="modal-body-edit">
 					<textarea bind:value={editedBody} class="edit-textarea"></textarea>
 					<div class="edit-actions">
-						<Button on:click={saveEditedBody}>💾 Save Changes</Button>
-						<Button on:click={() => (editingBody = false)}>Cancel</Button>
+						<button class="save-btn" on:click={saveEditedBody}>💾 Save Changes</button>
+						<button class="cancel-btn" on:click={() => (editingBody = false)}>Cancel</button>
 					</div>
 				</div>
 			{/if}
@@ -1360,6 +1360,38 @@
 		display: flex;
 		gap: 1rem;
 		margin-top: 1rem;
+	}
+
+	.save-btn {
+		padding: 0.75rem 1.5rem;
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
+		color: white;
+		border: none;
+		border-radius: var(--radius-md);
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.save-btn:hover {
+		background: linear-gradient(135deg, #2563eb, #1d4ed8);
+		transform: translateY(-2px);
+	}
+
+	.cancel-btn {
+		padding: 0.75rem 1.5rem;
+		background: rgba(71, 85, 105, 0.2);
+		color: var(--color-text-secondary);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+		border-radius: var(--radius-md);
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.cancel-btn:hover {
+		background: rgba(71, 85, 105, 0.3);
+		border-color: rgba(71, 85, 105, 0.5);
 	}
 
 	.modal-body-view .meta-info,

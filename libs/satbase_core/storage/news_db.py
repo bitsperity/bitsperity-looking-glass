@@ -23,7 +23,7 @@ class NewsDB:
     @contextmanager
     def conn(self):
         """Get database connection with proper settings."""
-        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
+        conn = sqlite3.connect(str(self.db_path), timeout=120.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -262,7 +262,7 @@ class NewsDB:
             where_parts.append("a.body_text IS NOT NULL AND LENGTH(a.body_text) > 0")
         
         if search_query:
-            where_parts.append("(a.title LIKE ? OR a.description LIKE ? OR a.body_text LIKE ?)")
+            where_parts.append("(LOWER(a.title) LIKE LOWER(?) OR LOWER(a.description) LIKE LOWER(?) OR LOWER(a.body_text) LIKE LOWER(?))")
             search_term = f"%{search_query}%"
             params.extend([search_term, search_term, search_term])
         
@@ -319,7 +319,8 @@ class NewsDB:
         self,
         from_date: str | date | None = None,
         to_date: str | date | None = None,
-        topics: list[str] | None = None
+        topics: list[str] | None = None,
+        search_query: str | None = None
     ) -> int:
         """Count articles matching filters."""
         where_parts = ["1=1"]
@@ -336,6 +337,11 @@ class NewsDB:
                 to_date = datetime.fromisoformat(to_date)
             where_parts.append("published_at < ?")
             params.append(to_date)
+        
+        if search_query:
+            where_parts.append("(LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(body_text) LIKE LOWER(?))")
+            search_term = f"%{search_query}%"
+            params.extend([search_term, search_term, search_term])
         
         where_clause = " AND ".join(where_parts)
         

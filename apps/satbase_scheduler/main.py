@@ -73,6 +73,61 @@ def setup_scheduler() -> AsyncIOScheduler:
     # Note: News body fetching removed - now unified with news ingestion
     # Bodies are fetched inline during news ingestion (see unified fetch in adapters)
     
+    # Body update queue processor (every 30 seconds)
+    async def process_body_update_queue():
+        """Process queued body updates from API to avoid DB locking."""
+        import json
+        from pathlib import Path
+        from libs.satbase_core.config.settings import load_settings
+        from libs.satbase_core.storage.news_db import NewsDB
+        
+        s = load_settings()
+        queue_file = s.stage_dir.parent / ".body_update_queue.jsonl"
+        db = NewsDB(s.stage_dir.parent / "news.db")
+        
+        if not queue_file.exists():
+            return
+        
+        try:
+            # Read queue file
+            updates = []
+            with open(queue_file, "r") as f:
+                for line in f:
+                    if line.strip():
+                        updates.append(json.loads(line))
+            
+            # Process updates
+            for update in updates:
+                try:
+                    article_id = update.get("article_id")
+                    body_text = update.get("body_text")
+                    
+                    with db.conn() as conn:
+                        conn.execute(
+                            "UPDATE news_articles SET body_text = ?, body_available = 1, fetched_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (body_text, article_id)
+                        )
+                        db.log_audit(
+                            action="body_updated_queued",
+                            article_id=article_id,
+                            details=f"Queued body update: {len(body_text)} chars"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to update article {article_id}: {e}")
+            
+            # Clear queue after processing
+            queue_file.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"Body update queue processing failed: {e}")
+    
+    scheduler.add_job(
+        process_body_update_queue,
+        trigger=IntervalTrigger(seconds=30),
+        id='body_update_queue',
+        name='Process Body Update Queue',
+        max_instances=1
+    )
+    
     return scheduler
 
 

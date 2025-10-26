@@ -209,8 +209,8 @@
 			<div>⚠️ Discarded: {activeJob.items_failed || 0}</div>
 			<div>🟢 Health: Healthy</div>
 		</div>
-	</div>
-{/if}
+			</div>
+		{/if}
 
 <div class="tab-navigation">
 	<button class="tab-button" class:active={activeTab === 'list'} on:click={() => (activeTab = 'list')}>
@@ -266,7 +266,7 @@
 			<div class="no-data">No topics found</div>
 		{/if}
 	</section>
-{/if}
+				{/if}
 
 {#if activeTab === 'analytics'}
 	<section class="tab-content">
@@ -279,16 +279,16 @@
 				<div class="metric">
 					<span class="metric-label">Total Articles</span>
 					<span class="metric-value">{analyticsData.total_articles}</span>
-				</div>
+									</div>
 				<div class="metric">
 					<span class="metric-label">Avg Per Day</span>
 					<span class="metric-value">{analyticsData.avg_per_day}</span>
-				</div>
+								</div>
 				<div class="metric">
 					<span class="metric-label">Max/Day</span>
 					<span class="metric-value">{analyticsData.max_day}</span>
-				</div>
-			</div>
+									</div>
+								</div>
 
 			<div class="daily-breakdown">
 				<h3>Daily Article Counts (Last 7 Days)</h3>
@@ -298,15 +298,15 @@
 							<div class="bar" style="height: {Math.min(day.count / 5, 100)}%; background: linear-gradient(135deg, #22c55e, #06b6d4);"></div>
 							<div class="date">{new Date(day.day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
 							<div class="count">{day.count}</div>
-						</div>
-					{/each}
-				</div>
+								</div>
+						{/each}
+					</div>
 			</div>
 		{:else}
 			<div class="no-data">Loading analytics...</div>
 		{/if}
 	</section>
-{/if}
+		{/if}
 
 {#if activeTab === 'operations'}
 	<section class="tab-content">
@@ -322,7 +322,7 @@
 						<div class="form-group">
 							<label for="from-date">From Date</label>
 							<input id="from-date" type="date" bind:value={backfillFrom} />
-						</div>
+							</div>
 						<div class="form-group">
 							<label for="to-date">To Date</label>
 							<input id="to-date" type="date" bind:value={backfillTo} />
@@ -343,7 +343,7 @@
 				</div>
 			{:else}
 				<Button on:click={() => (showBackfillForm = true)}>➕ Start Backfill</Button>
-			{/if}
+									{/if}
 		</div>
 
 		<div class="operation-section">
@@ -355,7 +355,7 @@
 						<option value="">Select topic...</option>
 						{#each topics as topic}
 							<option value={topic.name}>{topic.name} ({topic.count} articles)</option>
-						{/each}
+							{/each}
 					</select>
 				</div>
 				{#if deleteTopic}
@@ -369,14 +369,14 @@
 							</Button>
 							<button on:click={() => (deleteConfirm = false)} class="btn-secondary">Cancel</button>
 						</div>
-					{:else}
+													{:else}
 						<Button on:click={handleDelete}>Confirm Delete</Button>
-					{/if}
+													{/if}
 				{/if}
 			</div>
 		</div>
 	</section>
-{/if}
+		{/if}
 
 <style>
 	.page-header {

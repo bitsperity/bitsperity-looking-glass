@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Body
 from fastapi.responses import JSONResponse
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.news_db import NewsDB
@@ -61,11 +61,34 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
     
     db = NewsDB(s.stage_dir.parent / "news.db")
     
-    # Parse topic filter
+    # Get configured topics to check if q is a topic name
+    try:
+        from ..topics import get_configured_topics
+        configured_topics = [t["name"] for t in get_configured_topics().get("topics", [])]
+    except:
+        configured_topics = []
+    
+    # Parse topic filter - only if q matches a configured topic
     topics_filter = None
+    search_query = None
+    
     if q:
-        # Split query by comma for multi-topic search
-        topics_filter = [t.strip() for t in q.split(',') if t.strip()]
+        # Check if q (or any part of comma-separated q) is a configured topic
+        q_parts = [t.strip() for t in q.split(',') if t.strip()]
+        
+        # If any part matches a topic (case-insensitive), use topic filtering with the correct case from configured_topics
+        matching_topics = []
+        for q_part in q_parts:
+            for conf_topic in configured_topics:
+                if q_part.lower() == conf_topic.lower():
+                    matching_topics.append(conf_topic)  # Use the correctly-cased topic name
+                    break
+        
+        if matching_topics:
+            topics_filter = matching_topics
+        else:
+            # Otherwise treat as text search
+            search_query = q
     
     # Parse ticker filter
     tickers_filter = None
@@ -76,7 +99,7 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
     articles = db.query_articles(
         from_date=from_,
         to_date=to,
-        search_query=q if not topics_filter else None,
+        search_query=search_query,
         topics=topics_filter,
         tickers=tickers_filter,
         has_body=has_body,
@@ -89,12 +112,12 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         for item in articles:
             item.pop("body_text", None)
     
-    total = db.count_articles(from_date=from_, to_date=to, topics=topics_filter)
+    total = db.count_articles(from_date=from_, to_date=to, topics=topics_filter, search_query=search_query)
     
     return {
         "items": articles,
-        "from": from_,
-        "to": to,
+        "from": from_, 
+        "to": to, 
         "limit": limit,
         "offset": offset,
         "total": total,
@@ -301,10 +324,9 @@ def check_integrity():
         )
 
 @router.post("/news/{article_id}/update-body")
-def update_article_body(article_id: str, body_text: str):
-    """Update article body text (for manual corrections)."""
+def update_article_body(article_id: str, body_text: str = Body(..., embed=True)):
+    """Queue article body update (executed by scheduler to avoid DB locks)."""
     s = load_settings()
-    db = NewsDB(s.stage_dir.parent / "news.db")
     
     try:
         if not body_text or len(body_text.strip()) < 10:
@@ -316,39 +338,26 @@ def update_article_body(article_id: str, body_text: str):
                 status_code=400
             )
         
-        # Update body text and set body_available flag
-        with db.conn() as conn:
-            conn.execute(
-                """UPDATE news_articles 
-                   SET body_text = ?, body_available = 1, fetched_at = CURRENT_TIMESTAMP
-                   WHERE id = ?""",
-                (body_text[:1000000], article_id)  # Cap at 1MB
-            )
-            
-            # Get updated article
-            result = conn.execute(
-                "SELECT * FROM news_articles WHERE id = ?",
-                (article_id,)
-            ).fetchone()
-            
-            if not result:
-                return JSONResponse(
-                    {"error": "Article not found", "status": "NOT_FOUND"},
-                    status_code=404
-                )
-            
-            # Log to audit trail
-            db.log_audit(
-                action="body_updated",
-                article_id=article_id,
-                details=f"Body updated manually: {len(body_text)} chars"
-            )
+        # Queue the update to a file - scheduler will process it
+        # This avoids DB locking issues when scheduler is running
+        import json
+        from datetime import datetime
+        
+        queue_file = s.stage_dir.parent / ".body_update_queue.jsonl"
+        
+        # Append to queue file (JSONL format - one JSON per line)
+        with open(queue_file, "a") as f:
+            f.write(json.dumps({
+                "article_id": article_id,
+                "body_text": body_text[:1000000],
+                "timestamp": datetime.utcnow().isoformat()
+            }) + "\n")
         
         return {
             "article_id": article_id,
             "body_length": len(body_text),
-            "status": "OK",
-            "message": "Article body updated successfully"
+            "status": "QUEUED",
+            "message": "Body update queued for processing by scheduler"
         }
     
     except Exception as e:
