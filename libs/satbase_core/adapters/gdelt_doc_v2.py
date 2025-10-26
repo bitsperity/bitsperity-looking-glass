@@ -91,13 +91,15 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
     while cur < end_dt:
         nxt = min(cur + timedelta(hours=window_hours), end_dt)
         try:
+            # GDELT 2.0 Doc API expects: start_date, end_date in YYYY-MM-DD format
+            # NOT startdatetime/enddatetime - those are ignored!
             data = get_json(
                 BASE,
                 params={
                     "query": q,
                     "mode": "artlist",
-                    "startdatetime": cur.strftime("%Y%m%d%H%M%S"),
-                    "enddatetime": nxt.strftime("%Y%m%d%H%M%S"),
+                    "start_date": cur.strftime("%Y-%m-%d"),  # CORRECTED: YYYY-MM-DD format
+                    "end_date": nxt.strftime("%Y-%m-%d"),    # CORRECTED: YYYY-MM-DD format
                     "format": "json",
                     "maxrecords": 250,
                 },
