@@ -29,11 +29,8 @@
   let watchlistMacro: any[] = [];
   let watchlistLoading: boolean = false;
   
-  // Date range
-  const today = new Date().toISOString().slice(0, 10);
-  const oneYearAgo = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-  let from: string = oneYearAgo;
-  let to: string = today;
+  // Date range (removed - we always fetch ALL data from backend)
+  // Frontend can add date range filters later if needed
   
   // Color mapping for series
   const seriesColors: Record<string, string> = {
@@ -97,7 +94,8 @@
     errors.delete(seriesId);
     
     try {
-      const result = await getSeries(seriesId, from, to);
+      // Always load ALL data (no date range filter)
+      const result = await getSeries(seriesId);
       seriesData.set(seriesId, result.items || []);
       seriesData = new Map(seriesData);
       

@@ -16,13 +16,14 @@ export async function searchFredSeries(query: string, limit: number = 20) {
   return await apiGet<{ query: string; count: number; results: FredSeries[]; error?: string }>(`/v1/macro/fred/search?q=${encodeURIComponent(query)}&limit=${limit}`);
 }
 
-export async function getSeries(series_id: string, from: string, to: string) {
+export async function getSeries(series_id: string) {
+  // Always fetches ALL available data (no date range filter)
   let retries = 0;
   const MAX_RETRIES = 5;
   
   while (retries < MAX_RETRIES) {
     try {
-      return await apiGet<{ items: MacroObs[] }>(`/v1/macro/series/${series_id}?from=${from}&to=${to}&sync_timeout_s=2`);
+      return await apiGet<{ items: MacroObs[] }>(`/v1/macro/series/${series_id}?sync_timeout_s=2`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 202) {
         // Fetch-on-miss: data being fetched in background
