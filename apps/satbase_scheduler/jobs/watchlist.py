@@ -6,24 +6,33 @@ logger = logging.getLogger(__name__)
 
 
 async def refresh_watchlist() -> None:
-    """Refresh prices and news for all watchlist tickers."""
-    # 1) Get watchlist
-    resp = await request_with_retries('GET', '/v1/watchlist')
-    data = resp.json()
-    items = data.get('items', [])
-    tickers = [it.get('symbol') for it in items if it.get('symbol')]
-
-    if not tickers:
-        logger.info("Watchlist empty; skipping refresh")
-        return
-
-    # 2) Trigger price ingestion (batch)
-    await request_with_retries('POST', '/v1/ingest/prices/daily', json={'tickers': tickers})
-
-    # 3) Trigger news ingestion (per ticker, last 24h)
-    for ticker in tickers:
-        await request_with_retries('POST', '/v1/ingest/news', json={'query': ticker, 'hours': 24})
-
-    logger.info("Refreshed %d watchlist tickers", len(tickers))
+    """Refresh active watchlist items (prices, news, macro)."""
+    # Call the unified refresh endpoint which handles all types
+    try:
+        resp = await request_with_retries('POST', '/v1/watchlist/refresh', json={})
+        data = resp.json()
+        
+        jobs = data.get('jobs', [])
+        items_refreshed = data.get('items_refreshed', 0)
+        
+        if not jobs:
+            logger.info("No active watchlist items to refresh")
+            return
+        
+        logger.info("Triggered %d refresh jobs for %d items", len(jobs), items_refreshed)
+        
+        # Log jobs by type for visibility
+        by_type = {}
+        for job in jobs:
+            t = job.get('type')
+            if t not in by_type:
+                by_type[t] = 0
+            by_type[t] += 1
+        
+        for t, count in by_type.items():
+            logger.info("  - %s: %d jobs", t, count)
+    
+    except Exception as e:
+        logger.error("Failed to refresh watchlist: %s", str(e))
 
 

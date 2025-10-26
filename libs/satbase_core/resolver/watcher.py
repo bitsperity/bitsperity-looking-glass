@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterable, Dict, List
 
 from ..config.settings import load_settings
+from ..storage.watchlist_db import WatchlistDB
 
 
 @dataclass(frozen=True)
@@ -14,41 +15,18 @@ class WatchItem:
 
 
 def load_watchlist_symbols() -> list[str]:
+    """Load active stock watchlist symbols from SQLite."""
     s = load_settings()
-    path = s.stage_dir.parent / "control" / "watchlist.json"
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text())
-    except Exception:
-        return []
-    items = data.get("items", [])
-    out: list[str] = []
-    for it in items:
-        sym = (it.get("symbol") or "").strip().upper()
-        if sym:
-            out.append(sym)
-    return sorted(set(out))
+    db = WatchlistDB(s.stage_dir.parent / "control.db")
+    return db.get_items_by_type('stock', only_active=True)
 
 
 def load_synonyms_map() -> Dict[str, List[str]]:
-    """Load optional synonyms mapping from control/synonyms.json.
-    Format: {"NVDA": ["NVIDIA", "Nvidia"], "TSM": ["TSMC", "Taiwan Semiconductor"], ...}
     """
-    s = load_settings()
-    path = s.stage_dir.parent / "control" / "synonyms.json"
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text())
-        out: Dict[str, List[str]] = {}
-        for sym, arr in data.items():
-            if not isinstance(arr, list):
-                continue
-            out[sym.strip().upper()] = [str(x) for x in arr if isinstance(x, str) and x.strip()]
-        return out
-    except Exception:
-        return {}
+    Load ticker → [synonyms, aliases] mapping for entity linking.
+    Currently static; future: read from DB or file.
+    """
+    return {}
 
 
 def match_text_to_symbols(text: str, symbols: Iterable[str]) -> list[str]:
