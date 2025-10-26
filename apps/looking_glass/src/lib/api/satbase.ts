@@ -237,6 +237,13 @@ export async function getTrendingTickers(params?: {
 }
 
 /**
+ * Get all configured topics (from control/topics.json)
+ */
+export async function getConfiguredTopics(): Promise<any> {
+  return apiGet(`/v1/news/topics/configured`);
+}
+
+/**
  * Get all topics with global counts
  */
 export async function getTopicsAll(from?: string, to?: string): Promise<any> {

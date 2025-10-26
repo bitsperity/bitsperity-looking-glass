@@ -16,6 +16,39 @@ from collections import defaultdict
 router = APIRouter()
 
 
+@router.get("/news/topics/configured")
+def get_configured_topics():
+    """
+    Get configured topics from control/topics.json.
+    
+    Unlike /v1/news/topics/all which returns topics that actually appear in the data,
+    this endpoint returns the topics that are configured for ingestion.
+    
+    Returns:
+    - topics: list of topic objects with symbol, added_at, expires_at
+    - total: number of configured topics
+    """
+    s = load_settings()
+    topics_file = Path(s.stage_dir).parent / "control" / "topics.json"
+    
+    try:
+        if topics_file.exists():
+            with open(topics_file, "r") as f:
+                data = json.load(f)
+                topics_list = data.get("topics", [])
+        else:
+            topics_list = []
+        
+        return {
+            "topics": topics_list,
+            "total": len(topics_list),
+            "source": "configuration"
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load configured topics: {str(e)}")
+
+
 @router.get("/news/topics/all")
 def get_all_topics(from_: str | None = Query(None, alias="from"), to: str | None = None):
     """

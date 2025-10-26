@@ -39,8 +39,40 @@
 		loading = true;
 		error = '';
 		try {
-			const response = await satbaseApi.getTopicsAll(fromDate, toDate);
-			allTopics = response.topics || [];
+			// Load configured topics
+			const configResponse = await satbaseApi.getConfiguredTopics();
+			let configTopics = (configResponse.topics || []).map((t: any) => ({
+				name: t.symbol,
+				count: 0 // Will be populated from data
+			}));
+			
+			// Load data topics for counts
+			const dataResponse = await satbaseApi.getTopicsAll(fromDate, toDate);
+			let dataTopics = dataResponse.topics || [];
+			
+			// Merge: use configured topics, fill in counts from data
+			let merged: any[] = [];
+			
+			// First add all configured topics
+			for (let ct of configTopics) {
+				const dataMatch = dataTopics.find((dt: any) => dt.name === ct.name);
+				merged.push({
+					name: ct.name,
+					count: dataMatch ? dataMatch.count : 0
+				});
+			}
+			
+			// Then add any data topics not in configured (informational)
+			for (let dt of dataTopics) {
+				if (!merged.find((m) => m.name === dt.name)) {
+					merged.push(dt);
+				}
+			}
+			
+			// Sort by count descending
+			merged.sort((a, b) => b.count - a.count);
+			
+			allTopics = merged;
 		} catch (err) {
 			error = `Failed to load topics: ${err}`;
 		} finally {
