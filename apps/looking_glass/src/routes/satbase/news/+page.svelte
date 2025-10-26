@@ -213,11 +213,38 @@
 	async function saveEditedBody() {
 		if (!selectedArticle) return;
 		try {
-			// TODO: Implement API endpoint to update article body
-			alert('Body update feature coming soon');
+			const response = await fetch(`http://localhost:8080/v1/news/${selectedArticle.id}/update-body`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					body_text: editedBody
+				})
+			});
+
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(errorData.error || 'Failed to update body');
+			}
+
+			const result = await response.json();
+			
+			// Update local article with new body
+			selectedArticle.body_text = editedBody;
+			selectedArticle.content_text = editedBody;
+			
+			// Update article in list
+			const articleIndex = articles.findIndex(a => a.id === selectedArticle.id);
+			if (articleIndex >= 0) {
+				articles[articleIndex] = selectedArticle;
+			}
+
 			editingBody = false;
+			error = '';
+			alert('✅ Body updated successfully!');
 		} catch (e) {
-			error = `Failed to update: ${e}`;
+			error = `Failed to update body: ${e.message || e}`;
 		}
 	}
 
@@ -575,6 +602,9 @@
 						<span>📅 {formatDate(selectedArticle.published_at)}</span>
 						<span>📰 {selectedArticle.source || 'Unknown'}</span>
 						<span>📏 {formatSize(selectedArticle.content_text)}</span>
+						<span class="body-status" class:has-body={selectedArticle.body_available || selectedArticle.content_text}>
+							{selectedArticle.body_available || selectedArticle.content_text ? '✅ Body' : '⚠️ Summary Only'}
+						</span>
 					</div>
 				</div>
 				<button class="modal-close" on:click={closeArticleModal}>✕</button>
@@ -1389,5 +1419,21 @@
 	.action-btn.danger:hover {
 		border-color: rgba(239, 68, 68, 0.5);
 		color: #ef4444;
+	}
+
+	.body-status {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		background: rgba(34, 197, 211, 0.2);
+		color: #06b6d4;
+		border-radius: var(--radius-sm);
+		font-size: 0.75rem;
+		font-weight: 600;
+		margin-left: 1rem;
+	}
+
+	.body-status.has-body {
+		background: rgba(34, 197, 211, 0.2);
+		color: #06b6d4;
 	}
 </style>
