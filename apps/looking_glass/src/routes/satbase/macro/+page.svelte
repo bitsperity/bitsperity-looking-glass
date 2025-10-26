@@ -232,11 +232,11 @@
   });
 </script>
 
-<div class="fixed inset-0 flex flex-col overflow-hidden bg-neutral-950">
+<div class="flex flex-col overflow-hidden bg-neutral-950" style="height: calc(100vh - 180px);">
   <!-- Header -->
   <div class="flex-shrink-0 p-3 border-b border-neutral-800 bg-neutral-900/50">
     <div class="flex items-center justify-between">
-      <h1 class="text-xl font-bold text-neutral-100">📊 Macro (FRED)</h1>
+      <h1 class="text-lg font-bold text-neutral-100">📊 Macro (FRED)</h1>
       <div class="flex items-center gap-2">
         <Badge variant="secondary">{activeSeries.size} series</Badge>
         <Badge variant="secondary">{chartData.length} points</Badge>
