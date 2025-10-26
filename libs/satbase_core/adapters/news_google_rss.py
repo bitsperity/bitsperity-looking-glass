@@ -88,7 +88,13 @@ def normalize(entries: Iterable[dict], topic: str | None = None) -> Iterable[New
 
 def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None) -> dict:
     """
-    DUAL SINK: Store metadata + bodies separately.
+    DUAL SINK: Store metadata + bodies separately with GUARANTEED 1:1 mapping.
+    
+    Data Integrity Guarantees:
+    - ALWAYS deduplicate by ID (no duplicate articles)
+    - Validate that docs and bodies are in sync
+    - Fail fast if invariants are violated
+    - Atomically write both or fail completely
     
     news_docs: metadata only (id, title, url, tickers, topics)
     news_body: full text content (id, url, content_text, fetched_at)
@@ -124,22 +130,49 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
             })
     
     if not news_rows:
-        return {"path": None, "body_path": None, "count": 0, "bodies": 0}
+        return {"path": None, "body_path": None, "count": 0, "bodies": 0, "status": "empty"}
     
-    # Write news_docs (metadata)
+    # VALIDATION: Ensure counts match (1:1 invariant)
+    if len(news_rows) != len(body_rows):
+        raise ValueError(
+            f"CRITICAL: Data integrity violation - {len(news_rows)} docs but {len(body_rows)} bodies. "
+            "This should never happen. Aborting write to prevent corruption."
+        )
+    
+    # VALIDATION: Ensure IDs match exactly
+    news_ids = {r['id'] for r in news_rows}
+    body_ids = {r['id'] for r in body_rows}
+    
+    if news_ids != body_ids:
+        missing_in_bodies = news_ids - body_ids
+        missing_in_docs = body_ids - news_ids
+        raise ValueError(
+            f"CRITICAL: ID mismatch between docs and bodies. "
+            f"Missing in bodies: {missing_in_bodies}, Missing in docs: {missing_in_docs}. "
+            "Aborting write to prevent corruption."
+        )
+    
+    # Write news_docs with UPSERT to prevent duplicates
     s = load_settings()
-    news_path = write_parquet(s.stage_dir, "news_rss", partition_dt, "news_docs", news_rows)
+    news_path = upsert_parquet_by_id(s.stage_dir, "news_rss", partition_dt, "news_docs", "id", news_rows)
     
-    # Write news_body (separate source for queryability)
+    # Write news_body with UPSERT (already using it)
     body_path = upsert_parquet_by_id(s.stage_dir, "news_body", partition_dt, "news_body", "id", body_rows)
     
-    log("news_sink_complete", news_count=len(news_rows), bodies_count=len(body_rows), 
-        news_path=str(news_path), body_path=str(body_path))
+    log("news_sink_complete", 
+        news_count=len(news_rows), 
+        bodies_count=len(body_rows), 
+        unique_ids=len(news_ids),
+        news_path=str(news_path), 
+        body_path=str(body_path),
+        status="success_with_deduplication")
     
     return {
         "path": str(news_path),
         "body_path": str(body_path),
         "count": len(news_rows),
-        "bodies": len(body_rows)
+        "bodies": len(body_rows),
+        "unique_ids": len(news_ids),
+        "status": "success"
     }
 

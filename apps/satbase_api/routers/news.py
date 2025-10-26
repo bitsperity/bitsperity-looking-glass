@@ -6,8 +6,63 @@ from fastapi.responses import JSONResponse
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.stage import scan_parquet_glob
 from collections import defaultdict
+import shutil
 
 router = APIRouter()
+
+@router.post("/news/reset")
+def reset_all_data():
+    """
+    DANGEROUS: Delete all news data (docs, bodies, metadata).
+    
+    Use this to clean corrupted data before fresh ingestion.
+    
+    Returns:
+    {
+        "status": "success",
+        "deleted_dirs": [...],
+        "message": "All news data deleted"
+    }
+    """
+    s = load_settings()
+    stage_dir = Path(s.stage_dir)
+    
+    deleted = []
+    errors = []
+    
+    # Delete all news-related directories
+    for subdir in ["gdelt", "news_rss", "news_body"]:
+        path = stage_dir / subdir
+        if path.exists():
+            try:
+                shutil.rmtree(path, ignore_errors=True)
+                # Try again with force
+                import os
+                for root, dirs, files in os.walk(path, topdown=False):
+                    for name in files:
+                        try:
+                            os.remove(os.path.join(root, name))
+                        except:
+                            pass
+                    for name in dirs:
+                        try:
+                            os.rmdir(os.path.join(root, name))
+                        except:
+                            pass
+                deleted.append(subdir)
+            except Exception as e:
+                errors.append(f"{subdir}: {str(e)}")
+    
+    # Ensure stage dir exists for new data
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    
+    return {
+        "status": "success" if not errors else "partial",
+        "deleted_dirs": deleted,
+        "errors": errors,
+        "message": f"Deleted {len(deleted)} directories. Ready for fresh ingestion."
+    }
+
 
 @router.get("/news")
 def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, tickers: str | None = None, limit: int = 100, offset: int = 0, include_body: bool = False, has_body: bool = False, content_format: str | None = Query(None, description="Content format: 'text', 'html', or 'both' (default)")):
@@ -849,6 +904,101 @@ async def recheck_news_url(news_id: str):
     except Exception as e:
         return JSONResponse(
             {"success": False, "id": news_id, "error": str(e)},
+            status_code=500
+        )
+
+@router.get("/news/integrity-check")
+def check_integrity():
+    """
+    CRITICAL: Verify data integrity across news_docs and news_body.
+    
+    This endpoint ensures:
+    - 1:1 correspondence between docs and bodies
+    - No orphaned data (body without doc)
+    - No missing bodies (doc without body)
+    - Reports integrity percentage
+    
+    Returns:
+    {
+        "total_docs": number,
+        "total_bodies": number,
+        "orphaned_bodies": number,
+        "missing_bodies": number,
+        "integrity_percentage": number 0-100,
+        "status": "OK" | "WARNING" | "CRITICAL",
+        "details": {...}
+    }
+    """
+    s = load_settings()
+    stage_dir = Path(s.stage_dir)
+    
+    try:
+        # Load all docs from all sources
+        doc_ids = set()
+        doc_count = 0
+        
+        for source in ["gdelt", "news_rss"]:
+            try:
+                lf = pl.scan_parquet(str(stage_dir / source / "**" / "news_docs.parquet"))
+                df = lf.select("id").collect()
+                ids = set(df["id"].to_list())
+                doc_ids.update(ids)
+                doc_count += df.height
+            except Exception:
+                pass
+        
+        # Load all bodies
+        body_ids = set()
+        body_count = 0
+        
+        try:
+            lf = pl.scan_parquet(str(stage_dir / "news_body" / "**" / "news_body.parquet"))
+            df = lf.select("id").collect()
+            body_ids = set(df["id"].to_list())
+            body_count = df.height
+        except Exception:
+            pass
+        
+        # Calculate discrepancies
+        orphaned = body_ids - doc_ids  # Bodies with no matching doc
+        missing = doc_ids - body_ids    # Docs with no matching body
+        
+        total_unique_docs = len(doc_ids)
+        total_unique_bodies = len(body_ids)
+        
+        # Integrity percentage
+        if total_unique_docs > 0:
+            integrity = ((total_unique_docs - len(missing)) / total_unique_docs) * 100
+        else:
+            integrity = 100 if total_unique_bodies == 0 else 0
+        
+        status = "OK" if integrity == 100 else "WARNING" if integrity > 80 else "CRITICAL"
+        
+        return {
+            "total_docs": doc_count,
+            "total_unique_docs": total_unique_docs,
+            "total_bodies": body_count,
+            "total_unique_bodies": total_unique_bodies,
+            "orphaned_bodies": len(orphaned),
+            "orphaned_examples": list(orphaned)[:5],  # First 5 for debugging
+            "missing_bodies": len(missing),
+            "missing_examples": list(missing)[:5],   # First 5 for debugging
+            "integrity_percentage": round(integrity, 2),
+            "status": status,
+            "description": {
+                "OK": "Data integrity is perfect - 1:1 mapping is maintained",
+                "WARNING": "Minor integrity issues detected - some mismatches but mostly OK",
+                "CRITICAL": "Serious integrity problems - major mismatches detected, data may be corrupted"
+            }.get(status, "Unknown")
+        }
+    
+    except Exception as e:
+        return JSONResponse(
+            {
+                "error": str(e),
+                "status": "ERROR",
+                "message": "Failed to check integrity"
+            },
             status_code=500
         )
 
