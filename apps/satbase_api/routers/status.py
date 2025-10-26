@@ -1,8 +1,8 @@
 from pathlib import Path
 from datetime import datetime
-import polars as pl
 from fastapi import APIRouter
 from libs.satbase_core.config.settings import load_settings
+from libs.satbase_core.storage.news_db import NewsDB
 import time
 from typing import Optional
 
@@ -41,14 +41,9 @@ _coverage_cache = CoverageCache(ttl_seconds=300)  # 5 minutes
 @router.get("/status/coverage")
 def get_coverage(cached: bool = True):
     """
-    Get complete data coverage overview.
+    Get complete data coverage overview using SQLite.
     
     Returns inventory of all available data: news, prices, macro indicators.
-    
-    Query Parameters:
-    - cached (bool): Use cached data if available (default: true). Set to false to force refresh.
-    
-    Agents use this to understand what data they have access to.
     """
     # Check cache first if requested
     if cached:
@@ -76,7 +71,9 @@ def get_coverage(cached: bool = True):
 
 
 def _analyze_news_coverage(stage_dir: Path) -> dict:
-    """Analyze news data coverage"""
+    """Analyze news data coverage from SQLite"""
+    db_path = stage_dir.parent / "news.db"
+    
     result = {
         "total_articles": 0,
         "date_range": {"from": None, "to": None},
@@ -85,107 +82,38 @@ def _analyze_news_coverage(stage_dir: Path) -> dict:
         "articles_with_bodies": 0
     }
     
-    # Analyze Mediastack news (ONLY SOURCE)
-    mediastack_dir = stage_dir / "mediastack"
-    if mediastack_dir.exists():
-        mediastack_stats = _scan_news_source(mediastack_dir)
-        result["sources"]["mediastack"] = mediastack_stats
-        result["total_articles"] += mediastack_stats["count"]
-    
-    # Calculate overall date range
-    source_dates = []
-    for source_stats in result["sources"].values():
-        if source_stats.get("earliest"):
-            source_dates.append(source_stats["earliest"])
-        if source_stats.get("latest"):
-            source_dates.append(source_stats["latest"])
-    
-    if source_dates:
-        result["date_range"]["from"] = min(source_dates)
-        result["date_range"]["to"] = max(source_dates)
-    
-    # Count unique tickers mentioned
-    # OPTIMIZATION: Expensive to scan all files. Use cached value or quick count.
-    # For detailed ticker analysis, use /v1/news/tickers endpoint
-    result["tickers_mentioned"] = 3  # Static for now - improve with background job
-    
-    # Count articles with bodies
-    body_dir = stage_dir / "news_body"
-    if body_dir.exists():
-        body_count = 0
-        # Optimized scan: use Polars lazy evaluation with recursive glob
-        for parquet_file in body_dir.rglob("news_body.parquet"):  # Changed: glob -> rglob for recursive
-            try:
-                # Lazy read just to get shape
-                lf = pl.scan_parquet(str(parquet_file))
-                body_count += lf.select(pl.len()).collect().item()
-            except Exception as e:
-                print(f"Error reading {parquet_file}: {e}")
-                continue
-        result["articles_with_bodies"] = body_count
-    
-    return result
-
-
-def _scan_news_source(source_dir: Path) -> dict:
-    """Scan a news source directory for parquet files and extract metadata"""
-    result = {
-        "count": 0,
-        "earliest": None,
-        "latest": None
-    }
-    
-    # Guard: if source_dir doesn't exist, return empty result
-    if not source_dir.exists():
+    # Check if database exists
+    if not db_path.exists():
         return result
     
-    dates = []
-    total_count = 0
+    db = NewsDB(db_path)
+    stats = db.get_coverage_stats()
     
-    for parquet_file in source_dir.rglob("*.parquet"):
-        try:
-            df = pl.read_parquet(parquet_file)
-            total_count += len(df)
-            
-            # Extract dates from file path (YYYY/MM/DD structure)
-            parts = parquet_file.parts
-            try:
-                # Find year/month/day in path
-                for i, part in enumerate(parts):
-                    if part.isdigit() and len(part) == 4 and 2000 <= int(part) <= 2100:
-                        year = int(part)
-                        month = int(parts[i+1]) if i+1 < len(parts) and parts[i+1].isdigit() else 1
-                        day = int(parts[i+2]) if i+2 < len(parts) and parts[i+2].isdigit() else 1
-                        dates.append(f"{year:04d}-{month:02d}-{day:02d}")
-                        break
-            except Exception:
-                pass
-        except Exception:
-            continue
-    
-    # after loop, set result values
-    result["count"] = total_count
-    
-    if dates:
-        result["earliest"] = min(dates)
-        result["latest"] = max(dates)
+    result["total_articles"] = stats["total"]
+    result["date_range"]["from"] = stats["earliest"]
+    result["date_range"]["to"] = stats["latest"]
+    result["sources"]["mediastack"] = {"count": stats["total"]}
+    result["tickers_mentioned"] = stats["unique_tickers"]
+    result["articles_with_bodies"] = stats["total"]  # All have bodies now!
     
     return result
 
 
 def _analyze_prices_coverage(stage_dir: Path) -> dict:
     """Analyze prices data coverage"""
+    import polars as pl
+    
     result = {
         "tickers_available": [],
         "ticker_count": 0,
         "date_ranges": {}
     }
     
-    # Check Stooq directory (index-based storage)
+    # Check Stooq directory (ticker-based storage)
     stooq_dir = stage_dir / "stooq" / "prices_daily"
     if stooq_dir.exists():
         for parquet_file in stooq_dir.glob("*.parquet"):
-            ticker = parquet_file.stem  # Filename without .parquet
+            ticker = parquet_file.stem
             if ticker and not ticker.endswith(".invalid"):
                 result["tickers_available"].append(ticker)
                 
@@ -212,17 +140,19 @@ def _analyze_prices_coverage(stage_dir: Path) -> dict:
 
 def _analyze_macro_coverage(stage_dir: Path) -> dict:
     """Analyze macro data (FRED) coverage"""
+    import polars as pl
+    
     result = {
         "fred_series_available": [],
         "series_count": 0,
         "observations": {}
     }
     
-    # Check FRED directory (index-based storage)
+    # Check FRED directory (ticker-based storage)
     fred_dir = stage_dir / "macro" / "fred"
     if fred_dir.exists():
         for parquet_file in fred_dir.glob("*.parquet"):
-            series_id = parquet_file.stem  # Filename without .parquet
+            series_id = parquet_file.stem
             if series_id:
                 result["fred_series_available"].append(series_id)
                 

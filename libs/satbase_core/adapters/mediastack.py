@@ -6,8 +6,7 @@ from typing import Any, Iterable, List
 from ..models.news import NewsDoc
 from ..utils.hashing import sha1_hex
 from ..config.settings import load_settings
-from .http import get_json, default_headers
-from ..storage.stage import write_parquet, upsert_parquet_by_id
+from .http import get_json, default_headers, fetch_text_with_retry
 from ..utils.logging import log
 from ..resolver.watcher import load_watchlist_symbols, match_text_to_symbols
 
@@ -16,7 +15,7 @@ BASE = "https://api.mediastack.com/v1/news"
 
 
 def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
-    """Normalize a Mediastack article to NewsDoc format - store ALL fields (we pay per API call!)"""
+    """Normalize a Mediastack article to NewsDoc format - store ALL fields"""
     url = rec.get("url")
     if not url:
         return None
@@ -25,14 +24,13 @@ def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
     ts_str = rec.get("published_at")
     try:
         if ts_str:
-            # Parse ISO format
             published_at = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         else:
             published_at = datetime.utcnow()
     except Exception:
         published_at = datetime.utcnow()
     
-    # ID based only on URL for stable cross-run matching with bodies
+    # ID based only on URL for stable cross-run matching
     nid = sha1_hex(url)
     
     # Extract tickers from title + description
@@ -49,26 +47,23 @@ def _normalize(rec: dict[str, Any], topic: str | None = None) -> NewsDoc | None:
     # Initialize topics from parameter if provided
     topics = [topic] if topic else []
     
-    # Extract ALL Mediastack fields (we pay per API call!)
+    # Extract ALL Mediastack fields
     doc = NewsDoc(
         id=nid,
         source="mediastack",
-        title=rec.get("title") or "",
-        text=rec.get("description") or "",
         url=url,
-        published_at=published_at,
-        tickers=tickers,  # Always list, never None
-        regions=[],  # Always list, never None
-        themes=[],  # Always list, never None
-        topics=topics,
-        # Store ALL Mediastack metadata to maximize data value
-        author=rec.get("author"),
+        title=rec.get("title") or "",
         description=rec.get("description"),
+        body_text="",  # Will be filled by body crawler in sink()
+        published_at=published_at,
+        tickers=tickers,
+        topics=topics,
+        author=rec.get("author"),
         image=rec.get("image"),
         category=rec.get("category"),
         language=rec.get("language"),
         country=rec.get("country"),
-        source_name=rec.get("source"),  # In Mediastack this is "source" field
+        source_name=rec.get("source"),
     )
     return doc
 
@@ -77,7 +72,6 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
     """
     Fetch news from Mediastack API.
     
-    Mediastack supports historical news on Standard plan and higher.
     Parameters:
     - query: search keywords
     - date_from: YYYY-MM-DD
@@ -154,75 +148,58 @@ def normalize(raw: List[dict], topic: str | None = None) -> Iterable[NewsDoc]:
 
 def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None) -> dict:
     """
-    Store Mediastack articles to Parquet.
+    Store articles to SQLite after fetching body text.
     
-    Dual sink pattern:
-    - news_docs: metadata only
-    - news_body: full text content (if available)
+    Discard articles if body fetch fails.
     """
-    news_rows = []
-    body_rows = []
+    from ..storage.news_db import NewsDB
+    
+    s = load_settings()
+    db_path = s.stage_dir.parent / "news.db"
+    db = NewsDB(db_path)
+    
+    success_count = 0
+    discarded_count = 0
+    errors = []
     
     for doc in models:
-        text_content = getattr(doc, 'text_content', None)
-        
-        # Always store metadata row
-        doc_dict = doc.model_dump()
-        doc_dict.pop('text_content', None)
-        
-        # Ensure topic is set
-        if topic and (not doc_dict.get("topics") or topic not in doc_dict["topics"]):
-            if "topics" not in doc_dict:
-                doc_dict["topics"] = []
-            if isinstance(doc_dict["topics"], list) and topic not in doc_dict["topics"]:
-                doc_dict["topics"].append(topic)
-        
-        news_rows.append(doc_dict)
-        
-        if text_content:
-            body_rows.append({
-                'id': doc.id,
-                'url': doc.url,
-                'content_text': text_content,
-                'fetched_at': datetime.utcnow(),
-                'published_at': doc.published_at
-            })
-    
-    if not news_rows:
-        return {"path": None, "body_path": None, "count": 0, "bodies": 0, "status": "empty"}
-    
-    # Write news_docs (metadata)
-    try:
-        upsert_parquet_by_id(
-            load_settings().stage_dir,
-            "mediastack",
-            partition_dt,
-            "news_docs",
-            "id",
-            news_rows
-        )
-    except Exception as e:
-        log("mediastack_sink_docs_error", error=str(e)[:100])
-        return {"path": None, "count": 0, "status": "error"}
-    
-    # Write news_body (full content)
-    if body_rows:
         try:
-            upsert_parquet_by_id(
-                load_settings().stage_dir,
-                "news_body",
-                partition_dt,
-                "news_body",
-                "id",
-                body_rows
+            # Crawl body text from URL
+            body_text = fetch_text_with_retry(
+                doc.url,
+                max_retries=2,
+                timeout=20
             )
+            
+            # Discard if body fetch fails or too short
+            if not body_text or len(body_text.strip()) < 100:
+                discarded_count += 1
+                log("mediastack_body_discard",
+                    url=doc.url[:50],
+                    reason="empty_or_too_short")
+                continue
+            
+            # Set body text
+            doc.body_text = body_text[:1000000]  # Cap at 1MB
+            
+            # Upsert to SQLite with topic merge
+            db.upsert_article(doc, topics=doc.topics, tickers=doc.tickers)
+            success_count += 1
+            
         except Exception as e:
-            log("mediastack_sink_body_error", error=str(e)[:100])
+            discarded_count += 1
+            errors.append(str(e)[:100])
+            log("mediastack_sink_error", url=doc.url[:50], error=str(e)[:100])
     
-    return {
-        "path": f"mediastack/{partition_dt.year}/{partition_dt.month:02d}/{partition_dt.day:02d}",
-        "body_path": f"news_body/{partition_dt.year}/{partition_dt.month:02d}/{partition_dt.day:02d}",
-        "count": len(news_rows),
-        "bodies": len(body_rows),
-        "status": "success"
+    result = {
+        "count": success_count,
+        "discarded": discarded_count,
+        "storage": "sqlite"
     }
+    
+    if errors:
+        result["errors"] = errors[:5]
+    
+    log("mediastack_sink", success=success_count, discarded=discarded_count)
+    
+    return result

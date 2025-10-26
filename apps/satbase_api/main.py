@@ -5,7 +5,7 @@ from starlette.requests import Request
 import time
 import logging
 
-from .routers import health, news, news_body_fetch, macro, prices, btc, convert, ingest, watchlist, status, topics
+from .routers import health, news, macro, prices, btc, convert, ingest, watchlist, status, topics
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -47,7 +47,6 @@ app.add_middleware(PerformanceLoggingMiddleware)
 app.include_router(health.router, prefix="")
 app.include_router(status.router, prefix="/v1")
 app.include_router(news.router, prefix="/v1")
-app.include_router(news_body_fetch.router, prefix="/v1")
 app.include_router(macro.router, prefix="/v1")
 app.include_router(prices.router, prefix="/v1")
 app.include_router(btc.router, prefix="/v1")

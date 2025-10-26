@@ -5,13 +5,11 @@ Provides insights into topic coverage, frequency, and trends.
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
-import polars as pl
 import json
 from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
 from libs.satbase_core.config.settings import load_settings
-from libs.satbase_core.storage.stage import scan_parquet_glob
-from collections import defaultdict
+from libs.satbase_core.storage.news_db import NewsDB
 
 router = APIRouter()
 
@@ -20,13 +18,6 @@ router = APIRouter()
 def get_configured_topics():
     """
     Get configured topics from control/topics.json.
-    
-    Unlike /v1/news/topics/all which returns topics that actually appear in the data,
-    this endpoint returns the topics that are configured for ingestion.
-    
-    Returns:
-    - topics: list of topic objects with symbol, added_at, expires_at
-    - total: number of configured topics
     """
     s = load_settings()
     topics_file = Path(s.stage_dir).parent / "control" / "topics.json"
@@ -50,32 +41,10 @@ def get_configured_topics():
 
 
 @router.get("/news/topics/all")
-def get_all_topics(
-    from_: str | None = Query(None, alias="from"), 
-    to: str | None = None, 
-    limit: int | None = Query(None, ge=1, le=10000)
-):
-    """
-    Get all topics mentioned in articles with intelligent filtering.
-    
-    Smart behavior:
-    - NO parameters: Returns ALL topics ever recorded (unlimited)
-    - WITH from/to: Returns all topics in that date range (unlimited)
-    - WITH limit: Returns top N topics (by count, descending)
-    - WITH from/to + limit: Returns top N in that date range
-    
-    Query Parameters:
-    - from (str, optional): Start date (YYYY-MM-DD)
-    - to (str, optional): End date (YYYY-MM-DD)
-    - limit (int, optional): Max topics to return (1-10000)
-    
-    Examples:
-    - GET /v1/news/topics/all → All topics ever
-    - GET /v1/news/topics/all?from=2025-01-01&to=2025-12-31 → All topics in 2025
-    - GET /v1/news/topics/all?limit=50 → Top 50 topics ever
-    - GET /v1/news/topics/all?from=2025-02-01&to=2025-02-28&limit=20 → Top 20 in Feb 2025
-    """
+def get_all_topics(from_: str = Query(None, alias="from"), to: str | None = None, limit: int = 100):
+    """Get all topics mentioned in articles."""
     s = load_settings()
+    db_path = s.stage_dir.parent / "news.db"
     
     # Determine date range
     if to:
@@ -87,58 +56,22 @@ def get_all_topics(
         dfrom = date.fromisoformat(from_)
     else:
         # No from_ provided - scan ALL available data
-        # This is a heuristic: assume data starts from 2020
         dfrom = date(2020, 1, 1)
     
-    # Collect and aggregate topics using Polars
-    all_dfs = []
+    if not db_path.exists():
+        return {
+            "period": {
+                "from": from_ or "2020-01-01 (all data)",
+                "to": to or date.today().isoformat(),
+                "limited_to": limit if limit else "all"
+            },
+            "topics": [],
+            "total_unique_topics": 0,
+            "total_articles_with_topics": 0
+        }
     
-    # Mediastack ONLY (GDELT and RSS are removed)
-    for source in ["mediastack"]:
-        try:
-            lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
-            df = lf.collect()
-            
-            if df.height == 0:
-                continue
-            
-            # Ensure topics column exists
-            if "topics" not in df.columns:
-                continue
-            
-            # Use Polars aggregation: explode topics, group by topic, count
-            topic_counts = (df
-                .select("topics")
-                .explode("topics")
-                .filter(pl.col("topics").is_not_null() & (pl.col("topics") != ""))
-                .group_by("topics")
-                .agg(pl.len().alias("count"))
-                .sort("count", descending=True)
-            )
-            
-            all_dfs.append(topic_counts)
-        except Exception:
-            continue
-    
-    # Merge and deduplicate across sources
-    if all_dfs:
-        combined = pl.concat(all_dfs)
-        topic_counts = (combined
-            .group_by("topics")
-            .agg(pl.sum("count").alias("count"))
-            .sort("count", descending=True)
-        )
-        
-        # Apply limit ONLY if provided
-        if limit:
-            topic_counts = topic_counts.limit(limit)
-        
-        topics_list = [
-            {"name": row["topics"], "count": row["count"]}
-            for row in topic_counts.to_dicts()
-        ]
-    else:
-        topics_list = []
+    db = NewsDB(db_path)
+    topics_list = db.get_all_topics(from_date=dfrom, to_date=dto, limit=limit)
     
     return {
         "period": {
@@ -156,18 +89,6 @@ def get_all_topics(
 def get_topic_summary(limit: int = Query(10, ge=1, le=100), days: int = Query(30, ge=1, le=365)):
     """
     Get lightweight topics summary for dashboard/overview.
-    
-    Returns top N topics from the last X days with minimal processing.
-    This is much faster than get_all_topics() because it scans fewer days.
-    
-    Use this for:
-    - Dashboard overview cards
-    - Quick trending topics check
-    - Homepage widgets
-    
-    Query Parameters:
-    - limit (int): Max topics to return (1-100, default 10)
-    - days (int): Look back N days (1-365, default 30)
     """
     s = load_settings()
     
@@ -175,64 +96,23 @@ def get_topic_summary(limit: int = Query(10, ge=1, le=100), days: int = Query(30
     to = date.today().isoformat()
     from_ = (date.today() - timedelta(days=days)).isoformat()
     
-    dfrom = date.fromisoformat(from_)
-    dto = date.fromisoformat(to)
+    db_path = s.stage_dir.parent / "news.db"
+    if not db_path.exists():
+        return {
+            "period": {"from": from_, "to": to, "days": days},
+            "topics": [],
+            "total_unique_topics": 0,
+            "total_articles_with_topics": 0
+        }
     
-    # Quick aggregation on limited date range
-    all_dfs = []
-    
-    # Mediastack ONLY (GDELT and RSS are removed)
-    for source in ["mediastack"]:
-        try:
-            lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
-            df = lf.collect()
-            
-            if df.height == 0:
-                continue
-            
-            if "topics" not in df.columns:
-                continue
-            
-            # Fast Polars aggregation
-            topic_counts = (df
-                .select("topics")
-                .explode("topics")
-                .filter(pl.col("topics").is_not_null() & (pl.col("topics") != ""))
-                .group_by("topics")
-                .agg(pl.count().alias("count"))
-                .sort("count", descending=True)
-            )
-            
-            all_dfs.append(topic_counts)
-        except Exception:
-            continue
-    
-    # Combine results
-    if all_dfs:
-        combined = pl.concat(all_dfs)
-        topic_counts = (combined
-            .group_by("topics")
-            .agg(pl.sum("count").alias("count"))
-            .sort("count", descending=True)
-            .limit(limit)
-        )
-        
-        topics_list = [
-            {"name": row["topics"], "count": row["count"]}
-            for row in topic_counts.to_dicts()
-        ]
-        total_unique = combined.select("topics").unique().height
-        total_articles = combined.select(pl.sum("count")).item()
-    else:
-        topics_list = []
-        total_unique = 0
-        total_articles = 0
+    db = NewsDB(db_path)
+    topics_list = db.get_all_topics(from_date=from_, to_date=to, limit=limit)
     
     return {
         "period": {"from": from_, "to": to, "days": days},
         "topics": topics_list,
-        "total_unique_topics": total_unique,
-        "total_articles_with_topics": total_articles
+        "total_unique_topics": len(topics_list),
+        "total_articles_with_topics": sum(t["count"] for t in topics_list)
     }
 
 
@@ -244,10 +124,6 @@ def get_topic_stats(
 ):
     """
     Get time-series counts of articles per topic.
-    
-    Returns:
-    - Topic counts grouped by time period (month or year)
-    - Useful for trending and pattern analysis
     """
     s = load_settings()
     
@@ -257,70 +133,27 @@ def get_topic_stats(
     if not from_:
         from_ = (date.today() - timedelta(days=365)).isoformat()
     
-    dfrom = date.fromisoformat(from_)
-    dto = date.fromisoformat(to)
+    db_path = s.stage_dir.parent / "news.db"
+    if not db_path.exists():
+        return {
+            "period": {"from": from_, "to": to},
+            "granularity": granularity,
+            "topics": [],
+            "periods": [],
+            "data": []
+        }
     
-    # Collect all articles with topics and dates
-    period_topic_counts = defaultdict(lambda: defaultdict(int))
-    all_periods = set()
+    db = NewsDB(db_path)
     
-    # Mediastack ONLY (GDELT and RSS are removed)
-    for source in ["mediastack"]:
-        try:
-            lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
-            df = lf.collect()
-            
-            if df.height == 0:
-                continue
-            
-            if "topics" in df.columns and "published_at" in df.columns:
-                # Normalize published_at to string
-                df = df.with_columns(pl.col("published_at").cast(pl.Utf8))
-                
-                # Extract period from published_at
-                if granularity == "year":
-                    df = df.with_columns(pl.col("published_at").str.slice(0, 4).alias("period"))
-                else:  # month
-                    df = df.with_columns(pl.col("published_at").str.slice(0, 7).alias("period"))
-                
-                for row in df.to_dicts():
-                    period = row.get("period")
-                    topics_list = row.get("topics") or []
-                    
-                    if period and isinstance(topics_list, list):
-                        all_periods.add(period)
-                        for topic in topics_list:
-                            if topic:
-                                period_topic_counts[period][topic] += 1
-        except Exception:
-            continue
-    
-    # Sort periods
-    periods = sorted(list(all_periods))
-    
-    # Collect all unique topics
-    all_topics = set()
-    for period_dict in period_topic_counts.values():
-        all_topics.update(period_dict.keys())
-    all_topics = sorted(list(all_topics))
-    
-    # Build response: time series format
-    data = []
-    for period in periods:
-        for topic in all_topics:
-            count = period_topic_counts[period].get(topic, 0)
-            data.append({
-                "period": period,
-                "topic": topic,
-                "count": count
-            })
+    # Get heatmap data and transform for time-series format
+    heatmap = db.get_heatmap(from_date=from_, to_date=to, topics=None, granularity=granularity, format="flat")
     
     return {
         "period": {"from": from_, "to": to},
         "granularity": granularity,
-        "topics": all_topics,
-        "periods": periods,
-        "data": data
+        "topics": heatmap.get("topics", []),
+        "periods": heatmap.get("periods", []),
+        "data": heatmap.get("data", [])
     }
 
 
@@ -334,9 +167,6 @@ def get_topic_coverage(
 ):
     """
     Get heatmap-compatible topic coverage data.
-    
-    Similar to news_heatmap but works with actual topics field instead of text matching.
-    Returns counts of articles per topic per time period.
     """
     s = load_settings()
     
@@ -351,96 +181,26 @@ def get_topic_coverage(
     if not from_:
         from_ = (date.today() - timedelta(days=365)).isoformat()
     
-    dfrom = date.fromisoformat(from_)
-    dto = date.fromisoformat(to)
-    
-    # Collect counts
-    period_topic_counts = defaultdict(lambda: defaultdict(int))
-    all_periods = set()
-    
-    # Mediastack ONLY (GDELT and RSS are removed)
-    for source in ["mediastack"]:
-        try:
-            lf = scan_parquet_glob(s.stage_dir, source, "news_docs", dfrom, dto)
-            df = lf.collect()
-            
-            if df.height == 0:
-                continue
-            
-            if "topics" in df.columns and "published_at" in df.columns:
-                # Normalize published_at
-                df = df.with_columns(pl.col("published_at").cast(pl.Utf8))
-                
-                # Extract period
-                if granularity == "year":
-                    df = df.with_columns(pl.col("published_at").str.slice(0, 4).alias("period"))
-                else:  # month
-                    df = df.with_columns(pl.col("published_at").str.slice(0, 7).alias("period"))
-                
-                for row in df.to_dicts():
-                    period = row.get("period")
-                    topics_list = row.get("topics") or []
-                    
-                    if period and isinstance(topics_list, list):
-                        all_periods.add(period)
-                        for topic in topics_list:
-                            if topic in topic_list:
-                                period_topic_counts[period][topic] += 1
-        except Exception:
-            continue
-    
-    periods = sorted(list(all_periods))
-    
-    # Build response
-    if format == "matrix":
-        # Matrix format
-        matrix = []
-        for period in periods:
-            row = [period_topic_counts[period].get(topic, 0) for topic in topic_list]
-            matrix.append(row)
-        
+    db_path = s.stage_dir.parent / "news.db"
+    if not db_path.exists():
         return {
             "from": from_,
             "to": to,
             "granularity": granularity,
+            "data": [] if format == "flat" else [],
             "topics": topic_list,
-            "periods": periods,
-            "matrix": matrix
+            "periods": [],
+            "matrix": [] if format == "matrix" else None
         }
-    else:
-        # Flat format
-        data = []
-        for period in periods:
-            for topic in topic_list:
-                data.append({
-                    "period": period,
-                    "topic": topic,
-                    "count": period_topic_counts[period].get(topic, 0)
-                })
-        
-        return {
-            "from": from_,
-            "to": to,
-            "granularity": granularity,
-            "data": data,
-            "topics": topic_list,
-            "periods": periods
-        }
+    
+    db = NewsDB(db_path)
+    return db.get_heatmap(from_date=from_, to_date=to, topics=topic_list, granularity=granularity, format=format)
 
 
 @router.post("/news/topics/add")
 def add_topic(body: dict[str, Any]):
     """
     Add a new topic to the configured topics list.
-    
-    Request body:
-    - symbol: topic name (e.g., "AI", "semiconductor")
-    - expires_at: optional expiration date (defaults to 1 year from now)
-    
-    Returns:
-    - success: bool
-    - topic: added topic object
-    - error: error message if failed
     """
     s = load_settings()
     topic_name = body.get("symbol", "").strip().upper()
@@ -497,14 +257,6 @@ def add_topic(body: dict[str, Any]):
 def delete_topic(topic_name: str):
     """
     Remove a topic from the configured topics list.
-    
-    Note: This does NOT delete articles with this topic;
-    it only removes it from the scheduled ingestion list.
-    
-    Returns:
-    - success: bool
-    - topic_removed: topic name
-    - remaining_count: number of topics left
     """
     topic_name = topic_name.strip().upper()
     
