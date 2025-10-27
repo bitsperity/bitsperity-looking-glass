@@ -577,40 +577,36 @@ async def run_batch_embedding(job_id: str, params: dict):
             for idx, article in enumerate(batch_articles):
                 # Use Satbase article ID as Qdrant ID - convert to UUID for string IDs
                 article_id = article["id"]
-                if isinstance(article_id, int) or (isinstance(article_id, str) and article_id.isdigit()):
-                    # If numeric, use as integer
-                    base_point_id = int(article_id)
-                else:
-                    # If string (like SHA hex), convert to UUID for Qdrant
-                    try:
-                        import uuid
-                        base_point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(article_id)))
-                    except Exception:
-                        # Fallback: use absolute hash value as large integer
-                        base_point_id = abs(hash(str(article_id))) % (2**63)
-
-                # derive deterministic sub-ids per vector_type
-                def pid(suffix: int):
-                    if isinstance(base_point_id, int):
-                        return base_point_id * 10 + suffix
-                    return f"{base_point_id}-{suffix}"
+                is_numeric = isinstance(article_id, int) or (isinstance(article_id, str) and article_id.isdigit())
+                
+                # Helper: deterministic point ID per vector_type
+                def pid(vector_type: str):
+                    if is_numeric:
+                        # Integer IDs: multiply by 10 and add suffix
+                        base = int(article_id)
+                        suffix_map = {"title": 1, "summary": 2, "body": 3}
+                        return base * 10 + suffix_map[vector_type]
+                    else:
+                        # String IDs: create UUID5 from news_id + vector_type
+                        unique_str = f"{article_id}:{vector_type}"
+                        return str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_str))
 
                 # Title vector
                 upsert_accumulator.append(PointStruct(
-                    id=pid(1),
+                    id=pid("title"),
                     vector=title_vecs[idx].tolist(),
                     payload={"news_id": article["id"], "vector_type": "title"},
                 ))
                 # Summary vector
                 upsert_accumulator.append(PointStruct(
-                    id=pid(2),
+                    id=pid("summary"),
                     vector=summary_vecs[idx].tolist(),
                     payload={"news_id": article["id"], "vector_type": "summary"},
                 ))
                 # Body vector (only if available)
                 if bodies[idx]:
                     upsert_accumulator.append(PointStruct(
-                        id=pid(3),
+                        id=pid("body"),
                         vector=body_vecs[idx].tolist(),
                         payload={"news_id": article["id"], "vector_type": "body"},
                     ))
