@@ -18,6 +18,11 @@
   import Badge from '$lib/components/shared/Badge.svelte';
   import StatusIndicator from '$lib/components/tesseract/StatusIndicator.svelte';
   import AdminSidebar from '$lib/components/tesseract/AdminSidebar.svelte';
+  import KnowledgeGraph from '$lib/components/tesseract/KnowledgeGraph.svelte';
+
+  // Tab State
+  let activeTab: 'search' | 'graph' = 'search';
+  let graphArticle: SearchResult | null = null;
 
   // Search State
   let query = '';
@@ -104,17 +109,9 @@
   }
 
   async function loadSimilar(item: SearchResult) {
-    showSimilar = true;
-    similarFor = item;
-    similarLoading = true;
-    try {
-      const data = await findSimilar(item.id, 5);
-      similarItems = data.similar_articles || [];
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    } finally {
-      similarLoading = false;
-    }
+    // Switch to graph tab and set the article
+    graphArticle = item;
+    activeTab = 'graph';
   }
 
   async function refreshStatus() {
@@ -241,7 +238,28 @@
     </div>
   </div>
 
+  <!-- Tabs -->
+  <div class="flex-shrink-0 border-b border-neutral-700/20">
+    <div class="max-w-6xl w-full mx-auto px-6">
+      <div class="flex gap-1">
+        <button
+          class="px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 {activeTab === 'search' ? 'text-blue-400 border-blue-500' : 'text-neutral-400 border-transparent hover:text-neutral-200'}"
+          on:click={() => activeTab = 'search'}
+        >
+          Search
+        </button>
+        <button
+          class="px-6 py-3 text-sm font-semibold transition-all duration-200 border-b-2 {activeTab === 'graph' ? 'text-purple-400 border-purple-500' : 'text-neutral-400 border-transparent hover:text-neutral-200'}"
+          on:click={() => activeTab = 'graph'}
+        >
+          Knowledge Graph
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Search Section -->
+  {#if activeTab === 'search'}
   <div class="flex-shrink-0 bg-gradient-to-b from-neutral-900/40 to-neutral-950/40 backdrop-blur-sm border-b border-neutral-700/10">
     <div class="max-w-6xl w-full mx-auto px-6 py-6">
       <div class="space-y-4">
@@ -413,6 +431,33 @@
       {/if}
     </div>
   </div>
+  {:else}
+  <!-- Knowledge Graph Tab -->
+  <div class="flex-1 overflow-hidden">
+    {#if graphArticle}
+      <KnowledgeGraph initialArticle={graphArticle} />
+    {:else}
+      <div class="flex items-center justify-center h-full">
+        <div class="text-center">
+          <div class="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500/10 to-purple-600/5 flex items-center justify-center mx-auto mb-6 border border-purple-500/20">
+            <svg class="w-10 h-10 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-neutral-200 mb-2">No article selected</h3>
+          <p class="text-sm text-neutral-400 mb-6">Click "Similar" on any search result to explore connections</p>
+          <Button
+            variant="primary"
+            size="md"
+            on:click={() => activeTab = 'search'}
+          >
+            Go to Search
+          </Button>
+        </div>
+      </div>
+    {/if}
+  </div>
+  {/if}
 </div>
 
 <!-- Admin Sidebar -->
