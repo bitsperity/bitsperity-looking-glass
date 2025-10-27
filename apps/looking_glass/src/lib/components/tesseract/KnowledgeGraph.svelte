@@ -4,6 +4,7 @@
   import Button from '../shared/Button.svelte';
   import GraphRightSidebar from './GraphRightSidebar.svelte';
   import GraphLeftSidebar from './GraphLeftSidebar.svelte';
+  import GraphControls from './GraphControls.svelte';
   import { knowledgeGraphStore, type GraphNode, type GraphEdge } from '$lib/stores/tesseract';
   
   export let initialArticle: SearchResult | null = null;
@@ -745,34 +746,13 @@
         {/if}
         
         <!-- Pan & Zoom Controls (move left when hover panel or pinned sidebar is visible) -->
-        <div class="absolute top-4 transition-all duration-300 bg-gradient-to-br from-neutral-800/90 to-neutral-900/80 backdrop-blur-lg rounded-lg p-3 border border-neutral-700/50 shadow-xl {pinnedNode || hoveredNode ? 'right-[21rem]' : 'right-4'}">
-          <div class="flex flex-col gap-2">
-            <button
-              on:click={() => { zoom = Math.min(5, zoom * 1.2); drawGraph(); saveGraphState(); }}
-              class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-neutral-300 hover:text-white transition-colors"
-              title="Zoom In"
-            >
-              +
-            </button>
-            <button
-              on:click={() => { zoom = Math.max(0.1, zoom / 1.2); drawGraph(); saveGraphState(); }}
-              class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-neutral-300 hover:text-white transition-colors"
-              title="Zoom Out"
-            >
-              −
-            </button>
-            <button
-              on:click={() => { zoom = 1; panX = 0; panY = 0; drawGraph(); saveGraphState(); }}
-              class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-xs text-neutral-300 hover:text-white transition-colors"
-              title="Reset View"
-            >
-              ⟲
-            </button>
-          </div>
-          <div class="mt-2 pt-2 border-t border-neutral-700/50 text-xs text-neutral-400 text-center">
-            {(zoom * 100).toFixed(0)}%
-          </div>
-        </div>
+        <GraphControls
+          shifted={Boolean(pinnedNode || hoveredNode)}
+          {zoom}
+          on:zoomIn={() => { zoom = Math.min(5, zoom * 1.2); drawGraph(); saveGraphState(); }}
+          on:zoomOut={() => { zoom = Math.max(0.1, zoom / 1.2); drawGraph(); saveGraphState(); }}
+          on:reset={() => { zoom = 1; panX = 0; panY = 0; drawGraph(); saveGraphState(); }}
+        />
         
       </div>
       
