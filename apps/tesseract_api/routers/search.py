@@ -378,21 +378,20 @@ async def run_batch_embedding(job_id: str, params: dict):
     emb = get_embedder()
     
     try:
-        db.update_job_status(job_id, "running")
+        # PHASE 1: FETCH ALL ARTICLES FROM SATBASE
+        db.update_job_status(job_id, "fetching", processed=0, total=0)
         
         # Configure Satbase fetch
         satbase_url = os.getenv("TESSERACT_SATBASE_URL", "http://localhost:8080/v1/news")
         
         # Pagination setup
-        page_size = 1000
+        page_size = 100  # Smaller batches for more granular progress updates
         offset = 0
-        total_fetched = 0
-        total_embedded = 0
+        all_articles = []
         embedding_batch_size = 32 if emb.device == "cuda" else 16
         upsert_chunk_size = 256
-        upsert_accumulator = []
         
-        print(f"📥 Fetching from Satbase: {satbase_url}")
+        print(f"📥 PHASE 1: Fetching from Satbase: {satbase_url}")
         
         async with httpx.AsyncClient(timeout=600.0) as client:
             while True:
@@ -433,8 +432,14 @@ async def run_batch_embedding(job_id: str, params: dict):
                         print(f"✓ No more articles at offset {offset}")
                         break
                     
-                    total_fetched += len(articles)
-                    print(f"📄 Fetched {len(articles)} articles (total: {total_fetched})")
+                    # Filter by incremental + body_only DURING fetch
+                    if params.get("incremental"):
+                        articles = db.get_articles_needing_embedding(articles)
+                        print(f"   After incremental filter: {len(articles)} need embedding")
+                    
+                    if articles:
+                        all_articles.extend(articles)
+                        print(f"📄 Fetched {len(articles)} articles (total collected: {len(all_articles)})")
                     
                 except asyncio.TimeoutError as e:
                     print(f"⏳ Timeout fetching from Satbase (timeout, will retry): {e}")
@@ -444,87 +449,95 @@ async def run_batch_embedding(job_id: str, params: dict):
                     print(f"❌ Satbase fetch failed: {type(e).__name__}: {e}")
                     raise
                 
-                # Filter by incremental + body_only
-                if params.get("incremental"):
-                    articles = db.get_articles_needing_embedding(articles)
-                    print(f"   After incremental filter: {len(articles)} need embedding")
-                
-                if not articles:
-                    offset += page_size
-                    continue
-                
-                # Embed articles
-                for i in range(0, len(articles), embedding_batch_size):
-                    batch_articles = articles[i:i+embedding_batch_size]
-                    batch_texts = [
-                        f"{a.get('title', '')}. {extract_text_from_article(a)}"
-                        for a in batch_articles
-                    ]
-                    
-                    batch_embeddings = emb.encode(batch_texts, batch_size=embedding_batch_size, is_query=False)
-                    
-                    for article, emb_vec in zip(batch_articles, batch_embeddings):
-                        # Use Satbase article ID as Qdrant ID - convert to UUID for string IDs
-                        article_id = article["id"]
-                        if isinstance(article_id, int) or (isinstance(article_id, str) and article_id.isdigit()):
-                            # If numeric, use as integer
-                            point_id = int(article_id)
-                        else:
-                            # If string (like SHA hex), convert to UUID for Qdrant
-                            try:
-                                import uuid
-                                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(article_id)))
-                            except Exception:
-                                # Fallback: use absolute hash value as large integer
-                                point_id = abs(hash(str(article_id))) % (2**63)
-                        
-                        upsert_accumulator.append(
-                            PointStruct(
-                                id=point_id,
-                                vector=emb_vec.tolist(),
-                                payload={
-                                    "news_id": article["id"],
-                                    "summary": extract_text_from_article(article),
-                                },
-                            )
-                        )
-                        
-                        # Mark as embedded
-                        db.mark_article_embedded(
-                            article["id"],
-                            article.get("published_at", ""),
-                            article.get("title", ""),
-                            extract_text_from_article(article)
-                        )
-                        
-                        total_embedded += 1
-                    
-                    # Upsert chunk
-                    if len(upsert_accumulator) >= upsert_chunk_size:
-                        vector_store.upsert(upsert_accumulator, wait=True)
-                        print(f"✓ Upserted {len(upsert_accumulator)} vectors")
-                        upsert_accumulator.clear()
-                        
-                        # Memory hygiene
-                        if emb.device == "cuda":
-                            try:
-                                import torch
-                                torch.cuda.synchronize()
-                                torch.cuda.empty_cache()
-                            except Exception:
-                                pass
-                        gc.collect()
-                    
-                    db.update_job_status(job_id, "running", processed=total_embedded, total=total_fetched)
-                
                 offset += page_size
+        
+        # PHASE 2: EMBED ALL COLLECTED ARTICLES
+        if not all_articles:
+            print("❌ No articles to embed!")
+            db.update_job_status(job_id, "done", processed=0, total=0)
+            return
+        
+        print(f"\n✓ PHASE 1 COMPLETE: Fetched {len(all_articles)} articles")
+        print(f"📌 PHASE 2: Starting embedding of {len(all_articles)} articles...")
+        
+        db.update_job_status(job_id, "running", processed=0, total=len(all_articles))
+        
+        total_embedded = 0
+        upsert_accumulator = []
+        
+        for i in range(0, len(all_articles), embedding_batch_size):
+            batch_articles = all_articles[i:i+embedding_batch_size]
+            batch_texts = [
+                f"{a.get('title', '')}. {extract_text_from_article(a)}"
+                for a in batch_articles
+            ]
+            
+            batch_embeddings = emb.encode(batch_texts, batch_size=embedding_batch_size, is_query=False)
+            
+            for article, emb_vec in zip(batch_articles, batch_embeddings):
+                # Use Satbase article ID as Qdrant ID - convert to UUID for string IDs
+                article_id = article["id"]
+                if isinstance(article_id, int) or (isinstance(article_id, str) and article_id.isdigit()):
+                    # If numeric, use as integer
+                    point_id = int(article_id)
+                else:
+                    # If string (like SHA hex), convert to UUID for Qdrant
+                    try:
+                        import uuid
+                        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(article_id)))
+                    except Exception:
+                        # Fallback: use absolute hash value as large integer
+                        point_id = abs(hash(str(article_id))) % (2**63)
+                
+                upsert_accumulator.append(
+                    PointStruct(
+                        id=point_id,
+                        vector=emb_vec.tolist(),
+                        payload={
+                            "news_id": article["id"],
+                            "summary": extract_text_from_article(article),
+                        },
+                    )
+                )
+                
+                # Mark as embedded
+                db.mark_article_embedded(
+                    article["id"],
+                    article.get("published_at", ""),
+                    article.get("title", ""),
+                    extract_text_from_article(article)
+                )
+                
+                total_embedded += 1
+            
+            # Update progress after EVERY embedding batch (more granular updates)
+            db.update_job_status(job_id, "running", processed=total_embedded, total=len(all_articles))
+            
+            # Small delay to make progress visible (esp. important for fast GPU)
+            await asyncio.sleep(0.5)
+            
+            # Upsert chunk
+            if len(upsert_accumulator) >= upsert_chunk_size:
+                vector_store.upsert(upsert_accumulator, wait=True)
+                print(f"✓ Upserted {len(upsert_accumulator)} vectors")
+                upsert_accumulator.clear()
+                
+                # Memory hygiene
+                if emb.device == "cuda":
+                    try:
+                        import torch
+                        torch.cuda.synchronize()
+                        torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                gc.collect()
         
         # Flush remaining
         if upsert_accumulator:
             vector_store.upsert(upsert_accumulator, wait=True)
             print(f"✓ Upserted {len(upsert_accumulator)} vectors (final)")
         
-        db.update_job_status(job_id, "done", processed=total_embedded, total=total_embedded)
+        db.update_job_status(job_id, "done", processed=total_embedded, total=len(all_articles))
         db.complete_job(job_id)
         print(f"🎉 Successfully embedded {total_embedded} articles!")
         
