@@ -6,6 +6,7 @@
   import GraphLeftSidebar from './GraphLeftSidebar.svelte';
   import GraphControls from './GraphControls.svelte';
   import TopicLegend from './TopicLegend.svelte';
+  import GraphCanvas from './GraphCanvas.svelte';
   import { knowledgeGraphStore, type GraphNode, type GraphEdge } from '$lib/stores/tesseract';
   
   export let initialArticle: SearchResult | null = null;
@@ -717,16 +718,15 @@
     
     {#if viewMode === 'graph'}
       <div class="flex items-center justify-center h-full p-6 relative">
-        <canvas
-          bind:this={canvas}
-          on:click={handleCanvasClick}
+        <GraphCanvas
+          on:ready={(e) => { canvas = e.detail.canvas; ctx = canvas.getContext('2d'); canvas.width = CANVAS_WIDTH; canvas.height = CANVAS_HEIGHT; }}
+          on:click={(e) => handleCanvasClick(e.detail)}
           on:contextmenu={(e) => e.preventDefault()}
-          on:mousedown={handleCanvasMouseDown}
-          on:mouseup={handleCanvasMouseUp}
-          on:mousemove={handleCanvasMove}
-          on:wheel={handleCanvasWheel}
-          class="rounded-xl border border-neutral-700/30 shadow-2xl bg-neutral-900/30 backdrop-blur-sm"
-        ></canvas>
+          on:mousedown={(e) => handleCanvasMouseDown(e.detail)}
+          on:mouseup={(e) => handleCanvasMouseUp(e.detail)}
+          on:mousemove={(e) => handleCanvasMove(e.detail)}
+          on:wheel={(e) => handleCanvasWheel(e.detail)}
+        />
         
         <!-- Topic Legend (bottom left) -->
         {#if nodes.length > 0}
