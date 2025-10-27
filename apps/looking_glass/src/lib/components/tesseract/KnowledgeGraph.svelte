@@ -130,9 +130,11 @@
     }
   }
   
-  // Watch hoveredNode and fetch body ONLY when article ID changes
+  // Watch hoveredNode OR pinnedNode and fetch body ONLY when article ID changes
   $: {
-    const currentArticleId = hoveredNode?.article.id || null;
+    const displayNode = pinnedNode || hoveredNode;
+    const currentArticleId = displayNode?.article.id || null;
+    
     if (currentArticleId && currentArticleId !== lastFetchedArticleId) {
       lastFetchedArticleId = currentArticleId;
       fetchFullBody(currentArticleId);
