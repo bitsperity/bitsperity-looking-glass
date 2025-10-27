@@ -1,16 +1,17 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { 
-    semanticSearch,
+    search,
     findSimilar,
-    adminInitCollection,
-    adminEmbedBatch,
-    adminEmbedStatus,
-    adminListCollections,
-    adminSwitchCollection,
-    adminDeleteCollection,
+    initCollection,
+    embedBatch,
+    getEmbedStatus,
+    listCollections,
+    switchCollection,
     type SearchResult,
-    type EmbedStatus
+    type JobStatus,
+    type OverallStatus,
+    type EmbedJobRequest
   } from '$lib/api/tesseract';
   import NewsCard from '$lib/components/news/NewsCard.svelte';
   import Button from '$lib/components/shared/Button.svelte';
@@ -23,18 +24,23 @@
   let results: SearchResult[] = [];
   let loading = false;
   let error: string | null = null;
+  let searchTimeout: any = null;
 
   // Filters
   let showFilters = false;
+  let topics = '';
   let tickers = '';
+  let language = '';
+  let bodyOnly: boolean = true;
+
   const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-  let from = monthAgo;
-  let to = today;
+  let fromDate = monthAgo;
+  let toDate = today;
 
   // Admin State
   let adminOpen = false;
-  let embedStatus: EmbedStatus | null = null;
+  let embedStatus: JobStatus | OverallStatus | null = null;
   let collections: any = null;
   let statusPollInterval: any = null;
 
@@ -44,7 +50,7 @@
   let similarLoading = false;
   let similarItems: SearchResult[] = [];
 
-  async function search() {
+  async function performSearch() {
     if (!query.trim()) return;
 
     loading = true;
@@ -52,23 +58,43 @@
 
     try {
       const filters: any = {};
+      
+      if (topics.trim()) {
+        filters.topics = topics.split(',').map(t => t.trim());
+      }
       if (tickers.trim()) {
         filters.tickers = tickers.split(',').map(t => t.trim().toUpperCase());
       }
-      if (from) filters.from = from;
-      if (to) filters.to = to;
+      if (language.trim()) {
+        filters.language = language.trim();
+      }
+      // Only add body_available filter if user explicitly sets it AND it's true
+      // Default behavior: show all articles regardless of body availability
+      // if (bodyOnly === true || bodyOnly === 'true') {
+      //   filters.body_available = true;
+      // }
 
-      const response = await semanticSearch(query, filters, 50);
+      const response = await search(query, filters, 50);
       results = response.results;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      if (e instanceof Error && e.name !== 'AbortError') {
+        error = e.message || String(e);
+      }
     } finally {
       loading = false;
     }
   }
 
+  function debouncedSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(performSearch, 250);
+  }
+
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') search();
+    if (e.key === 'Enter') {
+      clearTimeout(searchTimeout);
+      performSearch();
+    }
     if (e.key === 'Escape' && (showSimilar || adminOpen)) {
       showSimilar = false;
       adminOpen = false;
@@ -91,7 +117,7 @@
 
   async function refreshStatus() {
     try {
-      embedStatus = await adminEmbedStatus();
+      embedStatus = await getEmbedStatus();
     } catch (e) {
       console.error('Failed to refresh status:', e);
     }
@@ -99,7 +125,7 @@
 
   async function refreshCollections() {
     try {
-      collections = await adminListCollections();
+      collections = await listCollections();
     } catch (e) {
       console.error('Failed to refresh collections:', e);
     }
@@ -107,7 +133,7 @@
 
   async function handleInitCollection() {
     try {
-      await adminInitCollection();
+      await initCollection();
       await refreshStatus();
       await refreshCollections();
     } catch (e) {
@@ -117,9 +143,14 @@
 
   async function handleBatchStart(event: CustomEvent) {
     try {
-      await adminEmbedBatch(event.detail.from, event.detail.to);
+      const request: EmbedJobRequest = {
+        from_date: event.detail.from,
+        to_date: event.detail.to,
+        body_only: event.detail.body_only ?? true,
+        incremental: event.detail.incremental ?? true
+      };
+      await embedBatch(request);
       await refreshStatus();
-      // Start polling
       startStatusPolling();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -128,17 +159,8 @@
 
   async function handleCollectionSwitch(event: CustomEvent) {
     try {
-      await adminSwitchCollection(event.detail.name);
+      await switchCollection(event.detail.name);
       await refreshStatus();
-      await refreshCollections();
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    }
-  }
-
-  async function handleCollectionDelete(event: CustomEvent) {
-    try {
-      await adminDeleteCollection(event.detail.name);
       await refreshCollections();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -149,11 +171,11 @@
     if (statusPollInterval) return;
     statusPollInterval = setInterval(async () => {
       await refreshStatus();
-      // Stop polling wenn nicht mehr running
-      if (embedStatus && embedStatus.status !== 'running') {
+      // Stop polling when not running
+      if (embedStatus && 'status' in embedStatus && embedStatus.status !== 'running') {
         stopStatusPolling();
       }
-    }, 5000);
+    }, 2000);
   }
 
   function stopStatusPolling() {
@@ -165,14 +187,14 @@
 
   onMount(async () => {
     await refreshStatus();
-    // Start polling wenn already running
-    if (embedStatus && embedStatus.status === 'running') {
+    if (embedStatus && 'status' in embedStatus && embedStatus.status === 'running') {
       startStatusPolling();
     }
   });
 
   onDestroy(() => {
     stopStatusPolling();
+    clearTimeout(searchTimeout);
   });
 </script>
 
@@ -189,11 +211,13 @@
             <p class="text-xs text-neutral-500 mt-0.5">Semantic Intelligence Layer</p>
           </div>
           {#if embedStatus}
-            <StatusIndicator 
-              status={embedStatus.status} 
-              device={embedStatus.device} 
-              percent={embedStatus.percent ?? 0}
-            />
+            {#if 'status' in embedStatus}
+              <StatusIndicator 
+                status={embedStatus.status} 
+                device={undefined} 
+                percent={embedStatus.percent}
+              />
+            {/if}
           {/if}
         </div>
         <div class="flex items-center gap-3">
@@ -228,9 +252,9 @@
           <Button
             variant="primary"
             size="md"
-            on:click={search}
+            on:click={debouncedSearch}
             loading={loading}
-            classes="px-6"
+            class="px-6"
           >
             Search
           </Button>
@@ -250,8 +274,19 @@
         {#if showFilters}
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-neutral-800/30 border border-neutral-700/50 rounded-lg">
             <div>
-              <label class="text-xs text-neutral-400 mb-1.5 block">Tickers (optional)</label>
+              <label for="topics" class="text-xs text-neutral-400 mb-1.5 block">Topics (optional)</label>
               <input
+                id="topics"
+                type="text"
+                bind:value={topics}
+                placeholder="AI, Technology, Economy"
+                class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+              />
+            </div>
+            <div>
+              <label for="tickers" class="text-xs text-neutral-400 mb-1.5 block">Tickers (optional)</label>
+              <input
+                id="tickers"
                 type="text"
                 bind:value={tickers}
                 placeholder="NVDA, AMD, TSM"
@@ -259,22 +294,26 @@
               />
             </div>
             <div>
-              <label class="text-xs text-neutral-400 mb-1.5 block">From</label>
+              <label for="language" class="text-xs text-neutral-400 mb-1.5 block">Language (optional)</label>
               <input
-                type="date"
-                bind:value={from}
-                max={today}
-                class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                id="language"
+                type="text"
+                bind:value={language}
+                placeholder="en, de, fr"
+                class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
               />
             </div>
             <div>
-              <label class="text-xs text-neutral-400 mb-1.5 block">To</label>
-              <input
-                type="date"
-                bind:value={to}
-                max={today}
+              <label for="bodyOnly" class="text-xs text-neutral-400 mb-1.5 block">Body Only (optional)</label>
+              <select
+                id="bodyOnly"
+                bind:value={bodyOnly}
+                on:change={(e) => bodyOnly = e.target.value === 'true'}
                 class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
-              />
+              >
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
             </div>
           </div>
         {/if}
@@ -341,19 +380,19 @@
           <div class="flex flex-wrap gap-2 justify-center">
             <button 
               class="text-xs px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-neutral-300 transition-colors"
-              on:click={() => { query = 'semiconductor supply chain'; search(); }}
+              on:click={() => { query = 'semiconductor supply chain'; debouncedSearch(); }}
             >
               semiconductor supply chain
             </button>
             <button 
               class="text-xs px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-neutral-300 transition-colors"
-              on:click={() => { query = 'NVIDIA AI chips'; search(); }}
+              on:click={() => { query = 'NVIDIA AI chips'; debouncedSearch(); }}
             >
               NVIDIA AI chips
             </button>
             <button 
               class="text-xs px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-neutral-300 transition-colors"
-              on:click={() => { query = 'gold prices market sentiment'; search(); }}
+              on:click={() => { query = 'gold prices market sentiment'; debouncedSearch(); }}
             >
               gold prices market sentiment
             </button>
@@ -375,12 +414,17 @@
   on:initCollection={handleInitCollection}
   on:batchStart={handleBatchStart}
   on:collectionSwitch={handleCollectionSwitch}
-  on:collectionDelete={handleCollectionDelete}
 />
 
 <!-- Similar Articles Modal -->
 {#if showSimilar}
-  <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" on:click={() => { showSimilar = false; }}>
+  <button
+    type="button"
+    class="fixed inset-0 bg-black/60 z-50"
+    on:click={() => { showSimilar = false; }}
+    aria-label="Close similar articles modal"
+  ></button>
+  <div class="fixed inset-0 flex items-center justify-center z-50" role="dialog" aria-modal="true">
     <div class="bg-neutral-900 border border-neutral-700 rounded-lg max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col" on:click|stopPropagation>
       <!-- Modal Header -->
       <div class="flex items-center justify-between p-4 border-b border-neutral-800">
@@ -389,6 +433,8 @@
           <div class="text-sm font-medium text-neutral-200 line-clamp-2">{similarFor?.title}</div>
         </div>
         <button 
+          type="button"
+          aria-label="Close similar articles"
           class="text-neutral-400 hover:text-neutral-200 text-2xl leading-none flex-shrink-0"
           on:click={() => { showSimilar = false; }}
         >

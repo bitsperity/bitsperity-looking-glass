@@ -1,9 +1,10 @@
 <script lang="ts">
-  export let status: 'idle' | 'running' | 'done' | 'error' | 'not_initialized' = 'idle';
+  export let status: 'created' | 'idle' | 'running' | 'done' | 'error' | 'not_initialized' = 'idle';
   export let device: string | null = null;
   export let percent: number = 0;
 
   const statusColors = {
+    created: 'bg-yellow-500',
     idle: 'bg-gray-500',
     running: 'bg-blue-500',
     done: 'bg-green-500',
@@ -12,6 +13,7 @@
   };
 
   const statusLabels = {
+    created: 'Created',
     idle: 'Idle',
     running: 'Running',
     done: 'Complete',

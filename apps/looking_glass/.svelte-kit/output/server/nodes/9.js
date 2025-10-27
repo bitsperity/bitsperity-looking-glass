@@ -7,6 +7,6 @@ export const universal = {
   "ssr": false
 };
 export const universal_id = "src/routes/ariadne/graph/+page.ts";
-export const imports = ["_app/immutable/nodes/9.CORZKLNY.js","_app/immutable/chunks/C1FmrZbK.js","_app/immutable/chunks/CBgra1dj.js","_app/immutable/chunks/IHki7fMi.js","_app/immutable/chunks/DhtULb7M.js","_app/immutable/chunks/BOwd3zbc.js","_app/immutable/chunks/DYwqP-GJ.js","_app/immutable/chunks/DxA6gHXq.js"];
+export const imports = ["_app/immutable/nodes/9.B8FHHYds.js","_app/immutable/chunks/C1FmrZbK.js","_app/immutable/chunks/dhUKVLUG.js","_app/immutable/chunks/IHki7fMi.js","_app/immutable/chunks/DhtULb7M.js","_app/immutable/chunks/Ci5A2wtf.js","_app/immutable/chunks/IhF8Dt7Q.js","_app/immutable/chunks/BrpMiXxy.js"];
 export const stylesheets = [];
 export const fonts = [];

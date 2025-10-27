@@ -11,9 +11,14 @@ class SearchResult(BaseModel):
     title: str
     text: str
     source: str
+    source_name: str | None = None
     url: str
     published_at: str
-    tickers: list[str]
+    topics: list[str] = []
+    tickers: list[str] = []
+    language: str | None = None
+    body_available: bool = False
+    news_id: str | None = None
 
 class SearchResponse(BaseModel):
     query: str
