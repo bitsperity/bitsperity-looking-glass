@@ -55,13 +55,71 @@
     error = null;
     
     try {
+      // Step 1: Get similar articles from Tesseract (only IDs, scores, summaries)
       const data = await findSimilar(article.id, 10);
       const similarArticles = data.similar_articles || [];
       
       // Filter by threshold
-      const filtered = similarArticles.filter((a: SearchResult) => 
+      const filtered = similarArticles.filter((a: any) => 
         (a.score || 0) >= similarityThreshold
       );
+      
+      // Step 2: Fetch full metadata from Satbase (bulk fetch WITHOUT body)
+      const newsIds = filtered.map((a: any) => a.id);
+      let enrichedArticles: SearchResult[] = [];
+      
+      if (newsIds.length > 0) {
+        try {
+          const satbaseResponse = await fetch('http://localhost:8080/v1/news/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: newsIds, include_body: false })
+          });
+          
+          if (satbaseResponse.ok) {
+            const satbaseData = await satbaseResponse.json();
+            const satbaseMap = new Map(
+              satbaseData.items.map((item: any) => [item.id, item])
+            );
+            
+            // Merge Tesseract scores with Satbase metadata
+            enrichedArticles = filtered.map((similar: any) => {
+              const satbaseArticle = satbaseMap.get(similar.id) || {};
+              return {
+                id: similar.id,
+                score: similar.score,
+                title: satbaseArticle.title || 'Unknown',
+                text: similar.text || satbaseArticle.description || '',
+                source: satbaseArticle.source_name || 'unknown',
+                source_name: satbaseArticle.source_name,
+                url: satbaseArticle.url || '',
+                published_at: satbaseArticle.published_at || '',
+                topics: satbaseArticle.topics || [],
+                tickers: satbaseArticle.tickers || [],
+                language: satbaseArticle.language,
+                body_available: false,
+                news_id: similar.id
+              } as SearchResult;
+            });
+          }
+        } catch (err) {
+          console.error('Failed to fetch from Satbase bulk:', err);
+          // Fallback: use minimal data from Tesseract
+          enrichedArticles = filtered.map((similar: any) => ({
+            id: similar.id,
+            score: similar.score,
+            title: similar.text?.substring(0, 50) + '...' || 'Unknown',
+            text: similar.text || '',
+            source: 'unknown',
+            url: '',
+            published_at: '',
+            topics: [],
+            tickers: [],
+            body_available: false,
+            news_id: similar.id
+          } as SearchResult));
+        }
+      }
       
       if (!isInitial) {
         trail = [...trail, article];
@@ -80,10 +138,10 @@
       nodes = [centerNode];
       edges = [];
       
-      const angleStep = (2 * Math.PI) / filtered.length;
+      const angleStep = (2 * Math.PI) / enrichedArticles.length;
       const radius = 250;
       
-      filtered.forEach((similar: SearchResult, idx: number) => {
+      enrichedArticles.forEach((similar: SearchResult, idx: number) => {
         const angle = idx * angleStep;
         const node: GraphNode = {
           id: similar.id,
