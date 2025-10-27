@@ -315,6 +315,46 @@ class NewsDB:
             
             return result
     
+    def get_articles_by_ids(self, ids: list[str]) -> list[dict]:
+        """Fetch multiple articles by their IDs."""
+        if not ids:
+            return []
+        
+        with self.conn() as conn:
+            # Create placeholders for SQL IN clause
+            placeholders = ",".join("?" * len(ids))
+            rows = conn.execute(f"""
+                SELECT 
+                    id, url, title, description, body_text,
+                    published_at, fetched_at, author, image,
+                    category, language, country, source_name
+                FROM news_articles
+                WHERE id IN ({placeholders})
+                ORDER BY published_at DESC
+            """, ids).fetchall()
+            
+            result = []
+            for row in rows:
+                article_dict = dict(row)
+                
+                # Fetch topics for this article
+                topics_list = conn.execute(
+                    "SELECT topic FROM news_topics WHERE article_id = ?",
+                    (article_dict["id"],)
+                ).fetchall()
+                article_dict["topics"] = [t[0] for t in topics_list]
+                
+                # Fetch tickers for this article
+                tickers_list = conn.execute(
+                    "SELECT ticker FROM news_tickers WHERE article_id = ?",
+                    (article_dict["id"],)
+                ).fetchall()
+                article_dict["tickers"] = [t[0] for t in tickers_list]
+                
+                result.append(article_dict)
+            
+            return result
+    
     def count_articles(
         self,
         from_date: str | date | None = None,

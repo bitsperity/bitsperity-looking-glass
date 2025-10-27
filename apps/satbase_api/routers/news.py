@@ -142,6 +142,58 @@ def delete_news(news_id: str):
         )
 
 
+@router.post("/news/bulk")
+def bulk_get_news(body: dict):
+    """
+    Fetch multiple news articles by their IDs in one request.
+    
+    Request body:
+    {
+        "ids": ["id1", "id2", "id3", ...],
+        "include_body": true  (optional, default: false)
+    }
+    
+    Response:
+    {
+        "items": [article1, article2, ...],
+        "count": 3,
+        "found": 3,
+        "missing": 0,
+        "missing_ids": []
+    }
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    ids = body.get("ids", [])
+    include_body = body.get("include_body", False)
+    
+    if not ids:
+        return {"items": [], "count": 0, "found": 0, "missing": 0, "missing_ids": []}
+    
+    if not isinstance(ids, list):
+        return JSONResponse({"error": "ids must be a list"}, status_code=400)
+    
+    # Fetch articles by IDs
+    articles = db.get_articles_by_ids(ids)
+    
+    # Remove body if not requested
+    if not include_body:
+        for item in articles:
+            item.pop("body_text", None)
+    
+    found_ids = {article["id"] for article in articles}
+    missing_ids = [id for id in ids if id not in found_ids]
+    
+    return {
+        "items": articles,
+        "count": len(articles),
+        "found": len(articles),
+        "missing": len(missing_ids),
+        "missing_ids": missing_ids
+    }
+
+
 @router.get("/news/heatmap")
 def news_heatmap(
     topics: str = Query(..., description="Comma-separated topic names"),

@@ -52,26 +52,60 @@ async def semantic_search(request: SearchRequest):
         limit=request.limit,
         query_filter=qdrant_filter
     )
+
+    # Extract news_ids to bulk fetch from Satbase
+    news_ids = [
+        qdrant_result.payload.get("news_id") 
+        for qdrant_result in qdrant_results 
+        if qdrant_result.payload.get("news_id")
+    ]
     
-    # Build response - no deduplication needed, just return Qdrant results
+    # Build a mapping of news_id -> (qdrant_result with score)
+    qdrant_results_by_id = {
+        qdrant_result.payload.get("news_id"): qdrant_result
+        for qdrant_result in qdrant_results
+        if qdrant_result.payload.get("news_id")
+    }
+    
+    # Fetch full article metadata from Satbase
+    satbase_articles = {}
+    if news_ids:
+        try:
+            satbase_url = os.getenv("TESSERACT_SATBASE_URL", "http://localhost:8080/v1/news/bulk")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    satbase_url,
+                    json={"ids": news_ids, "include_body": False}
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    satbase_articles = {
+                        article["id"]: article 
+                        for article in data.get("items", [])
+                    }
+        except Exception as e:
+            print(f"⚠️ Failed to fetch from Satbase bulk endpoint: {e}")
+            # Continue anyway with partial data from Qdrant
+    
+    # Build results combining Qdrant scores with Satbase metadata
     results = []
-    for qdrant_result in qdrant_results:
-        news_id = qdrant_result.payload.get("news_id")
-        summary = qdrant_result.payload.get("summary", "")
+    for news_id, qdrant_result in qdrant_results_by_id.items():
+        satbase_article = satbase_articles.get(news_id, {})
         
         result = SearchResult(
             id=news_id or str(qdrant_result.id),
             score=qdrant_result.score,
-            title="",  # Not stored in Tesseract
-            text=summary,  # Summary only
-            source="",  # Not stored in Tesseract
-            url="",  # Not stored in Tesseract
-            published_at="",  # Not stored in Tesseract
-            topics=[],  # Not stored in Tesseract
-            tickers=[],  # Not stored in Tesseract
-            language=None,  # Not stored in Tesseract
-            body_available=False,  # Not stored in Tesseract
-            news_id=news_id,  # For agent to fetch full article from Satbase
+            title=satbase_article.get("title", ""),
+            text=satbase_article.get("description", ""),
+            source=satbase_article.get("source_name", ""),
+            source_name=satbase_article.get("source_name"),
+            url=satbase_article.get("url", ""),
+            published_at=satbase_article.get("published_at", ""),
+            topics=satbase_article.get("topics", []),
+            tickers=satbase_article.get("tickers", []),
+            language=satbase_article.get("language"),
+            body_available=bool(satbase_article.get("body_text")),
+            news_id=news_id,
         )
         results.append(result)
     
