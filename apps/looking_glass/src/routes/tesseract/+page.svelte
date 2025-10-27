@@ -204,15 +204,15 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<div class="h-screen flex flex-col overflow-hidden bg-neutral-950">
+<div class="h-screen flex flex-col overflow-hidden bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950">
   <!-- Header -->
-  <div class="flex-shrink-0 border-b border-neutral-800 bg-neutral-900/50 backdrop-blur-sm">
-    <div class="max-w-6xl w-full mx-auto px-6 py-4">
+  <div class="flex-shrink-0 border-b border-neutral-700/20 bg-gradient-to-b from-neutral-900/80 to-neutral-950/60 backdrop-blur-lg shadow-lg">
+    <div class="max-w-6xl w-full mx-auto px-6 py-5">
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-6">
           <div>
-            <h1 class="text-xl font-semibold text-neutral-100">Tesseract</h1>
-            <p class="text-xs text-neutral-500 mt-0.5">Semantic Intelligence Layer</p>
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 via-blue-300 to-purple-400 bg-clip-text text-transparent">Tesseract</h1>
+            <p class="text-xs text-neutral-400 mt-1">Semantic Intelligence Layer</p>
           </div>
           {#if embedStatus}
             {#if 'status' in embedStatus}
@@ -232,6 +232,7 @@
             variant="secondary"
             size="sm"
             on:click={() => { adminOpen = true; refreshStatus(); refreshCollections(); }}
+            class="transition-all duration-200 hover:shadow-lg hover:shadow-blue-500/20"
           >
             Admin
           </Button>
@@ -241,24 +242,24 @@
   </div>
 
   <!-- Search Section -->
-  <div class="flex-shrink-0 bg-neutral-900/30">
+  <div class="flex-shrink-0 bg-gradient-to-b from-neutral-900/40 to-neutral-950/40 backdrop-blur-sm border-b border-neutral-700/10">
     <div class="max-w-6xl w-full mx-auto px-6 py-6">
       <div class="space-y-4">
         <!-- Search Input -->
-        <div class="flex gap-2">
+        <div class="flex gap-3">
           <input
             type="text"
             bind:value={query}
             on:keydown={handleKeydown}
             placeholder="What are you looking for? (e.g., 'semiconductor supply chain constraints')"
-            class="flex-1 bg-neutral-800/50 border border-neutral-700/50 rounded-lg px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+            class="flex-1 bg-gradient-to-b from-neutral-800/60 to-neutral-900/40 border border-neutral-600/30 rounded-xl px-4 py-3 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/30 transition-all duration-200 backdrop-blur-sm shadow-lg shadow-neutral-950/50 hover:border-neutral-500/50"
           />
           <Button
             variant="primary"
             size="md"
             on:click={debouncedSearch}
             loading={loading}
-            class="px-6"
+            class="px-8 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 transition-all duration-200"
           >
             Search
           </Button>
@@ -267,7 +268,7 @@
         <!-- Filters Toggle -->
         <div class="flex items-center gap-2">
           <button
-            class="text-xs text-neutral-400 hover:text-neutral-300 transition-colors"
+            class="text-xs text-neutral-400 hover:text-blue-400 transition-colors duration-200 font-medium"
             on:click={() => { showFilters = !showFilters; }}
           >
             {showFilters ? '▼' : '▶'} Filters
@@ -276,44 +277,44 @@
 
         <!-- Filters -->
         {#if showFilters}
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-neutral-800/30 border border-neutral-700/50 rounded-lg">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-gradient-to-br from-neutral-800/40 to-neutral-900/30 border border-neutral-600/20 rounded-xl backdrop-blur-lg shadow-lg shadow-neutral-950/50">
             <div>
-              <label for="topics" class="text-xs text-neutral-400 mb-1.5 block">Topics (optional)</label>
+              <label for="topics" class="text-xs text-neutral-300 mb-2 block font-semibold">Topics</label>
               <input
                 id="topics"
                 type="text"
                 bind:value={topics}
-                placeholder="AI, Technology, Economy"
-                class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                placeholder="AI, Technology"
+                class="w-full bg-neutral-800/50 border border-neutral-600/30 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/30 transition-all duration-200 backdrop-blur-sm"
               />
             </div>
             <div>
-              <label for="tickers" class="text-xs text-neutral-400 mb-1.5 block">Tickers (optional)</label>
+              <label for="tickers" class="text-xs text-neutral-300 mb-2 block font-semibold">Tickers</label>
               <input
                 id="tickers"
                 type="text"
                 bind:value={tickers}
-                placeholder="NVDA, AMD, TSM"
-                class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                placeholder="NVDA, AMD"
+                class="w-full bg-neutral-800/50 border border-neutral-600/30 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/30 transition-all duration-200 backdrop-blur-sm"
               />
             </div>
             <div>
-              <label for="language" class="text-xs text-neutral-400 mb-1.5 block">Language (optional)</label>
+              <label for="language" class="text-xs text-neutral-300 mb-2 block font-semibold">Language</label>
               <input
                 id="language"
                 type="text"
                 bind:value={language}
-                placeholder="en, de, fr"
-                class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                placeholder="en, de"
+                class="w-full bg-neutral-800/50 border border-neutral-600/30 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/30 transition-all duration-200 backdrop-blur-sm"
               />
             </div>
             <div>
-              <label for="bodyOnly" class="text-xs text-neutral-400 mb-1.5 block">Body Only (optional)</label>
+              <label for="bodyOnly" class="text-xs text-neutral-300 mb-2 block font-semibold">Body Only</label>
               <select
                 id="bodyOnly"
                 bind:value={bodyOnly}
                 on:change={(e) => bodyOnly = e.target.value === 'true'}
-                class="w-full bg-neutral-800/50 border border-neutral-700/50 rounded px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                class="w-full bg-neutral-800/50 border border-neutral-600/30 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:ring-1 focus:ring-blue-500/50 focus:border-blue-500/30 transition-all duration-200 backdrop-blur-sm"
               >
                 <option value="true">Yes</option>
                 <option value="false">No</option>
@@ -326,24 +327,27 @@
   </div>
 
   <!-- Results Area -->
-  <div class="flex-1 overflow-y-auto">
+  <div class="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-neutral-900 scrollbar-thumb-neutral-700">
     <div class="max-w-6xl w-full mx-auto px-6 py-6">
       {#if error}
-        <div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4 text-sm text-red-400 mb-4">
+        <div class="bg-gradient-to-r from-red-500/20 to-red-600/10 border border-red-500/30 rounded-xl p-4 text-sm text-red-300 mb-4 backdrop-blur-sm shadow-lg shadow-red-950/20">
           {error}
         </div>
       {/if}
 
       {#if loading}
-        <div class="flex flex-col items-center justify-center py-16">
-          <svg class="animate-spin h-10 w-10 text-blue-500 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <p class="text-sm text-neutral-400">Searching semantic space...</p>
+        <div class="flex flex-col items-center justify-center py-20">
+          <div class="relative w-12 h-12 mb-4">
+            <div class="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full animate-pulse opacity-25"></div>
+            <svg class="animate-spin h-12 w-12 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          </div>
+          <p class="text-sm text-neutral-300 font-medium">Searching semantic space...</p>
         </div>
       {:else if results.length > 0}
-        <div class="space-y-4">
+        <div class="space-y-3">
           {#each results as result}
             <div class="relative group">
               <div class="absolute -top-2 -left-2 z-10">
@@ -367,35 +371,39 @@
           {/each}
         </div>
       {:else if query}
-        <div class="flex flex-col items-center justify-center py-20 text-center">
-          <svg class="w-16 h-16 text-neutral-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <h3 class="text-lg font-semibold text-neutral-300 mb-1">No results found</h3>
-          <p class="text-sm text-neutral-500">Try adjusting your query or filters</p>
+        <div class="flex flex-col items-center justify-center py-24 text-center">
+          <div class="w-20 h-20 rounded-full bg-gradient-to-br from-red-500/10 to-red-600/5 flex items-center justify-center mb-6 border border-red-500/20">
+            <svg class="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-neutral-200 mb-2">No results found</h3>
+          <p class="text-sm text-neutral-400">Try adjusting your query or filters</p>
         </div>
       {:else}
-        <div class="flex flex-col items-center justify-center py-20 text-center">
-          <svg class="w-16 h-16 text-neutral-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <h3 class="text-lg font-semibold text-neutral-300 mb-1">Start your semantic search</h3>
-          <p class="text-sm text-neutral-500 mb-4">Enter a natural language query to find relevant news</p>
+        <div class="flex flex-col items-center justify-center py-24 text-center">
+          <div class="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500/10 to-purple-500/5 flex items-center justify-center mb-6 border border-blue-500/20">
+            <svg class="w-10 h-10 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16l2.879-2.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h3 class="text-lg font-semibold text-neutral-200 mb-1">Start your semantic search</h3>
+          <p class="text-sm text-neutral-400 mb-6">Enter a natural language query to find relevant news</p>
           <div class="flex flex-wrap gap-2 justify-center">
             <button 
-              class="text-xs px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-neutral-300 transition-colors"
+              class="text-xs px-4 py-2 bg-gradient-to-r from-blue-500/20 to-blue-600/10 hover:from-blue-500/30 hover:to-blue-600/20 border border-blue-500/30 rounded-lg text-blue-300 transition-all duration-200 font-medium backdrop-blur-sm hover:shadow-lg hover:shadow-blue-500/10"
               on:click={() => { query = 'semiconductor supply chain'; debouncedSearch(); }}
             >
               semiconductor supply chain
             </button>
             <button 
-              class="text-xs px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-neutral-300 transition-colors"
+              class="text-xs px-4 py-2 bg-gradient-to-r from-purple-500/20 to-purple-600/10 hover:from-purple-500/30 hover:to-purple-600/20 border border-purple-500/30 rounded-lg text-purple-300 transition-all duration-200 font-medium backdrop-blur-sm hover:shadow-lg hover:shadow-purple-500/10"
               on:click={() => { query = 'NVIDIA AI chips'; debouncedSearch(); }}
             >
               NVIDIA AI chips
             </button>
             <button 
-              class="text-xs px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 rounded text-neutral-300 transition-colors"
+              class="text-xs px-4 py-2 bg-gradient-to-r from-amber-500/20 to-amber-600/10 hover:from-amber-500/30 hover:to-amber-600/20 border border-amber-500/30 rounded-lg text-amber-300 transition-all duration-200 font-medium backdrop-blur-sm hover:shadow-lg hover:shadow-amber-500/10"
               on:click={() => { query = 'gold prices market sentiment'; debouncedSearch(); }}
             >
               gold prices market sentiment
