@@ -385,7 +385,7 @@ async def run_batch_embedding(job_id: str, params: dict):
         satbase_url = os.getenv("TESSERACT_SATBASE_URL", "http://localhost:8080/v1/news")
         
         # Pagination setup
-        page_size = 100  # Smaller batches for more granular progress updates
+        page_size = 1000  # Back to original for better fetch performance
         offset = 0
         all_articles = []
         embedding_batch_size = 32 if emb.device == "cuda" else 16
@@ -512,9 +512,6 @@ async def run_batch_embedding(job_id: str, params: dict):
             
             # Update progress after EVERY embedding batch (more granular updates)
             db.update_job_status(job_id, "running", processed=total_embedded, total=len(all_articles))
-            
-            # Small delay to make progress visible (esp. important for fast GPU)
-            await asyncio.sleep(0.5)
             
             # Upsert chunk
             if len(upsert_accumulator) >= upsert_chunk_size:
