@@ -2,23 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { findSimilar, type SearchResult } from '$lib/api/tesseract';
   import Button from '../shared/Button.svelte';
+  import { knowledgeGraphStore, type GraphNode, type GraphEdge } from '$lib/stores/tesseract';
   
   export let initialArticle: SearchResult | null = null;
-  
-  interface GraphNode {
-    id: string;
-    article: SearchResult;
-    x: number;
-    y: number;
-    level: number;
-    similarity?: number;
-  }
-  
-  interface GraphEdge {
-    from: string;
-    to: string;
-    similarity: number;
-  }
   
   let nodes: GraphNode[] = [];
   let edges: GraphEdge[] = [];
@@ -30,7 +16,7 @@
   let ctx: CanvasRenderingContext2D | null = null;
   let hoveredNode: GraphNode | null = null;
   let selectedNode: GraphNode | null = null;
-  let pinnedNode: GraphNode | null = null; // NEW: For details sidebar
+  let pinnedNode: GraphNode | null = null;
   let viewMode: 'graph' | 'list' | 'timeline' = 'graph';
   let similarityThreshold = 0.7;
   
@@ -41,6 +27,22 @@
   let isPanning = false;
   let lastMouseX = 0;
   let lastMouseY = 0;
+  
+  // Subscribe to store and restore state
+  let unsubscribe: () => void;
+  
+  $: if ($knowledgeGraphStore.nodes.length > 0 && nodes.length === 0) {
+    // Restore from store
+    nodes = $knowledgeGraphStore.nodes;
+    edges = $knowledgeGraphStore.edges;
+    centerNode = $knowledgeGraphStore.centerNode;
+    trail = $knowledgeGraphStore.trail;
+    panX = $knowledgeGraphStore.panX;
+    panY = $knowledgeGraphStore.panY;
+    zoom = $knowledgeGraphStore.zoom;
+    similarityThreshold = $knowledgeGraphStore.similarityThreshold;
+    if (ctx) drawGraph();
+  }
   
   const CANVAS_WIDTH = 1200;
   const CANVAS_HEIGHT = 800;
@@ -236,6 +238,22 @@
     } finally {
       loading = false;
     }
+    
+    // Save to store after exploration
+    saveGraphState();
+  }
+  
+  function saveGraphState() {
+    knowledgeGraphStore.saveState({
+      nodes,
+      edges,
+      centerNode,
+      trail,
+      panX,
+      panY,
+      zoom,
+      similarityThreshold
+    });
   }
   
   function drawGraph() {
@@ -419,6 +437,7 @@
     panY += (worldAfter.y - worldBefore.y) * zoom;
     
     drawGraph();
+    saveGraphState();
   }
   
   function handleCanvasMove(e: MouseEvent) {
@@ -430,6 +449,7 @@
       lastMouseX = e.clientX;
       lastMouseY = e.clientY;
       drawGraph();
+      saveGraphState();
       return;
     }
     
@@ -626,21 +646,21 @@
         <div class="absolute top-4 transition-all duration-300 bg-gradient-to-br from-neutral-800/90 to-neutral-900/80 backdrop-blur-lg rounded-lg p-3 border border-neutral-700/50 shadow-xl {pinnedNode || hoveredNode ? 'right-[21rem]' : 'right-4'}">
           <div class="flex flex-col gap-2">
             <button
-              on:click={() => { zoom = Math.min(5, zoom * 1.2); drawGraph(); }}
+              on:click={() => { zoom = Math.min(5, zoom * 1.2); drawGraph(); saveGraphState(); }}
               class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-neutral-300 hover:text-white transition-colors"
               title="Zoom In"
             >
               +
             </button>
             <button
-              on:click={() => { zoom = Math.max(0.1, zoom / 1.2); drawGraph(); }}
+              on:click={() => { zoom = Math.max(0.1, zoom / 1.2); drawGraph(); saveGraphState(); }}
               class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-neutral-300 hover:text-white transition-colors"
               title="Zoom Out"
             >
               −
             </button>
             <button
-              on:click={() => { zoom = 1; panX = 0; panY = 0; drawGraph(); }}
+              on:click={() => { zoom = 1; panX = 0; panY = 0; drawGraph(); saveGraphState(); }}
               class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-xs text-neutral-300 hover:text-white transition-colors"
               title="Reset View"
             >
