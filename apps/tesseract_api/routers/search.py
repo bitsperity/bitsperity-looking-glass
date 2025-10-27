@@ -46,62 +46,32 @@ async def semantic_search(request: SearchRequest):
     # Build Qdrant filter
     qdrant_filter = build_filter(request.filters) if request.filters else None
     
-    # Search in Qdrant (get news_ids + scores only)
+    # Search in Qdrant (get news_ids + scores + summaries only)
     qdrant_results = vector_store.search(
         query_vector=query_embedding.tolist(),
         limit=request.limit,
         query_filter=qdrant_filter
     )
     
-    # Extract news_ids
-    news_ids = [r.payload.get("news_id") for r in qdrant_results if r.payload.get("news_id")]
-    
-    if not news_ids:
-        return SearchResponse(query=request.query, count=0, results=[])
-    
-    # Fetch articles from Satbase
-    satbase_articles = {}
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            for news_id in news_ids:
-                try:
-                    url = "http://satbase-api:8080/v1/news"
-                    params = {"id": news_id, "limit": 1}
-                    resp = await client.get(url, params=params)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        items = data.get("items", [])
-                        if items:
-                            satbase_articles[news_id] = items[0]
-                except Exception as e:
-                    print(f"⚠️ Failed to fetch article {news_id} from Satbase: {e}")
-    except Exception as e:
-        print(f"❌ Satbase batch fetch failed: {e}")
-    
-    # Build response with deduplication
-    seen_ids = set()
+    # Build response - no deduplication needed, just return Qdrant results
     results = []
     for qdrant_result in qdrant_results:
         news_id = qdrant_result.payload.get("news_id")
-        if news_id in seen_ids:
-            continue  # Skip duplicates
-        seen_ids.add(news_id)
-        
-        # Get metadata from Satbase or use minimal from Qdrant
-        article = satbase_articles.get(news_id, {})
+        summary = qdrant_result.payload.get("summary", "")
         
         result = SearchResult(
             id=news_id or str(qdrant_result.id),
             score=qdrant_result.score,
-            title=article.get("title", ""),
-            text=article.get("description", ""),  # Use description as summary
-            source=article.get("source_name", ""),
-            url=article.get("url", ""),
-            published_at=article.get("published_at", ""),
-            topics=article.get("topics", []),
-            tickers=article.get("tickers", []),
-            language=article.get("language"),
-            body_available=bool(article.get("body_text")),
+            title="",  # Not stored in Tesseract
+            text=summary,  # Summary only
+            source="",  # Not stored in Tesseract
+            url="",  # Not stored in Tesseract
+            published_at="",  # Not stored in Tesseract
+            topics=[],  # Not stored in Tesseract
+            tickers=[],  # Not stored in Tesseract
+            language=None,  # Not stored in Tesseract
+            body_available=False,  # Not stored in Tesseract
+            news_id=news_id,  # For agent to fetch full article from Satbase
         )
         results.append(result)
     
@@ -512,6 +482,7 @@ async def run_batch_embedding(job_id: str, params: dict):
                                 vector=emb_vec.tolist(),
                                 payload={
                                     "news_id": article["id"],
+                                    "summary": extract_text_from_article(article),
                                 },
                             )
                         )
