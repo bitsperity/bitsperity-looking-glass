@@ -534,3 +534,61 @@ async def run_batch_embedding(job_id: str, params: dict):
         raise
 
 
+# ==================== FACTORY RESET ====================
+
+@router.post("/admin/reset")
+async def factory_reset():
+    """Factory reset: Delete all SQLite tables and Qdrant collection"""
+    try:
+        print("🔄 Starting Tesseract factory reset...")
+        
+        # 1. Drop SQLite tables
+        db = get_tesseract_db()
+        print("  📊 Dropping SQLite tables...")
+        db.drop_all_tables()
+        print("  ✓ SQLite tables dropped")
+        
+        # 2. Delete ALL Qdrant collections (including old versioned ones)
+        print("  🗑️ Deleting all Qdrant collections...")
+        try:
+            # Get all collections
+            collections_resp = vector_store.client.get_collections()
+            for collection in collections_resp.collections:
+                try:
+                    print(f"    Deleting collection: {collection.name}")
+                    vector_store.client.delete_collection(collection.name)
+                except Exception as e:
+                    print(f"    ⚠️ Failed to delete {collection.name}: {e}")
+            print("  ✓ All Qdrant collections deleted")
+        except Exception as e:
+            print(f"  ⚠️ Error listing collections: {e}")
+        
+        # 3. Delete alias if it exists
+        print("  🔗 Deleting alias...")
+        try:
+            vector_store.delete_alias("news_embeddings")
+            print("  ✓ Alias deleted")
+        except Exception as e:
+            print(f"  ⚠️ Alias not found or error: {e}")
+        
+        # 4. Reinitialize
+        print("  🔧 Reinitializing...")
+        db.init_db()
+        vector_store.ensure_collection()
+        print("  ✓ Tesseract reinitialized")
+        
+        return {
+            "status": "ok",
+            "message": "Tesseract factory reset complete",
+            "details": {
+                "sqlite_reset": True,
+                "qdrant_collections_deleted": True,
+                "alias_deleted": True,
+                "reinitialized": True
+            }
+        }
+    except Exception as e:
+        print(f"❌ Factory reset failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
+
+

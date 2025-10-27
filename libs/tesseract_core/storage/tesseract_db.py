@@ -55,6 +55,17 @@ class TesseractDB:
         conn.row_factory = sqlite3.Row
         return conn
     
+    def init_db(self):
+        """Reinitialize database schema"""
+        self._init_schema()
+    
+    def drop_all_tables(self):
+        """Drop all tables (for factory reset)"""
+        with self.conn() as conn:
+            conn.execute("DROP TABLE IF EXISTS embedded_articles")
+            conn.execute("DROP TABLE IF EXISTS embed_jobs")
+            conn.commit()
+    
     @staticmethod
     def compute_content_hash(title: str, body_text: str) -> str:
         """Compute hash of title + body for change detection"""
