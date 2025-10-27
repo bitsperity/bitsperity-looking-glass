@@ -197,59 +197,76 @@ def build_filter(filters: dict):
 
 @router.get("/tesseract/similar/{news_id}")
 async def find_similar(news_id: str, limit: int = 10, vector_type: str | None = None):
-    """Find similar articles by vector similarity (news_id is Satbase ID)"""
+    """Find similar articles by vector similarity (news_id is Satbase ID)
+    
+    Multi-vector mode: Retrieves all vectors for the given news_id,
+    uses body vector (or summary if no body) for similarity search,
+    and deduplicates results by news_id.
+    """
     try:
         vector_store.ensure_collection()
         
-        # Convert news_id to Qdrant point ID (same logic as in embedding)
-        if news_id.isdigit():
-            point_id = int(news_id)
-        else:
-            # Convert SHA256 hash to UUID5
-            try:
-                import uuid
-                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, news_id))
-            except Exception:
-                # Fallback: use hash
-                point_id = abs(hash(news_id)) % (2**63)
-        
-        # Retrieve source article
-        source_points = vector_store.client.retrieve(
-            collection_name=vector_store.collection_name,
-            ids=[point_id],
-            with_vectors=True,
+        # Find all vectors for this news_id (title/summary/body)
+        source_vectors, _ = vector_store.scroll(
+            query_filter={"must": [{"key": "news_id", "match": {"value": news_id}}]},
+            limit=10,  # max 3 expected
             with_payload=True,
+            with_vectors=True
         )
-        if not source_points:
+        
+        if not source_vectors:
             raise HTTPException(status_code=404, detail=f"Article {news_id} not found in vector store")
         
-        source = source_points[0]
+        # Select best vector for similarity: prefer summary > body > title (matches früheres Verhalten)
+        source_vector = None
+        vector_priority = {"summary": 3, "body": 2, "title": 1}
+        best_priority = 0
         
-        # Search for similar (optionally constrain by type)
-        q_filter = None
-        if vector_type:
-            q_filter = {"must": [{"key": "vector_type", "match": {"value": vector_type}}]}
-        results = vector_store.search(
-            query_vector=source.vector,
-            limit=limit + 1,
+        for vec in source_vectors:
+            vtype = vec.payload.get("vector_type", "summary")
+            priority = vector_priority.get(vtype, 0)
+            if priority > best_priority:
+                best_priority = priority
+                source_vector = vec
+        
+        if not source_vector or not source_vector.vector:
+            raise HTTPException(status_code=500, detail=f"No valid vector found for article {news_id}")
+        
+        # Search for similar (constrain by vector type)
+        # Default: use the same type as the chosen source vector (summary/body/title)
+        chosen_type = source_vector.payload.get("vector_type", "summary")
+        q_filter = {"must": [{"key": "vector_type", "match": {"value": vector_type or chosen_type}}]}
+        
+        raw_results = vector_store.search(
+            query_vector=source_vector.vector,
+            limit=max(100, limit * 5),  # fetch more, then dedupe
             query_filter=q_filter
         )
         
-        # Exclude source article and convert back to news_id
+        # Deduplicate by news_id, exclude source, keep best score
+        seen_ids = {news_id}  # exclude source
         similar_results = []
-        for r in results:
+        
+        for r in raw_results:
             result_news_id = r.payload.get("news_id")
-            if result_news_id and result_news_id != news_id:
+            if result_news_id and result_news_id not in seen_ids:
+                seen_ids.add(result_news_id)
                 similar_results.append({
-                    "id": result_news_id,  # Return original news_id, not point_id
+                    "id": result_news_id,
                     "score": r.score,
-                    "text": r.payload.get("summary", ""),
+                    "text": "",  # summary will be fetched from Satbase by frontend
                     "news_id": result_news_id
                 })
+                if len(similar_results) >= limit:
+                    break
         
         return {
-            "source_article": {"id": news_id, **source.payload},
-            "similar_articles": similar_results[:limit]
+            "source_article": {
+                "id": news_id,
+                "news_id": news_id,
+                "vector_type": source_vector.payload.get("vector_type")
+            },
+            "similar_articles": similar_results
         }
     except HTTPException:
         raise
