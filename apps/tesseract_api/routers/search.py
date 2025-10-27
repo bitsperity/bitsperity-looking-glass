@@ -411,13 +411,23 @@ async def delete_collection(collection_name: str):
 
 # ==================== BACKGROUND TASKS ====================
 
-def extract_text_from_article(article: dict, max_length: int = 1000) -> str:
-    """Extract summary text for embedding. Priority: description -> title"""
-    # Use description (summary) for embedding, not full body
-    # This is more efficient and provides better semantic clarity
-    text = article.get("description") or article.get("title") or ""
+def extract_text_from_article(article: dict, max_length: int = 8000) -> str:
+    """Extract text for embedding: title + description + body (if available)"""
+    # Build text from available parts for best semantic representation
+    parts = []
     
-    # Clean and limit
+    if article.get("title"):
+        parts.append(article.get("title"))
+    
+    if article.get("description"):
+        parts.append(article.get("description"))
+    
+    if article.get("body_text"):
+        parts.append(article.get("body_text"))
+    
+    text = "\n".join(parts) if parts else ""
+    
+    # Clean and limit to max_length
     text = text.strip()[:max_length]
     return text
 
