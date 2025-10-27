@@ -134,11 +134,11 @@ def delete_news(news_id: str):
     db = NewsDB(s.stage_dir.parent / "news.db")
     
     if db.delete_article(news_id):
-        return {"success": True, "id": news_id, "message": "News article deleted"}
+            return {"success": True, "id": news_id, "message": "News article deleted"}
     else:
-        return JSONResponse(
-            {"success": False, "id": news_id, "message": "News article not found"},
-            status_code=404
+            return JSONResponse(
+                {"success": False, "id": news_id, "message": "News article not found"},
+                status_code=404
         )
 
 
