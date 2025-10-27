@@ -125,6 +125,16 @@ class NewsDB:
                 CREATE INDEX IF NOT EXISTS idx_job_type ON job_tracking(job_type);
                 CREATE INDEX IF NOT EXISTS idx_job_created ON job_tracking(created_at DESC);
             """)
+
+            # Backward-compatible schema upgrade: add no_body_crawl if missing
+            try:
+                cols = conn.execute("PRAGMA table_info('news_articles')").fetchall()
+                col_names = {c[1] for c in cols}
+                if 'no_body_crawl' not in col_names:
+                    conn.execute("ALTER TABLE news_articles ADD COLUMN no_body_crawl BOOLEAN DEFAULT 0")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_no_body_crawl ON news_articles(no_body_crawl)")
+            except Exception:
+                pass
     
     def upsert_article(
         self,
@@ -171,10 +181,24 @@ class NewsDB:
         with self.conn() as conn:
             # Upsert article (INSERT OR REPLACE)
             conn.execute("""
-                INSERT OR REPLACE INTO news_articles
+                INSERT INTO news_articles
                 (id, url, title, description, body_text, body_available, published_at, 
                  author, image, category, language, country, source_name, fetched_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    url=excluded.url,
+                    title=excluded.title,
+                    description=excluded.description,
+                    body_text=excluded.body_text,
+                    body_available=excluded.body_available,
+                    published_at=excluded.published_at,
+                    author=excluded.author,
+                    image=excluded.image,
+                    category=excluded.category,
+                    language=excluded.language,
+                    country=excluded.country,
+                    source_name=excluded.source_name,
+                    fetched_at=CURRENT_TIMESTAMP
             """, (
                 article_id,
                 url,
@@ -405,6 +429,28 @@ class NewsDB:
         with self.conn() as conn:
             result = conn.execute("DELETE FROM news_articles WHERE id = ?", (article_id,))
             return result.rowcount > 0
+
+    def has_no_body_crawl(self, article_id: str) -> bool:
+        """Check if article is tagged to skip future body crawling."""
+        with self.conn() as conn:
+            row = conn.execute("SELECT no_body_crawl FROM news_articles WHERE id = ?", (article_id,)).fetchone()
+            return bool(row[0]) if row else False
+
+    def tag_no_body_crawl(self, article_id: str, value: bool = True) -> None:
+        """Set or unset the no_body_crawl flag for an article."""
+        with self.conn() as conn:
+            conn.execute("UPDATE news_articles SET no_body_crawl = ? WHERE id = ?", (1 if value else 0, article_id))
+
+    def clear_body_and_tag(self, article_id: str, tag_skip: bool = True) -> bool:
+        """Remove body_text, set body_available=0 and optionally tag to skip future crawling."""
+        with self.conn() as conn:
+            res = conn.execute(
+                "UPDATE news_articles SET body_text = NULL, body_available = 0 WHERE id = ?",
+                (article_id,)
+            )
+            if tag_skip:
+                conn.execute("UPDATE news_articles SET no_body_crawl = 1 WHERE id = ?", (article_id,))
+            return res.rowcount > 0
     
     def get_heatmap(
         self,

@@ -6,6 +6,8 @@ import time
 import logging
 
 from .routers import health, news, macro, prices, btc, convert, ingest, watchlist, status, topics, news_admin
+from libs.satbase_core.config.settings import load_settings
+from libs.satbase_core.storage.news_db import NewsDB
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -43,6 +45,15 @@ class PerformanceLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(PerformanceLoggingMiddleware)
+
+@app.on_event("startup")
+def ensure_schema():
+    """Ensure SQLite schema/migrations applied on service start."""
+    try:
+        s = load_settings()
+        NewsDB(s.stage_dir.parent / "news.db")
+    except Exception:
+        pass
 
 app.include_router(health.router, prefix="")
 app.include_router(status.router, prefix="/v1")

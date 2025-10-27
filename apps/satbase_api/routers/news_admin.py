@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from libs.satbase_core.storage.news_db import NewsDB
 from libs.satbase_core.config.settings import load_settings
+import httpx
 
 router = APIRouter()
 
@@ -21,6 +22,96 @@ def list_topics_configured():
         "total_unique": len(topics),
         "total_articles": sum(t["count"] for t in topics)
     }
+
+
+@router.post("/admin/news/cleanup-junk")
+def cleanup_junk_bodies(
+    tag_only: bool = False,
+    dry_run: bool = False,
+    max_items: int = 1000
+):
+    """
+    Scan all news, erkennen Junk-Bodies (access denied/too short/etc),
+    entfernt Body (optional), taggt `no_body_crawl`, und löscht Body-Vektor in Tesseract.
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    tesseract_base = "http://localhost:8081"
+
+    def is_junk(body: str | None) -> bool:
+        if not body or len(body.strip()) < 120:
+            return True
+        low = body.lower()
+        for pat in ["access denied", "403", "404", "forbidden", "subscribe", "register"]:
+            if pat in low:
+                return True
+        return False
+
+    # Ensure migration (add no_body_crawl if missing)
+    try:
+        with db.conn() as conn:
+            cols = conn.execute("PRAGMA table_info('news_articles')").fetchall()
+            names = {c[1] for c in cols}
+            if 'no_body_crawl' not in names:
+                conn.execute("ALTER TABLE news_articles ADD COLUMN no_body_crawl BOOLEAN DEFAULT 0")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_no_body_crawl ON news_articles(no_body_crawl)")
+    except Exception:
+        pass
+
+    checked = 0
+    affected = 0
+    tagged = 0
+    deleted_vectors = 0
+    affected_ids: list[str] = []
+
+    with db.conn() as conn:
+        rows = conn.execute(
+            "SELECT id, url, body_text FROM news_articles ORDER BY fetched_at DESC LIMIT ?",
+            (max_items,)
+        ).fetchall()
+        for row in rows:
+            checked += 1
+            article_id, url, body_text = row
+            if is_junk(body_text):
+                affected += 1
+                affected_ids.append(article_id)
+                if not dry_run:
+                    # Clear body and tag skip
+                    db.clear_body_and_tag(article_id, tag_skip=True)
+                    tagged += 1
+                    if not tag_only:
+                        # Delete body vector in Tesseract
+                        try:
+                            with httpx.Client(timeout=5.0) as client:
+                                r = client.delete(f"{tesseract_base}/v1/admin/vectors/{article_id}/body")
+                                if r.status_code == 200:
+                                    deleted_vectors += 1
+                        except Exception:
+                            pass
+
+    return {
+        "checked": checked,
+        "affected": affected,
+        "tagged": tagged,
+        "deleted_vectors": deleted_vectors,
+        "dry_run": dry_run,
+        "tag_only": tag_only,
+        "ids": affected_ids[:50]  # sample
+    }
+
+
+@router.get("/admin/news/schema")
+def news_schema_info():
+    """Expose current news_articles schema and important indexes for debugging."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    with db.conn() as conn:
+        cols = conn.execute("PRAGMA table_info('news_articles')").fetchall()
+        idxs = conn.execute("PRAGMA index_list('news_articles')").fetchall()
+        return {
+            "columns": [{"cid": c[0], "name": c[1], "type": c[2], "notnull": c[3], "dflt": c[4], "pk": c[5]} for c in cols],
+            "indexes": [{"seq": i[0], "name": i[1], "unique": i[2]} for i in idxs]
+        }
 
 
 @router.delete("/admin/articles/batch")

@@ -168,11 +168,20 @@ def sink(models: Iterable[NewsDoc], partition_dt: date, topic: str | None = None
     for doc in models:
         try:
             # Crawl body text from URL
-            body_text = fetch_text_with_retry(
-                doc.url,
-                max_retries=2,
-                timeout=20
-            )
+            # Skip body crawling if flagged
+            skip_body = False
+            try:
+                skip_body = db.has_no_body_crawl(doc.id)
+            except Exception:
+                skip_body = False
+            if not skip_body:
+                body_text = fetch_text_with_retry(
+                    doc.url,
+                    max_retries=2,
+                    timeout=20
+                )
+            else:
+                body_text = ""
             
             # Set body text if we got it
             if body_text and len(body_text.strip()) > 100:
