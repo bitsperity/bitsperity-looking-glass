@@ -169,10 +169,22 @@ async def find_similar(news_id: str, limit: int = 10):
     try:
         vector_store.ensure_collection()
         
-        # Retrieve source article (news_id is the point ID in Qdrant)
+        # Convert news_id to Qdrant point ID (same logic as in embedding)
+        if news_id.isdigit():
+            point_id = int(news_id)
+        else:
+            # Convert SHA256 hash to UUID5
+            try:
+                import uuid
+                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, news_id))
+            except Exception:
+                # Fallback: use hash
+                point_id = abs(hash(news_id)) % (2**63)
+        
+        # Retrieve source article
         source_points = vector_store.client.retrieve(
             collection_name=vector_store.collection_name,
-            ids=[int(news_id)] if news_id.isdigit() else [news_id],
+            ids=[point_id],
             with_vectors=True,
             with_payload=True,
         )
@@ -187,15 +199,21 @@ async def find_similar(news_id: str, limit: int = 10):
             limit=limit + 1
         )
         
-        # Exclude source article
-        results = [r for r in results if str(r.id) != str(news_id)][:limit]
+        # Exclude source article and convert back to news_id
+        similar_results = []
+        for r in results:
+            result_news_id = r.payload.get("news_id")
+            if result_news_id and result_news_id != news_id:
+                similar_results.append({
+                    "id": result_news_id,  # Return original news_id, not point_id
+                    "score": r.score,
+                    "text": r.payload.get("summary", ""),
+                    "news_id": result_news_id
+                })
         
         return {
-            "source_article": {"id": str(source.id), **source.payload},
-            "similar_articles": [
-                {"id": str(r.id), "score": r.score, **r.payload}
-                for r in results
-            ]
+            "source_article": {"id": news_id, **source.payload},
+            "similar_articles": similar_results[:limit]
         }
     except HTTPException:
         raise
