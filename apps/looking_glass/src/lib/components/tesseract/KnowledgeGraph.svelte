@@ -30,13 +30,22 @@
   let ctx: CanvasRenderingContext2D | null = null;
   let hoveredNode: GraphNode | null = null;
   let selectedNode: GraphNode | null = null;
+  let pinnedNode: GraphNode | null = null; // NEW: For details sidebar
   let viewMode: 'graph' | 'list' | 'timeline' = 'graph';
   let similarityThreshold = 0.7;
   
+  // Pan & Zoom state
+  let panX = 0;
+  let panY = 0;
+  let zoom = 1;
+  let isPanning = false;
+  let lastMouseX = 0;
+  let lastMouseY = 0;
+  
   const CANVAS_WIDTH = 1200;
   const CANVAS_HEIGHT = 800;
-  const NODE_RADIUS = 40;
-  const CENTER_RADIUS = 60;
+  const NODE_RADIUS = 50; // Increased for better labels
+  const CENTER_RADIUS = 70;
   
   onMount(() => {
     if (canvas) {
@@ -84,7 +93,7 @@
             
             // Merge Tesseract scores with Satbase metadata
             enrichedArticles = filtered.map((similar: any) => {
-              const satbaseArticle = satbaseMap.get(similar.id) || {};
+              const satbaseArticle: any = satbaseMap.get(similar.id) || {};
               return {
                 id: similar.id,
                 score: similar.score,
@@ -198,6 +207,11 @@
     // Clear canvas
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     
+    // Apply pan & zoom transform
+    ctx.save();
+    ctx.translate(panX, panY);
+    ctx.scale(zoom, zoom);
+    
     // Draw edges
     edges.forEach(edge => {
       const fromNode = nodes.find(n => n.id === edge.from);
@@ -222,7 +236,7 @@
     nodes.forEach(node => {
       const isCenter = node === centerNode;
       const isHovered = node === hoveredNode;
-      const isSelected = node === selectedNode;
+      const isPinned = node === pinnedNode;
       const radius = isCenter ? CENTER_RADIUS : NODE_RADIUS;
       
       // Node circle
@@ -235,69 +249,160 @@
         gradient.addColorStop(1, 'rgba(147, 51, 234, 0.6)');
         ctx!.fillStyle = gradient;
       } else {
-        const alpha = isHovered || isSelected ? 0.8 : 0.6;
+        const alpha = isHovered || isPinned ? 0.9 : 0.6;
         ctx!.fillStyle = `rgba(38, 38, 38, ${alpha})`;
       }
       
       ctx!.fill();
       
       // Border
-      ctx!.strokeStyle = isHovered || isSelected ? 'rgba(59, 130, 246, 1)' : 'rgba(115, 115, 115, 0.5)';
-      ctx!.lineWidth = isHovered || isSelected ? 3 : 2;
+      if (isPinned) {
+        ctx!.strokeStyle = 'rgba(147, 51, 234, 1)'; // Purple for pinned
+        ctx!.lineWidth = 4;
+      } else if (isHovered) {
+        ctx!.strokeStyle = 'rgba(59, 130, 246, 1)';
+        ctx!.lineWidth = 3;
+      } else {
+        ctx!.strokeStyle = 'rgba(115, 115, 115, 0.5)';
+        ctx!.lineWidth = 2;
+      }
       ctx!.stroke();
       
-      // Node text: Title (truncated) + Date
+      // Node text: Multi-line title
       ctx!.fillStyle = isCenter ? 'rgba(255, 255, 255, 0.95)' : 'rgba(200, 200, 200, 0.9)';
       ctx!.textAlign = 'center';
-      
-      // Title (max 3 words or 30 chars)
-      const title = node.article.title || 'Unknown';
-      const words = title.split(' ').slice(0, 3).join(' ');
-      const truncated = words.length > 30 ? words.substring(0, 27) + '...' : words;
-      
-      ctx!.font = isCenter ? 'bold 11px sans-serif' : '10px sans-serif';
       ctx!.textBaseline = 'middle';
-      ctx!.fillText(truncated, node.x, node.y - 5);
       
-      // Date (below title)
-      if (node.article.published_at) {
-        const date = new Date(node.article.published_at);
-        const dateStr = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
-        ctx!.font = '9px sans-serif';
-        ctx!.fillStyle = 'rgba(150, 150, 150, 0.8)';
-        ctx!.fillText(dateStr, node.x, node.y + 8);
+      const title = node.article.title || 'Unknown';
+      const words = title.split(' ');
+      const lines: string[] = [];
+      let currentLine = '';
+      
+      // Word wrap to max 15 chars per line, max 3 lines
+      for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        if (testLine.length > 15) {
+          if (currentLine) lines.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = testLine;
+        }
+        if (lines.length >= 2) break;
       }
+      if (currentLine && lines.length < 3) lines.push(currentLine);
+      if (lines.length === 3 && words.length > lines.join(' ').split(' ').length) {
+        lines[2] = lines[2].substring(0, 12) + '...';
+      }
+      
+      // Draw title lines
+      ctx!.font = isCenter ? 'bold 10px sans-serif' : '9px sans-serif';
+      const lineHeight = 12;
+      const startY = node.y - (lines.length - 1) * lineHeight / 2;
+      lines.forEach((line, i) => {
+        ctx!.fillText(line, node.x, startY + i * lineHeight);
+      });
     });
+    
+    ctx.restore();
+  }
+  
+  function screenToWorld(screenX: number, screenY: number): { x: number, y: number } {
+    return {
+      x: (screenX - panX) / zoom,
+      y: (screenY - panY) / zoom
+    };
   }
   
   function handleCanvasClick(e: MouseEvent) {
+    if (isPanning) return; // Don't click after panning
+    
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+    const world = screenToWorld(screenX, screenY);
     
     // Check if clicked on a node
     for (const node of nodes) {
       const radius = node === centerNode ? CENTER_RADIUS : NODE_RADIUS;
-      const distance = Math.sqrt((x - node.x) ** 2 + (y - node.y) ** 2);
+      const distance = Math.sqrt((world.x - node.x) ** 2 + (world.y - node.y) ** 2);
       
       if (distance <= radius) {
-        if (node !== centerNode) {
-          exploreArticle(node.article);
+        // Right-click or Shift-click: Pin details panel
+        if (e.button === 2 || e.shiftKey) {
+          e.preventDefault();
+          pinnedNode = node;
+          return;
         }
+        // Left-click: Expand graph
+        exploreArticle(node.article);
         return;
       }
     }
+    
+    // Clicked on empty space: unpin
+    pinnedNode = null;
+  }
+  
+  function handleCanvasMouseDown(e: MouseEvent) {
+    if (e.button === 1 || (e.button === 0 && e.altKey)) { // Middle mouse or Alt+Left
+      isPanning = true;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      canvas.style.cursor = 'grabbing';
+      e.preventDefault();
+    }
+  }
+  
+  function handleCanvasMouseUp(e: MouseEvent) {
+    if (isPanning) {
+      isPanning = false;
+      canvas.style.cursor = 'default';
+    }
+  }
+  
+  function handleCanvasWheel(e: WheelEvent) {
+    e.preventDefault();
+    
+    // Zoom towards mouse position
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    const worldBefore = screenToWorld(mouseX, mouseY);
+    
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    zoom = Math.max(0.1, Math.min(5, zoom * zoomFactor));
+    
+    const worldAfter = screenToWorld(mouseX, mouseY);
+    
+    // Adjust pan to keep mouse position fixed
+    panX += (worldAfter.x - worldBefore.x) * zoom;
+    panY += (worldAfter.y - worldBefore.y) * zoom;
+    
+    drawGraph();
   }
   
   function handleCanvasMove(e: MouseEvent) {
+    if (isPanning) {
+      const dx = e.clientX - lastMouseX;
+      const dy = e.clientY - lastMouseY;
+      panX += dx;
+      panY += dy;
+      lastMouseX = e.clientX;
+      lastMouseY = e.clientY;
+      drawGraph();
+      return;
+    }
+    
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    const world = screenToWorld(x, y);
     
     let found = false;
     for (const node of nodes) {
       const radius = node === centerNode ? CENTER_RADIUS : NODE_RADIUS;
-      const distance = Math.sqrt((x - node.x) ** 2 + (y - node.y) ** 2);
+      const distance = Math.sqrt((world.x - node.x) ** 2 + (world.y - node.y) ** 2);
       
       if (distance <= radius) {
         hoveredNode = node;
@@ -309,7 +414,7 @@
     
     if (!found) {
       hoveredNode = null;
-      canvas.style.cursor = 'default';
+      canvas.style.cursor = isPanning ? 'grabbing' : 'default';
     }
     
     drawGraph();
@@ -397,8 +502,9 @@
     
     <!-- Similarity Threshold -->
     <div class="flex items-center gap-3 mt-3">
-      <label class="text-xs text-neutral-300 font-semibold">Similarity Threshold:</label>
+      <label for="similarity-slider" class="text-xs text-neutral-300 font-semibold">Similarity Threshold:</label>
       <input
+        id="similarity-slider"
         type="range"
         min="0"
         max="1"
@@ -407,6 +513,17 @@
         class="flex-1 max-w-xs"
       />
       <span class="text-xs text-neutral-400 font-mono">{(similarityThreshold * 100).toFixed(0)}%</span>
+    </div>
+    
+    <!-- Controls Help -->
+    <div class="mt-3 p-3 bg-gradient-to-r from-blue-500/10 to-purple-500/5 border border-blue-500/20 rounded-lg">
+      <p class="text-xs text-neutral-300 font-semibold mb-2">🎮 Controls:</p>
+      <div class="grid grid-cols-2 gap-2 text-xs text-neutral-400">
+        <div><span class="text-blue-300">Mouse Wheel:</span> Zoom</div>
+        <div><span class="text-blue-300">Alt+Drag:</span> Pan</div>
+        <div><span class="text-blue-300">Click Node:</span> Expand</div>
+        <div><span class="text-blue-300">Shift+Click:</span> Pin Details</div>
+      </div>
     </div>
   </div>
   
@@ -436,17 +553,135 @@
     {/if}
     
     {#if viewMode === 'graph'}
-      <div class="flex items-center justify-center h-full p-6">
+      <div class="flex items-center justify-center h-full p-6 relative">
         <canvas
           bind:this={canvas}
           on:click={handleCanvasClick}
+          on:contextmenu={(e) => e.preventDefault()}
+          on:mousedown={handleCanvasMouseDown}
+          on:mouseup={handleCanvasMouseUp}
           on:mousemove={handleCanvasMove}
+          on:wheel={handleCanvasWheel}
           class="rounded-xl border border-neutral-700/30 shadow-2xl bg-neutral-900/30 backdrop-blur-sm"
         ></canvas>
+        
+        <!-- Pan & Zoom Controls (move left if sidebar is open) -->
+        <div class="absolute top-4 transition-all duration-300 bg-gradient-to-br from-neutral-800/90 to-neutral-900/80 backdrop-blur-lg rounded-lg p-3 border border-neutral-700/50 shadow-xl {pinnedNode ? 'right-[21rem]' : 'right-4'}">
+          <div class="flex flex-col gap-2">
+            <button
+              on:click={() => { zoom = Math.min(5, zoom * 1.2); drawGraph(); }}
+              class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-neutral-300 hover:text-white transition-colors"
+              title="Zoom In"
+            >
+              +
+            </button>
+            <button
+              on:click={() => { zoom = Math.max(0.1, zoom / 1.2); drawGraph(); }}
+              class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-neutral-300 hover:text-white transition-colors"
+              title="Zoom Out"
+            >
+              −
+            </button>
+            <button
+              on:click={() => { zoom = 1; panX = 0; panY = 0; drawGraph(); }}
+              class="w-8 h-8 flex items-center justify-center bg-neutral-700/50 hover:bg-neutral-600/50 rounded text-xs text-neutral-300 hover:text-white transition-colors"
+              title="Reset View"
+            >
+              ⟲
+            </button>
+          </div>
+          <div class="mt-2 pt-2 border-t border-neutral-700/50 text-xs text-neutral-400 text-center">
+            {(zoom * 100).toFixed(0)}%
+          </div>
+        </div>
+        
+        <!-- Pinned Node Details Sidebar -->
+        {#if pinnedNode}
+          <div class="absolute top-0 right-0 w-80 h-full bg-gradient-to-br from-neutral-900/95 to-neutral-950/95 backdrop-blur-xl border-l border-neutral-700/30 shadow-2xl overflow-y-auto">
+            <div class="p-6">
+              <!-- Close Button -->
+              <button
+                on:click={() => { pinnedNode = null; drawGraph(); }}
+                class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-neutral-800/50 hover:bg-neutral-700/50 rounded-lg text-neutral-400 hover:text-white transition-colors"
+              >
+                ×
+              </button>
+              
+              <h3 class="text-lg font-bold text-neutral-100 mb-4 pr-10">{pinnedNode.article.title || 'Untitled'}</h3>
+              
+              <div class="space-y-4">
+                <!-- Source & Date -->
+                <div class="text-xs text-neutral-400">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="font-semibold text-neutral-300">Source:</span>
+                    <span>{pinnedNode.article.source_name || pinnedNode.article.source || 'Unknown'}</span>
+                  </div>
+                  {#if pinnedNode.article.published_at}
+                    <div class="flex items-center gap-2">
+                      <span class="font-semibold text-neutral-300">Date:</span>
+                      <span>{new Date(pinnedNode.article.published_at).toLocaleString('de-DE')}</span>
+                    </div>
+                  {/if}
+                </div>
+                
+                <!-- Full Text -->
+                {#if pinnedNode.article.text}
+                  <div class="text-sm text-neutral-300 leading-relaxed">
+                    <p class="font-semibold text-neutral-200 mb-2">Summary:</p>
+                    <p>{pinnedNode.article.text}</p>
+                  </div>
+                {/if}
+                
+                <!-- Topics & Tickers -->
+                {#if pinnedNode.article.topics && pinnedNode.article.topics.length > 0}
+                  <div>
+                    <p class="text-xs font-semibold text-neutral-300 mb-2">Topics:</p>
+                    <div class="flex flex-wrap gap-2">
+                      {#each pinnedNode.article.topics as topic}
+                        <span class="px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-xs text-blue-300">{topic}</span>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+                
+                {#if pinnedNode.article.tickers && pinnedNode.article.tickers.length > 0}
+                  <div>
+                    <p class="text-xs font-semibold text-neutral-300 mb-2">Tickers:</p>
+                    <div class="flex flex-wrap gap-2">
+                      {#each pinnedNode.article.tickers as ticker}
+                        <span class="px-2 py-1 bg-green-500/20 border border-green-500/30 rounded text-xs text-green-300 font-mono">{ticker}</span>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+                
+                <!-- Actions -->
+                <div class="flex flex-col gap-2 pt-4 border-t border-neutral-700/30">
+                  {#if pinnedNode.article.url}
+                    <a
+                      href={pinnedNode.article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg text-sm text-blue-300 text-center transition-colors"
+                    >
+                      Open Full Article →
+                    </a>
+                  {/if}
+                  <button
+                    on:click={() => { if (pinnedNode) exploreArticle(pinnedNode.article); }}
+                    class="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg text-sm text-purple-300 text-center transition-colors"
+                  >
+                    Expand Connections
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        {/if}
       </div>
       
-      <!-- Hovered Node Info -->
-      {#if hoveredNode && hoveredNode !== centerNode}
+      <!-- Hovered Node Info (only show if not pinned) -->
+      {#if hoveredNode && !pinnedNode}
         <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-neutral-800/95 to-neutral-900/95 border border-neutral-600/30 rounded-xl p-4 backdrop-blur-lg shadow-2xl max-w-md">
           <div class="flex items-start gap-3">
             <div class="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/10 flex items-center justify-center border border-blue-500/30">
@@ -462,7 +697,7 @@
               </div>
             </div>
           </div>
-          <p class="text-xs text-neutral-500 mt-3 text-center">Click to explore this node</p>
+          <p class="text-xs text-neutral-500 mt-3 text-center">Click to expand • Shift+Click to pin details</p>
         </div>
       {/if}
     {:else if viewMode === 'list'}

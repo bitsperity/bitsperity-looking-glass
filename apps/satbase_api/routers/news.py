@@ -139,7 +139,7 @@ def delete_news(news_id: str):
             return JSONResponse(
                 {"success": False, "id": news_id, "message": "News article not found"},
                 status_code=404
-        )
+            )
 
 
 @router.post("/news/bulk")
