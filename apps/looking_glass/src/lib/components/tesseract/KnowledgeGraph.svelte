@@ -125,39 +125,63 @@
         trail = [...trail, article];
       }
       
-      // Create center node
-      centerNode = {
-        id: article.id,
-        article,
-        x: CANVAS_WIDTH / 2,
-        y: CANVAS_HEIGHT / 2,
-        level: 0
-      };
+      // ADDITIVE EXPANSION: Find or create the clicked node
+      let clickedNode = nodes.find(n => n.id === article.id);
       
-      // Create radial layout for similar articles
-      nodes = [centerNode];
-      edges = [];
+      if (!clickedNode) {
+        // First time: create as center node
+        clickedNode = {
+          id: article.id,
+          article,
+          x: CANVAS_WIDTH / 2,
+          y: CANVAS_HEIGHT / 2,
+          level: 0
+        };
+        nodes = [clickedNode];
+        edges = [];
+      }
       
+      // Set as new center
+      centerNode = clickedNode;
+      
+      // Add new similar articles around this node
       const angleStep = (2 * Math.PI) / enrichedArticles.length;
       const radius = 250;
       
       enrichedArticles.forEach((similar: SearchResult, idx: number) => {
+        // Skip if node already exists
+        if (nodes.some(n => n.id === similar.id)) {
+          // Still add edge if missing
+          if (!edges.some(e => 
+            (e.from === clickedNode!.id && e.to === similar.id) ||
+            (e.to === clickedNode!.id && e.from === similar.id)
+          )) {
+            edges.push({
+              from: clickedNode!.id,
+              to: similar.id,
+              similarity: similar.score || 0
+            });
+          }
+          return;
+        }
+        
+        // Create new node in radial layout around clicked node
         const angle = idx * angleStep;
-        const node: GraphNode = {
+        const newNode: GraphNode = {
           id: similar.id,
           article: similar,
-          x: centerNode!.x + Math.cos(angle) * radius,
-          y: centerNode!.y + Math.sin(angle) * radius,
-          level: 1,
+          x: clickedNode!.x + Math.cos(angle) * radius,
+          y: clickedNode!.y + Math.sin(angle) * radius,
+          level: (clickedNode!.level || 0) + 1,
           similarity: similar.score
         };
         
-        nodes.push(node);
-        edges.push({
-          from: centerNode!.id,
-          to: node.id,
+        nodes = [...nodes, newNode];
+        edges = [...edges, {
+          from: clickedNode!.id,
+          to: newNode.id,
           similarity: similar.score || 0
-        });
+        }];
       });
       
       drawGraph();
@@ -222,13 +246,26 @@
       ctx!.lineWidth = isHovered || isSelected ? 3 : 2;
       ctx!.stroke();
       
-      // Similarity badge (for non-center nodes)
-      if (!isCenter && node.similarity) {
-        ctx!.fillStyle = 'rgba(59, 130, 246, 0.9)';
-        ctx!.font = 'bold 12px sans-serif';
-        ctx!.textAlign = 'center';
-        ctx!.textBaseline = 'middle';
-        ctx!.fillText(`${Math.round(node.similarity * 100)}%`, node.x, node.y);
+      // Node text: Title (truncated) + Date
+      ctx!.fillStyle = isCenter ? 'rgba(255, 255, 255, 0.95)' : 'rgba(200, 200, 200, 0.9)';
+      ctx!.textAlign = 'center';
+      
+      // Title (max 3 words or 30 chars)
+      const title = node.article.title || 'Unknown';
+      const words = title.split(' ').slice(0, 3).join(' ');
+      const truncated = words.length > 30 ? words.substring(0, 27) + '...' : words;
+      
+      ctx!.font = isCenter ? 'bold 11px sans-serif' : '10px sans-serif';
+      ctx!.textBaseline = 'middle';
+      ctx!.fillText(truncated, node.x, node.y - 5);
+      
+      // Date (below title)
+      if (node.article.published_at) {
+        const date = new Date(node.article.published_at);
+        const dateStr = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        ctx!.font = '9px sans-serif';
+        ctx!.fillStyle = 'rgba(150, 150, 150, 0.8)';
+        ctx!.fillText(dateStr, node.x, node.y + 8);
       }
     });
   }
