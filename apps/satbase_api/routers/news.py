@@ -51,6 +51,19 @@ def reset_all_data():
     }
 
 
+@router.get("/news/{article_id}")
+def get_news_by_id(article_id: str):
+    """Get a single news article by its ID"""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    articles = db.get_articles_by_ids([article_id])
+    
+    if not articles:
+        return JSONResponse({"error": "Article not found"}, status_code=404)
+    
+    return articles[0]
+
 @router.get("/news")
 def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, 
               tickers: str | None = None, limit: int = 100, offset: int = 0, 

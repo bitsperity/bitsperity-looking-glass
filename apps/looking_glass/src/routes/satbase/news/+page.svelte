@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
 	import * as satbaseApi from '$lib/api/satbase';
 	import Button from '$lib/components/shared/Button.svelte';
 	import Input from '$lib/components/shared/Input.svelte';
@@ -54,7 +55,13 @@
 
 	let jobPollingInterval: any;
 
-	onMount(() => {
+	onMount(async () => {
+		// Check for article query parameter from Tesseract
+		const articleId = $page.url.searchParams.get('article');
+		if (articleId) {
+			await openArticleModalById(articleId);
+		}
+		
 		loadData();
 		startJobPolling();
 		return () => {
@@ -202,6 +209,21 @@
 		editedBody = article.content_text || article.body_text || '';
 		editingBody = false;
 		showArticleModal = true;
+	}
+
+	async function openArticleModalById(articleId: string) {
+		try {
+			// Fetch the article from Satbase
+			const response = await fetch(`http://localhost:8080/v1/news/${articleId}`);
+			if (response.ok) {
+				const article = await response.json();
+				openArticleModal(article);
+			} else {
+				console.error('Article not found:', articleId);
+			}
+		} catch (e) {
+			console.error('Failed to load article:', e);
+		}
 	}
 
 	function closeArticleModal() {

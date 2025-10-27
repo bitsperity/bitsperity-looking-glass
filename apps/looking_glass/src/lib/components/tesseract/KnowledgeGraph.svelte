@@ -714,6 +714,12 @@
                 
                 <!-- Actions -->
                 <div class="flex flex-col gap-2 pt-4 border-t border-neutral-700/30">
+                  <a
+                    href="/satbase/news?article={pinnedNode.article.id}"
+                    class="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg text-sm text-purple-300 text-center transition-colors font-medium"
+                  >
+                    📄 View Full Article in Satbase
+                  </a>
                   {#if pinnedNode.article.url}
                     <a
                       href={pinnedNode.article.url}
@@ -721,14 +727,14 @@
                       rel="noopener noreferrer"
                       class="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg text-sm text-blue-300 text-center transition-colors"
                     >
-                      Open Full Article →
+                      🔗 Open Original Source →
                     </a>
                   {/if}
                   <button
                     on:click={() => { if (pinnedNode) exploreArticle(pinnedNode.article); }}
-                    class="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg text-sm text-purple-300 text-center transition-colors"
+                    class="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 rounded-lg text-sm text-amber-300 text-center transition-colors"
                   >
-                    Expand Connections
+                    🔍 Expand Connections
                   </button>
                 </div>
               </div>
@@ -790,16 +796,24 @@
                 <p class="text-neutral-500 mb-3">
                   💡 <span class="text-blue-300">Click node</span> to expand • <span class="text-purple-300">Shift+Click</span> to pin
                 </p>
-                {#if hoveredNode.article.url}
+                <div class="flex flex-col gap-2">
                   <a
-                    href={hoveredNode.article.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="block px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg text-sm text-blue-300 text-center transition-colors"
+                    href="/satbase/news?article={hoveredNode.article.id}"
+                    class="block px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg text-sm text-purple-300 text-center transition-colors font-medium"
                   >
-                    Open Article →
+                    📄 View Full Article in Satbase
                   </a>
-                {/if}
+                  {#if hoveredNode.article.url}
+                    <a
+                      href={hoveredNode.article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="block px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg text-sm text-blue-300 text-center transition-colors"
+                    >
+                      🔗 Open Original Source →
+                    </a>
+                  {/if}
+                </div>
               </div>
             </div>
           {:else}
