@@ -1,4 +1,4 @@
-import { c as create_ssr_component, e as escape, d as each, f as add_attribute } from "./ssr.js";
+import { c as create_ssr_component, e as escape, b as each, d as add_attribute } from "./ssr.js";
 const MANIFOLD_BASE = "http://127.0.0.1:8083";
 async function http(path, init) {
   const resp = await fetch(`${MANIFOLD_BASE}${path}`, init);

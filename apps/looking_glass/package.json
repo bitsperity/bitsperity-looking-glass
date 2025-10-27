@@ -16,6 +16,7 @@
     "autoprefixer": "^10.4.20",
     "chart.js": "^4.4.6",
     "chartjs-adapter-date-fns": "^3.0.0",
+    "cytoscape": "^3.33.1",
     "date-fns": "^3.0.0",
     "graphology": "^0.26.0",
     "graphology-layout": "^0.6.1",

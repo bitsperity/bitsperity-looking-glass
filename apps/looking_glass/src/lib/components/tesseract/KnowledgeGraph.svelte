@@ -44,9 +44,19 @@
     if (ctx) drawGraph();
   }
   
-  // Save threshold changes to store
-  $: if (similarityThreshold !== undefined) {
-    saveGraphState();
+  // Redraw graph and save when threshold changes
+  let thresholdSaveTimeout: any;
+  $: {
+    if (similarityThreshold !== undefined && nodes.length > 0 && ctx) {
+      // Immediate visual feedback
+      drawGraph();
+      
+      // Debounced save to store
+      clearTimeout(thresholdSaveTimeout);
+      thresholdSaveTimeout = setTimeout(() => {
+        saveGraphState();
+      }, 300);
+    }
   }
   
   const CANVAS_WIDTH = 1200;
@@ -272,8 +282,20 @@
     ctx.translate(panX, panY);
     ctx.scale(zoom, zoom);
     
-    // Draw edges
-    edges.forEach(edge => {
+    // Filter edges by threshold
+    const visibleEdges = edges.filter(edge => edge.similarity >= similarityThreshold);
+    
+    // Find nodes that have at least one visible edge
+    const visibleNodeIds = new Set<string>();
+    visibleEdges.forEach(edge => {
+      visibleNodeIds.add(edge.from);
+      visibleNodeIds.add(edge.to);
+    });
+    // Always show center node
+    if (centerNode) visibleNodeIds.add(centerNode.id);
+    
+    // Draw edges (only visible ones)
+    visibleEdges.forEach(edge => {
       const fromNode = nodes.find(n => n.id === edge.from);
       const toNode = nodes.find(n => n.id === edge.to);
       
@@ -292,8 +314,10 @@
       }
     });
     
-    // Draw nodes
+    // Draw nodes (only visible ones)
     nodes.forEach(node => {
+      if (!visibleNodeIds.has(node.id)) return; // Skip invisible nodes
+      
       const isCenter = node === centerNode;
       const isHovered = node === hoveredNode;
       const isPinned = node === pinnedNode;
@@ -463,8 +487,20 @@
     const y = e.clientY - rect.top;
     const world = screenToWorld(x, y);
     
+    // Calculate visible nodes (same logic as in drawGraph)
+    const visibleEdges = edges.filter(edge => edge.similarity >= similarityThreshold);
+    const visibleNodeIds = new Set<string>();
+    visibleEdges.forEach(edge => {
+      visibleNodeIds.add(edge.from);
+      visibleNodeIds.add(edge.to);
+    });
+    if (centerNode) visibleNodeIds.add(centerNode.id);
+    
     let found = false;
     for (const node of nodes) {
+      // Skip invisible nodes
+      if (!visibleNodeIds.has(node.id)) continue;
+      
       const radius = node === centerNode ? CENTER_RADIUS : NODE_RADIUS;
       const distance = Math.sqrt((world.x - node.x) ** 2 + (world.y - node.y) ** 2);
       

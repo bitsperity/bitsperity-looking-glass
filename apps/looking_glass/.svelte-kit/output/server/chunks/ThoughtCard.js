@@ -1,4 +1,4 @@
-import { c as create_ssr_component, e as escape, v as validate_component, d as each, f as add_attribute } from "./ssr.js";
+import { c as create_ssr_component, e as escape, v as validate_component, b as each, d as add_attribute } from "./ssr.js";
 const TypeBadge = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let colorClass;
   let { type } = $$props;

@@ -1,4 +1,4 @@
-import { c as create_ssr_component, v as validate_component, f as add_attribute, e as escape } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, v as validate_component, d as add_attribute, e as escape } from "../../../../chunks/ssr.js";
 import { C as Card } from "../../../../chunks/Card.js";
 import { B as Button } from "../../../../chunks/Button.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {

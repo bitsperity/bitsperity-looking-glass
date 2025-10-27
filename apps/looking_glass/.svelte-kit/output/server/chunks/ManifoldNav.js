@@ -1,4 +1,4 @@
-import { c as create_ssr_component, b as subscribe, d as each, f as add_attribute, e as escape } from "./ssr.js";
+import { c as create_ssr_component, a as subscribe, b as each, d as add_attribute, e as escape } from "./ssr.js";
 import { p as page } from "./stores.js";
 const ManifoldNav = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let current;

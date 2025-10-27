@@ -250,13 +250,13 @@ function style_object_to_string(style_object) {
   return Object.keys(style_object).filter((key) => style_object[key] != null && style_object[key] !== "").map((key) => `${key}: ${escape_attribute_value(style_object[key])};`).join(" ");
 }
 export {
-  setContext as a,
-  subscribe as b,
+  subscribe as a,
+  each as b,
   create_ssr_component as c,
-  each as d,
+  add_attribute as d,
   escape as e,
-  add_attribute as f,
-  createEventDispatcher as g,
+  createEventDispatcher as f,
+  safe_not_equal as g,
   getContext as h,
   compute_rest_props as i,
   spread as j,
@@ -264,6 +264,6 @@ export {
   missing_component as m,
   noop as n,
   onDestroy as o,
-  safe_not_equal as s,
+  setContext as s,
   validate_component as v
 };

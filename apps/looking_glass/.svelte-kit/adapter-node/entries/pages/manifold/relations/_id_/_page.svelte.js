@@ -1,4 +1,4 @@
-import { c as create_ssr_component, b as subscribe, e as escape, f as add_attribute, d as each, v as validate_component } from "../../../../../chunks/ssr.js";
+import { c as create_ssr_component, a as subscribe, e as escape, d as add_attribute, b as each, v as validate_component } from "../../../../../chunks/ssr.js";
 import { p as page } from "../../../../../chunks/stores.js";
 import { T as ThoughtPreviewModal } from "../../../../../chunks/ThoughtPreviewModal.js";
 const Page = create_ssr_component(($$result, $$props, $$bindings, slots) => {

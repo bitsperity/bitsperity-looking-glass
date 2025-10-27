@@ -1,4 +1,4 @@
-import { c as create_ssr_component, b as subscribe, e as escape, v as validate_component } from "../../../chunks/ssr.js";
+import { c as create_ssr_component, a as subscribe, e as escape, v as validate_component } from "../../../chunks/ssr.js";
 import { p as page } from "../../../chunks/stores.js";
 const AriadneNav = create_ssr_component(($$result, $$props, $$bindings, slots) => {
   let current;

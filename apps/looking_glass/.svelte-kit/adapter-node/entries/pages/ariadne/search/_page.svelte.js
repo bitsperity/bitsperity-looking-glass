@@ -1,4 +1,4 @@
-import { c as create_ssr_component, e as escape, g as createEventDispatcher, v as validate_component, b as subscribe, f as add_attribute, d as each } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, e as escape, f as createEventDispatcher, v as validate_component, a as subscribe, d as add_attribute, b as each } from "../../../../chunks/ssr.js";
 import { p as page } from "../../../../chunks/stores.js";
 import { A as AutocompleteInput, f as fetchTopicSuggestions } from "../../../../chunks/ariadneSuggestions.js";
 const LabelBadge = create_ssr_component(($$result, $$props, $$bindings, slots) => {

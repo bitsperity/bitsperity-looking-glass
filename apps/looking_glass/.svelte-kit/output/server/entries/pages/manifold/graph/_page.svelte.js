@@ -1,4 +1,4 @@
-import { c as create_ssr_component, v as validate_component, f as add_attribute, e as escape } from "../../../../chunks/ssr.js";
+import { c as create_ssr_component, v as validate_component, d as add_attribute, e as escape } from "../../../../chunks/ssr.js";
 import { M as ManifoldNav } from "../../../../chunks/ManifoldNav.js";
 import { T as ThoughtPreviewModal } from "../../../../chunks/ThoughtPreviewModal.js";
 const ssr = false;

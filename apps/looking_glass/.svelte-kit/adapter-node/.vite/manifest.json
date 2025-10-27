@@ -77,6 +77,13 @@
     "file": "chunks/exports.js",
     "name": "exports"
   },
+  "_index.js": {
+    "file": "chunks/index.js",
+    "name": "index",
+    "imports": [
+      "_ssr.js"
+    ]
+  },
   "_internal.js": {
     "file": "chunks/internal.js",
     "name": "internal",
@@ -152,7 +159,7 @@
       "_environment.js",
       "_exports.js",
       "_utils.js",
-      "_ssr.js",
+      "_index.js",
       "_internal.js"
     ]
   },
@@ -165,7 +172,7 @@
       "_ssr.js"
     ],
     "css": [
-      "_app/immutable/assets/_layout.CJtLCONF.css"
+      "_app/immutable/assets/_layout.DSJPEcv_.css"
     ]
   },
   "src/routes/+layout.ts": {
@@ -621,6 +628,7 @@
     "isEntry": true,
     "imports": [
       "_ssr.js",
+      "_stores.js",
       "_Button.js"
     ],
     "css": [
@@ -684,10 +692,11 @@
       "_ssr.js",
       "_Card.js",
       "_Badge.js",
-      "_Button.js"
+      "_Button.js",
+      "_index.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.PXbgQJ3B.css"
+      "_app/immutable/assets/_page.EO-2Gll3.css"
     ]
   },
   "src/routes/tesseract/+page.ts": {
