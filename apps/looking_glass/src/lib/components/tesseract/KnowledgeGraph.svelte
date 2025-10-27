@@ -44,6 +44,11 @@
     if (ctx) drawGraph();
   }
   
+  // Save threshold changes to store
+  $: if (similarityThreshold !== undefined) {
+    saveGraphState();
+  }
+  
   const CANVAS_WIDTH = 1200;
   const CANVAS_HEIGHT = 800;
   const NODE_RADIUS = 50; // Increased for better labels
