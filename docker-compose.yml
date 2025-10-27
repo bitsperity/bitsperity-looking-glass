@@ -66,10 +66,12 @@ services:
       - ./data:/app/data
       - ./libs:/app/libs:ro
       - ./apps:/app/apps:ro
-    command: ["uvicorn", "apps.tesseract_api.main:app", "--host", "0.0.0.0", "--port", "8081"]
+    command: ["uvicorn", "apps.tesseract_api.main:app", "--host", "0.0.0.0", "--port", "8081", "--reload"]
     depends_on:
       - qdrant
       - satbase-api
+    # Compose v2 GPU support using device requests. `deploy` is ignored in non-swarm; use `gpus: all` instead.
+    gpus: all
     deploy:
       resources:
         reservations:

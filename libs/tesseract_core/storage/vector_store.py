@@ -16,6 +16,47 @@ class VectorStore:
             collection_name=target,
             vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
         )
+    
+    def ensure_collection(self, vector_size: int = 1024, alias: str = "news_embeddings"):
+        """Ensure collection and alias exist; create if missing"""
+        try:
+            # Check if alias exists and points to a collection
+            collections_response = self.client.get_collections()
+            existing_collections = [col.name for col in collections_response.collections]
+            
+            # Try to get collection via alias
+            try:
+                self.client.get_collection(collection_name=alias)
+                print(f"✓ Collection alias '{alias}' exists and is active")
+                return
+            except Exception:
+                pass  # Alias doesn't exist yet
+            
+            # Find a suitable physical collection to use
+            if existing_collections:
+                # Use first existing collection
+                target_collection = existing_collections[0]
+                print(f"Using existing collection: {target_collection}")
+            else:
+                # Create new versioned collection
+                import time
+                target_collection = f"news_embeddings_v{int(time.time())}"
+                print(f"Creating new collection: {target_collection}")
+                self.create_collection(vector_size=vector_size, name=target_collection)
+            
+            # Create alias (or update if exists)
+            try:
+                self.delete_alias(alias=alias)
+            except Exception:
+                pass  # Alias didn't exist
+            
+            self.create_alias(alias=alias, collection_name=target_collection)
+            self.use_collection(alias)
+            print(f"✓ Alias '{alias}' now points to '{target_collection}'")
+            
+        except Exception as e:
+            print(f"✗ Failed to ensure collection: {e}")
+            raise
 
     def delete_collection(self, name: str):
         return self.client.delete_collection(collection_name=name)

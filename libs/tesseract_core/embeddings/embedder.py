@@ -3,11 +3,16 @@ import torch
 import os
 
 class Embedder:
-    def __init__(self, model_name: str = "intfloat/multilingual-e5-large", device: str = None):
+    def __init__(self, model_name: str = None, device: str = None):
+        if model_name is None:
+            model_name = os.getenv("TESSERACT_MODEL", "intfloat/multilingual-e5-large")
+        
         if device is None:
             device = os.getenv("TESSERACT_DEVICE", "cpu")
         
         self.device = device
+        self.model_name = model_name
+        
         # Reduce thread pressure and tokenizer parallelism to avoid system hangs
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         try:
@@ -16,6 +21,8 @@ class Embedder:
         except Exception:
             # Not critical if unavailable on this platform
             pass
+        
+        print(f"Loading model: {model_name}")
         self.model = SentenceTransformer(model_name)
         
         # Try GPU, fallback to CPU

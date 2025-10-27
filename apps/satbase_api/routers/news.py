@@ -137,8 +137,8 @@ def delete_news(news_id: str):
         return {"success": True, "id": news_id, "message": "News article deleted"}
     else:
         return JSONResponse(
-                {"success": False, "id": news_id, "message": "News article not found"},
-                status_code=404
+            {"success": False, "id": news_id, "message": "News article not found"},
+            status_code=404
         )
 
 

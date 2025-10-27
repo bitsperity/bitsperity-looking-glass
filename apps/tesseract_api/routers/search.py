@@ -1,39 +1,44 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Body
 from libs.tesseract_core.models.search import SearchRequest, SearchResponse, SearchResult
 from libs.tesseract_core.embeddings.embedder import Embedder
 from libs.tesseract_core.storage.vector_store import VectorStore
+from libs.tesseract_core.storage.tesseract_db import TesseractDB
 from qdrant_client.models import PointStruct
 import httpx
-import uuid
 import time
 import gc
 import re
+import os
+import uuid
+from pathlib import Path
+import asyncio
 
 router = APIRouter()
 
-# Initialize once at startup (device from TESSERACT_DEVICE env var)
+# Initialize once at startup
 embedder = None
 vector_store = VectorStore()
-
-# Embedding progress state (simple in-memory telemetry)
-EMBED_STATE = {
-    "status": "idle",        # idle | running | done | error
-    "processed": 0,
-    "total": 0,
-    "device": None,
-    "started_at": None,
-    "updated_at": None,
-    "error": None,
-}
+tesseract_db = None
 
 def get_embedder():
     global embedder
     if embedder is None:
-        embedder = Embedder()  # Device from env
+        embedder = Embedder()  # Model/Device from env
     return embedder
+
+def get_tesseract_db():
+    global tesseract_db
+    if tesseract_db is None:
+        db_path = os.getenv("TESSERACT_SQLITE_PATH", "data/tesseract.db")
+        tesseract_db = TesseractDB(db_path)
+    return tesseract_db
 
 @router.post("/tesseract/search", response_model=SearchResponse)
 async def semantic_search(request: SearchRequest):
+    """Semantic search with filtering support"""
+    # Ensure collection exists
+    vector_store.ensure_collection()
+    
     # Generate query embedding
     emb = get_embedder()
     query_embedding = emb.encode(request.query, normalize=True, is_query=True)[0]
@@ -54,7 +59,7 @@ async def semantic_search(request: SearchRequest):
         count=len(results),
         results=[
             SearchResult(
-                id=r.id,
+                id=str(r.id),
                 score=r.score,
                 **r.payload
             )
@@ -63,12 +68,40 @@ async def semantic_search(request: SearchRequest):
     )
 
 def build_filter(filters: dict):
+    """Build Qdrant filter from request filters"""
     must_conditions = []
+    
+    # Topics filter (array any-match)
+    if filters.get("topics"):
+        topics_list = filters["topics"] if isinstance(filters["topics"], list) else [filters["topics"]]
+        must_conditions.append({
+            "key": "topics",
+            "match": {"any": topics_list}
+        })
+    
+    # Tickers filter (array any-match)
     if filters.get("tickers"):
+        tickers_list = filters["tickers"] if isinstance(filters["tickers"], list) else [filters["tickers"]]
         must_conditions.append({
             "key": "tickers",
-            "match": {"any": filters["tickers"]}
+            "match": {"any": tickers_list}
         })
+    
+    # Language filter (exact match)
+    if filters.get("language"):
+        must_conditions.append({
+            "key": "language",
+            "match": {"value": filters["language"]}
+        })
+    
+    # Body available filter
+    if "body_available" in filters:
+        must_conditions.append({
+            "key": "body_available",
+            "match": {"value": bool(filters["body_available"])}
+        })
+    
+    # Date range filter
     if filters.get("from") or filters.get("to"):
         range_filter = {}
         if filters.get("from"):
@@ -79,34 +112,40 @@ def build_filter(filters: dict):
             "key": "published_at",
             "range": range_filter
         })
+    
     return {"must": must_conditions} if must_conditions else None
 
 @router.get("/tesseract/similar/{news_id}")
 async def find_similar(news_id: str, limit: int = 10):
-    """Find similar articles to a given article by vector similarity"""
+    """Find similar articles by vector similarity (news_id is Satbase ID)"""
     try:
+        vector_store.ensure_collection()
+        
+        # Retrieve source article (news_id is the point ID in Qdrant)
         source_points = vector_store.client.retrieve(
             collection_name=vector_store.collection_name,
-            ids=[news_id],
+            ids=[int(news_id)] if news_id.isdigit() else [news_id],
             with_vectors=True,
             with_payload=True,
         )
         if not source_points:
             raise HTTPException(status_code=404, detail=f"Article {news_id} not found in vector store")
+        
         source = source_points[0]
         
+        # Search for similar
         results = vector_store.search(
             query_vector=source.vector,
             limit=limit + 1
         )
         
         # Exclude source article
-        results = [r for r in results if r.id != news_id][:limit]
+        results = [r for r in results if str(r.id) != str(news_id)][:limit]
         
         return {
-            "source_article": {"id": news_id, **source.payload},
+            "source_article": {"id": str(source.id), **source.payload},
             "similar_articles": [
-                {"id": r.id, "score": r.score, **r.payload}
+                {"id": str(r.id), "score": r.score, **r.payload}
                 for r in results
             ]
         }
@@ -118,9 +157,28 @@ async def find_similar(news_id: str, limit: int = 10):
 # ==================== ADMIN ENDPOINTS ====================
 
 @router.post("/admin/embed-batch")
-async def embed_batch(background_tasks: BackgroundTasks, from_date: str = "2020-01-01", to_date: str = "2025-12-31"):
+async def embed_batch(
+    background_tasks: BackgroundTasks,
+    from_date: str = Body(...),
+    to_date: str = Body(...),
+    topics: str = Body(None),
+    tickers: str = Body(None),
+    language: str = Body(None),
+    body_only: bool = Body(True),
+    incremental: bool = Body(True)
+):
     """
-    Batch embed all news articles from Satbase into Tesseract.
+    Batch embed articles from Satbase into Tesseract.
+    Request body (JSON):
+    {
+        "from_date": "2025-10-20",      (required, YYYY-MM-DD)
+        "to_date": "2025-10-22",        (required, YYYY-MM-DD)
+        "topics": "AI,Bitcoin",         (optional, comma-separated)
+        "tickers": "AAPL,MSFT",        (optional, comma-separated)
+        "language": "en",               (optional)
+        "body_only": true,              (optional, default: true)
+        "incremental": true             (optional, default: true)
+    }
     Runs in background. Check /admin/embed-status for progress.
     """
     # Validate date format
@@ -128,67 +186,81 @@ async def embed_batch(background_tasks: BackgroundTasks, from_date: str = "2020-
     if not re.match(date_pattern, from_date) or not re.match(date_pattern, to_date):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
-    # Check if already running
-    if EMBED_STATE["status"] == "running":
-        raise HTTPException(status_code=409, detail="Batch embedding already in progress")
+    # Ensure collection exists
+    vector_store.ensure_collection()
     
-    background_tasks.add_task(run_batch_embedding, from_date, to_date)
+    # Parse filters
+    topics_list = [t.strip() for t in topics.split(",")] if topics else None
+    tickers_list = [t.strip() for t in tickers.split(",")] if tickers else None
+    
+    job_id = str(uuid.uuid4())
+    params = {
+        "from_date": from_date,
+        "to_date": to_date,
+        "topics": topics_list,
+        "tickers": tickers_list,
+        "language": language,
+        "body_only": body_only,
+        "incremental": incremental,
+    }
+    
+    db = get_tesseract_db()
+    db.create_job(job_id, params)
+    background_tasks.add_task(run_batch_embedding, job_id, params)
+    
     return {
         "status": "started",
+        "job_id": job_id,
         "message": f"Batch embedding from {from_date} to {to_date} started in background",
-        "check_progress": "/v1/admin/embed-status"
+        "check_progress": f"/v1/admin/embed-status?job_id={job_id}"
     }
 
 @router.get("/admin/embed-status")
-async def embed_status():
-    """Get current embedding status and collection info"""
+async def embed_status(job_id: str = None):
+    """Get embedding status"""
+    vector_store.ensure_collection()
+    db = get_tesseract_db()
+    
     try:
         collection_info = vector_store.client.get_collection(vector_store.collection_name)
-        return {
-            "collection_exists": True,
-            "vector_count": collection_info.points_count,
-            "vector_size": collection_info.config.params.vectors.size,
-            "status": EMBED_STATE["status"],
-            "processed": EMBED_STATE["processed"],
-            "total": EMBED_STATE["total"],
-            "percent": (EMBED_STATE["processed"] / EMBED_STATE["total"] * 100.0) if EMBED_STATE["total"] else 0.0,
-            "device": EMBED_STATE["device"],
-            "started_at": EMBED_STATE["started_at"],
-            "updated_at": EMBED_STATE["updated_at"],
-            "error": EMBED_STATE["error"],
-        }
+        
+        if job_id:
+            job = db.get_job(job_id)
+            if not job:
+                return {"error": "Job not found", "job_id": job_id}
+            
+            return {
+                "job_id": job_id,
+                "status": job["status"],
+                "processed": job["processed"],
+                "total": job["total"],
+                "percent": (job["processed"] / job["total"] * 100.0) if job["total"] else 0.0,
+                "started_at": job["started_at"],
+                "completed_at": job["completed_at"],
+                "error": job["error"],
+                "params": job.get("params"),
+            }
+        else:
+            # Return overall stats
+            return {
+                "collection_name": vector_store.collection_name,
+                "total_vectors": collection_info.points_count,
+                "vector_size": collection_info.config.params.vectors.size,
+                "total_embedded_articles": db.get_embedded_count(),
+                "recent_jobs": db.list_jobs(limit=10),
+            }
     except Exception as e:
         return {
-            "collection_exists": False,
             "error": str(e),
-            "status": "not_initialized",
-            "processed": EMBED_STATE["processed"],
-            "total": EMBED_STATE["total"],
-            "percent": (EMBED_STATE["processed"] / EMBED_STATE["total"] * 100.0) if EMBED_STATE["total"] else 0.0,
-            "device": EMBED_STATE["device"],
-            "started_at": EMBED_STATE["started_at"],
-            "updated_at": EMBED_STATE["updated_at"],
-            "error": EMBED_STATE["error"],
+            "total_embedded_articles": db.get_embedded_count(),
         }
 
 @router.post("/admin/init-collection")
 async def init_collection():
     """Initialize or recreate Qdrant collection with versioning"""
     try:
-        # Create new versioned collection
-        target_name = f"news_embeddings_v{int(time.time())}"
-        vector_store.create_collection(vector_size=1024, name=target_name)
-        
-        # Update alias to point to new collection (atomic switch for zero-downtime)
-        try:
-            vector_store.delete_alias(alias="news_embeddings")
-        except Exception:
-            pass  # Alias might not exist yet
-        
-        vector_store.create_alias(alias="news_embeddings", collection_name=target_name)
-        vector_store.use_collection("news_embeddings")
-        
-        return {"status": "created", "collection": target_name, "alias": "news_embeddings"}
+        vector_store.ensure_collection()
+        return {"status": "ok", "collection": vector_store.collection_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to initialize collection: {str(e)}")
 
@@ -202,11 +274,11 @@ async def switch_collection(name: str):
         except Exception:
             raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
         
-        # Delete old alias and create new one (atomic-ish)
+        # Delete old alias and create new one
         try:
             vector_store.delete_alias(alias="news_embeddings")
         except Exception:
-            pass  # Alias might not exist
+            pass
         
         vector_store.create_alias(alias="news_embeddings", collection_name=name)
         vector_store.use_collection("news_embeddings")
@@ -223,7 +295,6 @@ async def list_collections():
     try:
         cols = vector_store.list_collections()
         
-        # Enrich with metadata per collection
         collections_data = []
         for col in cols.collections:
             try:
@@ -232,7 +303,7 @@ async def list_collections():
                     "name": col.name,
                     "points_count": info.points_count,
                     "vector_size": info.config.params.vectors.size,
-                    "distance": info.config.params.vectors.distance.name if hasattr(info.config.params.vectors, 'distance') else "COSINE"
+                    "distance": "COSINE"
                 })
             except Exception as e:
                 collections_data.append({
@@ -240,7 +311,6 @@ async def list_collections():
                     "error": str(e)
                 })
         
-        # Check which collection the alias points to
         current_alias_target = vector_store.collection_name
         
         return {
@@ -255,17 +325,14 @@ async def list_collections():
 async def delete_collection(collection_name: str):
     """Delete a collection (with safety checks)"""
     try:
-        # Safety: Don't delete active collection
         if collection_name == vector_store.collection_name:
             raise HTTPException(status_code=400, detail=f"Cannot delete active collection '{collection_name}'. Switch to another collection first.")
         
-        # Check if collection exists
         try:
             vector_store.get_collection(name=collection_name)
         except Exception:
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
         
-        # Delete it
         vector_store.delete_collection(name=collection_name)
         
         return {"status": "deleted", "collection": collection_name}
@@ -276,112 +343,188 @@ async def delete_collection(collection_name: str):
 
 # ==================== BACKGROUND TASKS ====================
 
-async def run_batch_embedding(from_date: str, to_date: str):
-    """Background task to embed all news articles"""
-    print(f"🚀 Starting batch embedding: {from_date} → {to_date}")
+def extract_text_from_article(article: dict, max_length: int = 6000) -> str:
+    """Extract and normalize text from article; fallback pipeline"""
+    # Priority: body_text -> description -> title
+    text = article.get("body_text") or article.get("description") or article.get("title") or ""
+    
+    # Clean and limit
+    text = text.strip()[:max_length]
+    return text
+
+async def run_batch_embedding(job_id: str, params: dict):
+    """Background task to embed articles from Satbase"""
+    print(f"🚀 Starting batch embedding job: {job_id}")
+    print(f"   Params: {params}")
+    
+    db = get_tesseract_db()
+    emb = get_embedder()
     
     try:
-        # 1. Initialize embedder (lazy)
-        emb = get_embedder()
-        print(f"✓ Embedder ready (device: {emb.device})")
-        EMBED_STATE.update({
-            "status": "running",
-            "processed": 0,
-            "total": 0,
-            "device": emb.device,
-            "started_at": int(time.time()),
-            "updated_at": int(time.time()),
-            "error": None,
-        })
+        db.update_job_status(job_id, "running")
         
-        # 2. Fetch all news with bodies from Satbase
-        print("📥 Fetching news from Satbase...")
-        satbase_url = "http://localhost:8080/v1/news"
+        # Configure Satbase fetch
+        satbase_url = os.getenv("TESSERACT_SATBASE_URL", "http://localhost:8080/v1/news")
         
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.get(satbase_url, params={
-                "from": from_date,
-                "to": to_date,
-                "limit": 100000,
-                "include_body": True,
-                "has_body": True
-            })
-            news_items = response.json()["items"]
-        
-        total = len(news_items)
-        EMBED_STATE["total"] = total
-        EMBED_STATE["updated_at"] = int(time.time())
-        print(f"✓ Fetched {total} articles")
-        
-        # 3. Stream embeddings + upserts with progress and memory hygiene
-        print("🧠 Generating embeddings...")
-        embedding_batch_size = 24 if emb.device == "cuda" else 16
+        # Pagination setup
+        page_size = 1000
+        offset = 0
+        total_fetched = 0
+        total_embedded = 0
+        embedding_batch_size = 32 if emb.device == "cuda" else 16
+        upsert_chunk_size = 256
         upsert_accumulator = []
-        upsert_accumulator_target = 256
-
-        for i in range(0, total, embedding_batch_size):
-            batch_items = news_items[i:i+embedding_batch_size]
-            batch_texts = [
-                f"{it['title']}. {it['text']}. {it.get('content_text', '')[:1000]}"
-                for it in batch_items
-            ]
-            batch_embeddings = emb.encode(batch_texts, batch_size=embedding_batch_size, is_query=False)
-
-            for it, emb_vec in zip(batch_items, batch_embeddings):
-                upsert_accumulator.append(
-                    PointStruct(
-                        id=str(uuid.uuid5(uuid.NAMESPACE_DNS, it["id"])) ,
-                        vector=emb_vec.tolist(),
-                        payload={
-                            "news_id": it["id"],
-                            "title": it["title"],
-                            "text": it["text"],
-                            "source": it["source"],
-                            "url": it["url"],
-                            "published_at": it["published_at"],
-                            "tickers": it.get("tickers", []),
-                        },
-                    )
-                )
-
-            EMBED_STATE["processed"] = min(i + embedding_batch_size, total)
-            EMBED_STATE["updated_at"] = int(time.time())
-            progress_pct = (EMBED_STATE["processed"] / total * 100.0) if total else 0.0
-            print(f"📊 Embedding progress: {EMBED_STATE['processed']}/{total} ({progress_pct:.1f}%)")
-
-            if len(upsert_accumulator) >= upsert_accumulator_target:
-                vector_store.upsert(upsert_accumulator, wait=True)
-                print(f"✓ Upserted {len(upsert_accumulator)} vectors")
-                upsert_accumulator.clear()
-                # Try to keep memory stable
-                if emb.device == "cuda":
-                    try:
-                        import torch
-                        torch.cuda.synchronize()
-                        torch.cuda.empty_cache()
-                    except Exception:
-                        pass
-                gc.collect()
-
+        
+        print(f"📥 Fetching from Satbase: {satbase_url}")
+        
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            while True:
+                # Build Satbase params
+                satbase_params = {
+                    "from": params["from_date"],
+                    "to": params["to_date"],
+                    "limit": page_size,
+                    "offset": offset,
+                    "include_body": True,
+                }
+                
+                # Optional filters
+                if params.get("topics"):
+                    satbase_params["topics"] = ",".join(params["topics"])
+                if params.get("language"):
+                    satbase_params["language"] = params["language"]
+                
+                # Only request body if body_only=true
+                if params.get("body_only"):
+                    satbase_params["body_available"] = True
+                
+                try:
+                    print(f"📡 Fetching offset {offset}...")
+                    response = await client.get(satbase_url, params=satbase_params)
+                    
+                    if response.status_code == 202:
+                        # Fetch-on-miss: wait a bit and retry
+                        print(f"⏳ Satbase still fetching (202), waiting 5s...")
+                        await asyncio.sleep(5)
+                        continue
+                    
+                    response.raise_for_status()
+                    data = response.json()
+                    articles = data.get("data", []) or data.get("items", [])
+                    
+                    if not articles:
+                        print(f"✓ No more articles at offset {offset}")
+                        break
+                    
+                    total_fetched += len(articles)
+                    print(f"📄 Fetched {len(articles)} articles (total: {total_fetched})")
+                    
+                except asyncio.TimeoutError as e:
+                    print(f"⏳ Timeout fetching from Satbase (timeout, will retry): {e}")
+                    await asyncio.sleep(5)
+                    continue
+                except Exception as e:
+                    print(f"❌ Satbase fetch failed: {type(e).__name__}: {e}")
+                    raise
+                
+                # Filter by incremental + body_only
+                if params.get("incremental"):
+                    articles = db.get_articles_needing_embedding(articles)
+                    print(f"   After incremental filter: {len(articles)} need embedding")
+                
+                if not articles:
+                    offset += page_size
+                    continue
+                
+                # Embed articles
+                for i in range(0, len(articles), embedding_batch_size):
+                    batch_articles = articles[i:i+embedding_batch_size]
+                    batch_texts = [
+                        f"{a.get('title', '')}. {extract_text_from_article(a)}"
+                        for a in batch_articles
+                    ]
+                    
+                    batch_embeddings = emb.encode(batch_texts, batch_size=embedding_batch_size, is_query=False)
+                    
+                    for article, emb_vec in zip(batch_articles, batch_embeddings):
+                        # Use Satbase article ID as Qdrant ID - convert to UUID for string IDs
+                        article_id = article["id"]
+                        if isinstance(article_id, int) or (isinstance(article_id, str) and article_id.isdigit()):
+                            # If numeric, use as integer
+                            point_id = int(article_id)
+                        else:
+                            # If string (like SHA hex), convert to UUID for Qdrant
+                            try:
+                                import uuid
+                                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(article_id)))
+                            except Exception:
+                                # Fallback: use absolute hash value as large integer
+                                point_id = abs(hash(str(article_id))) % (2**63)
+                        
+                        upsert_accumulator.append(
+                            PointStruct(
+                                id=point_id,
+                                vector=emb_vec.tolist(),
+                                payload={
+                                    "news_id": article["id"],
+                                    "title": article.get("title", "")[:500],
+                                    "text": extract_text_from_article(article),
+                                    "source": article.get("source", ""),
+                                    "source_name": article.get("source_name", article.get("source", "")),
+                                    "url": article.get("url", ""),
+                                    "published_at": article.get("published_at", ""),
+                                    "topics": article.get("topics", []),
+                                    "tickers": article.get("tickers", []),
+                                    "language": article.get("language", ""),
+                                    "body_available": article.get("body_available", False),
+                                },
+                            )
+                        )
+                        
+                        # Mark as embedded
+                        db.mark_article_embedded(
+                            article["id"],
+                            article.get("published_at", ""),
+                            article.get("title", ""),
+                            extract_text_from_article(article)
+                        )
+                        
+                        total_embedded += 1
+                    
+                    # Upsert chunk
+                    if len(upsert_accumulator) >= upsert_chunk_size:
+                        vector_store.upsert(upsert_accumulator, wait=True)
+                        print(f"✓ Upserted {len(upsert_accumulator)} vectors")
+                        upsert_accumulator.clear()
+                        
+                        # Memory hygiene
+                        if emb.device == "cuda":
+                            try:
+                                import torch
+                                torch.cuda.synchronize()
+                                torch.cuda.empty_cache()
+                            except Exception:
+                                pass
+                        gc.collect()
+                    
+                    db.update_job_status(job_id, "running", processed=total_embedded, total=total_fetched)
+                
+                offset += page_size
+        
         # Flush remaining
         if upsert_accumulator:
             vector_store.upsert(upsert_accumulator, wait=True)
             print(f"✓ Upserted {len(upsert_accumulator)} vectors (final)")
-
-        EMBED_STATE["status"] = "done"
-        EMBED_STATE["updated_at"] = int(time.time())
-        print(f"🎉 Successfully embedded {total} news articles!")
-
-        return {"status": "done", "processed": total, "total": total}
-    
+        
+        db.update_job_status(job_id, "done", processed=total_embedded, total=total_embedded)
+        db.complete_job(job_id)
+        print(f"🎉 Successfully embedded {total_embedded} articles!")
+        
     except Exception as e:
         error_msg = f"Batch embedding failed: {str(e)}"
         print(f"❌ {error_msg}")
-        EMBED_STATE.update({
-            "status": "error",
-            "error": error_msg,
-            "updated_at": int(time.time())
-        })
+        db.update_job_status(job_id, "error")
+        db.complete_job(job_id, error=error_msg)
         raise
 
 
