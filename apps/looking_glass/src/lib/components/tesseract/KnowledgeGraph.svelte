@@ -295,11 +295,8 @@
     }
   }
   
-  $: if (similarityThreshold) {
-    if (centerNode) {
-      exploreArticle(centerNode.article);
-    }
-  }
+  // REMOVED REACTIVE LOOP - Don't re-explore on threshold change, just re-filter existing results
+  // The threshold is applied during exploreArticle already
 </script>
 
 <div class="h-full flex flex-col bg-gradient-to-br from-neutral-950 via-neutral-900 to-neutral-950">
