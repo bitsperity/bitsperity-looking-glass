@@ -43,8 +43,6 @@
   let embedStatus: JobStatus | OverallStatus | null = null;
   let collections: any = null;
   let activeAlias: string = 'news_embeddings';
-  let error: string = '';
-  let searchTimeout: any = null;
   let statusPollInterval: any = null;
   let currentJobId: string | null = null;
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Body
+from fastapi import APIRouter, HTTPException, Request, Body
 from libs.tesseract_core.models.search import SearchRequest, SearchResponse, SearchResult
 from libs.tesseract_core.embeddings.embedder import Embedder
 from libs.tesseract_core.storage.vector_store import VectorStore
@@ -172,7 +172,6 @@ async def find_similar(news_id: str, limit: int = 10):
 
 @router.post("/admin/embed-batch")
 async def embed_batch(
-    background_tasks: BackgroundTasks,
     from_date: str = Body(...),
     to_date: str = Body(...),
     topics: str = Body(None),
@@ -220,7 +219,10 @@ async def embed_batch(
     
     db = get_tesseract_db()
     db.create_job(job_id, params)
-    background_tasks.add_task(run_batch_embedding, job_id, params)
+    
+    # Use asyncio.create_task for TRUE background execution
+    # This doesn't block the API worker like BackgroundTasks does
+    asyncio.create_task(run_batch_embedding(job_id, params))
     
     return {
         "status": "started",

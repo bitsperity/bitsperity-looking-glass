@@ -18,6 +18,12 @@
   let showResetModal = false;
   let targetCollection = '';
 
+  // Reactive statement to ensure UI updates when embedStatus changes
+  $: if (embedStatus) {
+    // This forces Svelte to rerun the component when embedStatus updates
+    void embedStatus;
+  }
+
   function handleBatchStart() {
     dispatch('batchStart', { from: batchFrom, to: batchTo, body_only: true, incremental: true });
     showBatchModal = false;
