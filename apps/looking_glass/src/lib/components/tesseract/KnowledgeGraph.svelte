@@ -5,6 +5,7 @@
   import GraphRightSidebar from './GraphRightSidebar.svelte';
   import GraphLeftSidebar from './GraphLeftSidebar.svelte';
   import GraphControls from './GraphControls.svelte';
+  import TopicLegend from './TopicLegend.svelte';
   import { knowledgeGraphStore, type GraphNode, type GraphEdge } from '$lib/stores/tesseract';
   
   export let initialArticle: SearchResult | null = null;
@@ -730,19 +731,7 @@
         <!-- Topic Legend (bottom left) -->
         {#if nodes.length > 0}
           {@const uniqueTopics = [...new Set(nodes.flatMap(n => n.article.topics || []).filter(Boolean))].slice(0, 8)}
-          {#if uniqueTopics.length > 0}
-            <div class="absolute bottom-4 left-4 bg-gradient-to-br from-neutral-800/90 to-neutral-900/80 backdrop-blur-lg rounded-lg p-3 border border-neutral-700/50 shadow-xl max-w-xs">
-              <p class="text-xs font-semibold text-neutral-300 mb-2">🏷️ Topics:</p>
-              <div class="flex flex-wrap gap-2">
-                {#each uniqueTopics as topic}
-                  <div class="flex items-center gap-1.5">
-                    <div class="w-3 h-3 rounded-full" style="background-color: {getTopicColor([topic])}"></div>
-                    <span class="text-xs text-neutral-400">{topic}</span>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
+          <TopicLegend topics={uniqueTopics} />
         {/if}
         
         <!-- Pan & Zoom Controls (move left when hover panel or pinned sidebar is visible) -->
