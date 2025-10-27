@@ -682,22 +682,63 @@
       
       <!-- Hovered Node Info (only show if not pinned) -->
       {#if hoveredNode && !pinnedNode}
-        <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-neutral-800/95 to-neutral-900/95 border border-neutral-600/30 rounded-xl p-4 backdrop-blur-lg shadow-2xl max-w-md">
-          <div class="flex items-start gap-3">
-            <div class="flex-shrink-0 w-12 h-12 rounded-lg bg-gradient-to-br from-blue-500/20 to-purple-500/10 flex items-center justify-center border border-blue-500/30">
-              <span class="text-sm font-bold text-blue-300">{Math.round((hoveredNode.similarity || 0) * 100)}%</span>
-            </div>
-            <div class="flex-1 min-w-0">
-              <h4 class="text-sm font-semibold text-neutral-100 line-clamp-2">{hoveredNode.article.title}</h4>
-              <p class="text-xs text-neutral-400 mt-1 line-clamp-2">{hoveredNode.article.text}</p>
-              <div class="flex items-center gap-2 mt-2 text-xs text-neutral-500">
-                <span>{hoveredNode.article.source_name || hoveredNode.article.source}</span>
-                <span>•</span>
-                <span>{new Date(hoveredNode.article.published_at).toLocaleDateString()}</span>
+        <div 
+          role="tooltip"
+          class="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-neutral-800/98 to-neutral-900/98 border border-neutral-600/40 rounded-xl backdrop-blur-xl shadow-2xl max-w-lg w-full mx-4 max-h-[60vh] overflow-y-auto"
+          on:mouseenter={() => { /* Keep hoveredNode */ }}
+          on:mouseleave={() => { hoveredNode = null; drawGraph(); }}
+        >
+          <div class="p-5">
+            <!-- Header with Score Badge -->
+            <div class="flex items-start gap-4 mb-4 pb-4 border-b border-neutral-700/30">
+              <div class="flex-shrink-0 w-14 h-14 rounded-lg bg-gradient-to-br from-blue-500/30 to-purple-500/20 flex items-center justify-center border border-blue-500/40">
+                <span class="text-base font-bold text-blue-300">{Math.round((hoveredNode.similarity || 0) * 100)}%</span>
+              </div>
+              <div class="flex-1 min-w-0">
+                <h4 class="text-base font-bold text-neutral-100 leading-tight mb-2">{hoveredNode.article.title}</h4>
+                <div class="flex items-center gap-2 text-xs text-neutral-400">
+                  <span class="font-medium">{hoveredNode.article.source_name || hoveredNode.article.source}</span>
+                  <span>•</span>
+                  <span>{new Date(hoveredNode.article.published_at).toLocaleDateString('de-DE')}</span>
+                </div>
               </div>
             </div>
+            
+            <!-- Full Text Content -->
+            <div class="mb-4">
+              <p class="text-sm text-neutral-300 leading-relaxed">{hoveredNode.article.text}</p>
+            </div>
+            
+            <!-- Topics & Tickers (if available) -->
+            {#if hoveredNode.article.topics && hoveredNode.article.topics.length > 0}
+              <div class="mb-3">
+                <p class="text-xs font-semibold text-neutral-400 mb-2">Topics:</p>
+                <div class="flex flex-wrap gap-1.5">
+                  {#each hoveredNode.article.topics.slice(0, 5) as topic}
+                    <span class="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 rounded text-xs text-blue-300">{topic}</span>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+            
+            {#if hoveredNode.article.tickers && hoveredNode.article.tickers.length > 0}
+              <div class="mb-4">
+                <p class="text-xs font-semibold text-neutral-400 mb-2">Tickers:</p>
+                <div class="flex flex-wrap gap-1.5">
+                  {#each hoveredNode.article.tickers.slice(0, 8) as ticker}
+                    <span class="px-2 py-0.5 bg-green-500/20 border border-green-500/30 rounded text-xs text-green-300 font-mono">{ticker}</span>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+            
+            <!-- Actions -->
+            <div class="pt-4 border-t border-neutral-700/30 flex items-center justify-between text-xs">
+              <span class="text-neutral-500">
+                💡 <span class="text-blue-300">Click node</span> to expand • <span class="text-purple-300">Shift+Click</span> to pin
+              </span>
+            </div>
           </div>
-          <p class="text-xs text-neutral-500 mt-3 text-center">Click to expand • Shift+Click to pin details</p>
         </div>
       {/if}
     {:else if viewMode === 'list'}
