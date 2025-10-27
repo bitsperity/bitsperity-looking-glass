@@ -33,6 +33,23 @@ def get_tesseract_db():
         tesseract_db = TesseractDB(db_path)
     return tesseract_db
 
+
+@router.delete("/admin/vectors/{news_id}/{vector_type}")
+async def delete_vector_type(news_id: str, vector_type: str):
+    """Delete vectors for a news_id of a specific type (title|summary|body)."""
+    try:
+        vector_store.ensure_collection()
+        q_filter = {
+            "must": [
+                {"key": "news_id", "match": {"value": news_id}},
+                {"key": "vector_type", "match": {"value": vector_type}},
+            ]
+        }
+        result = vector_store.delete_by_filter(q_filter)
+        return {"status": "ok", "deleted": True, "detail": str(result)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete vectors: {e}")
+
 @router.post("/tesseract/search", response_model=SearchResponse)
 async def semantic_search(request: SearchRequest):
     """Semantic search with filtering support"""
@@ -46,19 +63,27 @@ async def semantic_search(request: SearchRequest):
     # Build Qdrant filter
     qdrant_filter = build_filter(request.filters) if request.filters else None
     
-    # Search in Qdrant (get news_ids + scores + summaries only)
-    qdrant_results = vector_store.search(
+    # Multi-vector: search across all types and deduplicate by news_id (max score)
+    raw_results = vector_store.search(
         query_vector=query_embedding.tolist(),
-        limit=request.limit,
+        limit=max(100, request.limit * 5),  # fetch more, then dedupe
         query_filter=qdrant_filter
     )
 
+    # Deduplicate: keep best score per news_id
+    best_by_news: dict[str, any] = {}
+    for r in raw_results:
+        nid = r.payload.get("news_id")
+        if not nid:
+            continue
+        prev = best_by_news.get(nid)
+        if prev is None or r.score > prev.score:
+            best_by_news[nid] = r
+
+    qdrant_results = list(best_by_news.values())[: request.limit]
+
     # Extract news_ids to bulk fetch from Satbase
-    news_ids = [
-        qdrant_result.payload.get("news_id") 
-        for qdrant_result in qdrant_results 
-        if qdrant_result.payload.get("news_id")
-    ]
+    news_ids = [r.payload.get("news_id") for r in qdrant_results if r.payload.get("news_id")]
     
     # Build a mapping of news_id -> (qdrant_result with score)
     qdrant_results_by_id = {
@@ -148,6 +173,13 @@ def build_filter(filters: dict):
             "key": "body_available",
             "match": {"value": bool(filters["body_available"])}
         })
+
+    # Vector type filter (optional)
+    if filters.get("vector_type"):
+        must_conditions.append({
+            "key": "vector_type",
+            "match": {"value": filters["vector_type"]}
+        })
     
     # Date range filter
     if filters.get("from") or filters.get("to"):
@@ -164,7 +196,7 @@ def build_filter(filters: dict):
     return {"must": must_conditions} if must_conditions else None
 
 @router.get("/tesseract/similar/{news_id}")
-async def find_similar(news_id: str, limit: int = 10):
+async def find_similar(news_id: str, limit: int = 10, vector_type: str | None = None):
     """Find similar articles by vector similarity (news_id is Satbase ID)"""
     try:
         vector_store.ensure_collection()
@@ -193,10 +225,14 @@ async def find_similar(news_id: str, limit: int = 10):
         
         source = source_points[0]
         
-        # Search for similar
+        # Search for similar (optionally constrain by type)
+        q_filter = None
+        if vector_type:
+            q_filter = {"must": [{"key": "vector_type", "match": {"value": vector_type}}]}
         results = vector_store.search(
             query_vector=source.vector,
-            limit=limit + 1
+            limit=limit + 1,
+            query_filter=q_filter
         )
         
         # Exclude source article and convert back to news_id
@@ -529,45 +565,62 @@ async def run_batch_embedding(job_id: str, params: dict):
         
         for i in range(0, len(all_articles), embedding_batch_size):
             batch_articles = all_articles[i:i+embedding_batch_size]
-            batch_texts = [
-                f"{a.get('title', '')}. {extract_text_from_article(a)}"
-                for a in batch_articles
-            ]
-            
-            batch_embeddings = emb.encode(batch_texts, batch_size=embedding_batch_size, is_query=False)
-            
-            for article, emb_vec in zip(batch_articles, batch_embeddings):
+            # Multi-vector: build title/summary/body vectors
+            titles = [a.get('title', '') or '' for a in batch_articles]
+            summaries = [a.get('description', '') or '' for a in batch_articles]
+            bodies = [a.get('body_text', '') or '' for a in batch_articles]
+
+            title_vecs = emb.encode(titles, batch_size=embedding_batch_size, is_query=False)
+            summary_vecs = emb.encode(summaries, batch_size=embedding_batch_size, is_query=False)
+            body_vecs = emb.encode(bodies, batch_size=embedding_batch_size, is_query=False)
+
+            for idx, article in enumerate(batch_articles):
                 # Use Satbase article ID as Qdrant ID - convert to UUID for string IDs
                 article_id = article["id"]
                 if isinstance(article_id, int) or (isinstance(article_id, str) and article_id.isdigit()):
                     # If numeric, use as integer
-                    point_id = int(article_id)
+                    base_point_id = int(article_id)
                 else:
                     # If string (like SHA hex), convert to UUID for Qdrant
                     try:
                         import uuid
-                        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(article_id)))
+                        base_point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, str(article_id)))
                     except Exception:
                         # Fallback: use absolute hash value as large integer
-                        point_id = abs(hash(str(article_id))) % (2**63)
-                
-                upsert_accumulator.append(
-                    PointStruct(
-                        id=point_id,
-                        vector=emb_vec.tolist(),
-                        payload={
-                            "news_id": article["id"],
-                            "summary": extract_text_from_article(article),
-                        },
-                    )
-                )
+                        base_point_id = abs(hash(str(article_id))) % (2**63)
+
+                # derive deterministic sub-ids per vector_type
+                def pid(suffix: int):
+                    if isinstance(base_point_id, int):
+                        return base_point_id * 10 + suffix
+                    return f"{base_point_id}-{suffix}"
+
+                # Title vector
+                upsert_accumulator.append(PointStruct(
+                    id=pid(1),
+                    vector=title_vecs[idx].tolist(),
+                    payload={"news_id": article["id"], "vector_type": "title"},
+                ))
+                # Summary vector
+                upsert_accumulator.append(PointStruct(
+                    id=pid(2),
+                    vector=summary_vecs[idx].tolist(),
+                    payload={"news_id": article["id"], "vector_type": "summary"},
+                ))
+                # Body vector (only if available)
+                if bodies[idx]:
+                    upsert_accumulator.append(PointStruct(
+                        id=pid(3),
+                        vector=body_vecs[idx].tolist(),
+                        payload={"news_id": article["id"], "vector_type": "body"},
+                    ))
                 
                 # Mark as embedded
                 db.mark_article_embedded(
                     article["id"],
                     article.get("published_at", ""),
                     article.get("title", ""),
-                    extract_text_from_article(article)
+                    article.get("body_text", "") or article.get("description", "")
                 )
                 
                 total_embedded += 1

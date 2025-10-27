@@ -114,3 +114,24 @@ class VectorStore:
             with_payload=True
         )
 
+    def delete_by_filter(self, query_filter: dict, name: str | None = None):
+        """Delete points matching a payload filter."""
+        target = name or self.collection_name
+        return self.client.delete(
+            collection_name=target,
+            points_selector={"filter": query_filter},
+            wait=True,
+        )
+
+    def scroll(self, query_filter: dict | None = None, limit: int = 100, with_payload: bool = True, with_vectors: bool = False, name: str | None = None):
+        """Scroll through points matching a filter."""
+        target = name or self.collection_name
+        points, next_page_offset = self.client.scroll(
+            collection_name=target,
+            scroll_filter=query_filter,
+            limit=limit,
+            with_payload=with_payload,
+            with_vectors=with_vectors,
+        )
+        return points, next_page_offset
+
