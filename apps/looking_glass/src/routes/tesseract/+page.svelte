@@ -42,7 +42,11 @@
   let adminOpen = false;
   let embedStatus: JobStatus | OverallStatus | null = null;
   let collections: any = null;
+  let activeAlias: string = 'news_embeddings';
+  let error: string = '';
+  let searchTimeout: any = null;
   let statusPollInterval: any = null;
+  let currentJobId: string | null = null;
 
   // Similar Modal
   let showSimilar = false;
@@ -117,7 +121,7 @@
 
   async function refreshStatus() {
     try {
-      embedStatus = await getEmbedStatus();
+      embedStatus = await getEmbedStatus(currentJobId || undefined);
     } catch (e) {
       console.error('Failed to refresh status:', e);
     }
@@ -149,7 +153,8 @@
         body_only: event.detail.body_only ?? true,
         incremental: event.detail.incremental ?? true
       };
-      await embedBatch(request);
+      const response = await embedBatch(request);
+      currentJobId = response.job_id;
       await refreshStatus();
       startStatusPolling();
     } catch (e) {
@@ -171,9 +176,10 @@
     if (statusPollInterval) return;
     statusPollInterval = setInterval(async () => {
       await refreshStatus();
-      // Stop polling when not running
+      // Stop polling when not running and clear job id
       if (embedStatus && 'status' in embedStatus && embedStatus.status !== 'running') {
         stopStatusPolling();
+        currentJobId = null;
       }
     }, 2000);
   }
