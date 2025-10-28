@@ -611,6 +611,49 @@ def refetch_missing_bodies(
     }
 
 
+@router.get("/admin/news/preview-crawl")
+def preview_crawl(url: str):
+    """
+    Preview: Crawl URL and extract text WITHOUT storing anything.
+    
+    Useful for debugging/validating extraction quality.
+    
+    Parameters:
+    - url: Full URL to crawl
+    
+    Returns: Extracted text, extraction method, char count
+    """
+    try:
+        body_text = fetch_text_with_retry(
+            url,
+            max_retries=2,
+            timeout=20
+        )
+        
+        if not body_text:
+            return {
+                "status": "failed",
+                "url": url,
+                "reason": "No content extracted (paywall/403/404/empty)"
+            }
+        
+        return {
+            "status": "success",
+            "url": url,
+            "char_count": len(body_text),
+            "word_count": len(body_text.split()),
+            "paragraph_count": len([p for p in body_text.split('\n\n') if len(p.strip()) > 30]),
+            "preview": body_text[:500],  # First 500 chars
+            "full_text": body_text  # Full extracted text
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "url": url,
+            "error": str(e)[:200]
+        }
+
+
 @router.post("/admin/news/cleanup-quality")
 def cleanup_low_quality_bodies(
     dry_run: bool = False,
