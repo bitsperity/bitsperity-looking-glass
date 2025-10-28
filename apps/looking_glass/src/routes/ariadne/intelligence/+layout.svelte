@@ -2,7 +2,21 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
 
-  $: current = $page.url.searchParams.get('view') || 'impact';
+  $: {
+    const pathname = $page.url.pathname;
+    // Extract the sub-view from the pathname
+    if (pathname.includes('/impact')) {
+      current = 'impact';
+    } else if (pathname.includes('/opportunities')) {
+      current = 'opportunities';
+    } else if (pathname.includes('/confidence')) {
+      current = 'confidence';
+    } else if (pathname.includes('/risk')) {
+      current = 'risk';
+    }
+  }
+
+  let current = 'impact';
 
   const VIEWS = [
     { id: 'impact', label: '📊 Impact Simulation', desc: 'Propagate impact through the graph', route: '/ariadne/intelligence/impact' },

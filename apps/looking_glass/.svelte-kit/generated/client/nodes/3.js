@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/coalescence/+layout.svelte";
+export { default as component } from "../../../../src/routes/ariadne/intelligence/+layout.svelte";

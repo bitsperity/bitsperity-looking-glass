@@ -1,16 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ImpactResponse } from '$lib/types/ariadne';
 
   let loading = false;
   let error: string | null = null;
-  let results: ImpactResponse | null = null;
+  let results: any = null;
 
-  // Form state
   let ticker = 'TSLA';
   let maxDepth = 3;
   let decay = 'exponential';
-  let relationFilter = '';
   let minConfidence = 0;
 
   async function analyze() {
@@ -23,8 +20,7 @@
         ticker,
         max_depth: maxDepth.toString(),
         decay,
-        ...(relationFilter && { rel_filter: relationFilter }),
-        ...(minConfidence > 0 && { min_confidence: minConfidence.toString() }),
+        min_confidence: minConfidence.toString(),
       });
 
       const response = await fetch(`http://localhost:8082/v1/kg/decision/impact?${params}`);
@@ -45,13 +41,6 @@
     return 'from-red-600 to-rose-600';
   }
 
-  function getScoreBg(score: number): string {
-    if (score >= 0.8) return 'bg-emerald-950/40 border-emerald-600/30 text-emerald-300';
-    if (score >= 0.6) return 'bg-blue-950/40 border-blue-600/30 text-blue-300';
-    if (score >= 0.4) return 'bg-amber-950/40 border-amber-600/30 text-amber-300';
-    return 'bg-red-950/40 border-red-600/30 text-red-300';
-  }
-
   onMount(() => {
     analyze();
   });
@@ -69,8 +58,7 @@
 
     <!-- Controls -->
     <div class="bg-gradient-to-br from-neutral-900/50 to-neutral-800/30 border border-neutral-700/50 rounded-xl p-6 backdrop-blur-sm mb-8">
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Ticker Input -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <div>
           <label class="block text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">Ticker</label>
           <input
@@ -81,7 +69,6 @@
           />
         </div>
 
-        <!-- Depth Slider -->
         <div>
           <label class="block text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">
             Max Depth: <span class="text-indigo-400 font-bold">{maxDepth}</span>
@@ -96,7 +83,6 @@
           />
         </div>
 
-        <!-- Decay Mode -->
         <div>
           <label class="block text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">Decay Function</label>
           <select
@@ -108,7 +94,6 @@
           </select>
         </div>
 
-        <!-- Min Confidence -->
         <div>
           <label class="block text-xs font-semibold text-neutral-400 uppercase tracking-wide mb-2">
             Min Confidence: <span class="text-cyan-400">{(minConfidence * 100).toFixed(0)}%</span>
@@ -125,7 +110,7 @@
         </div>
       </div>
 
-      <div class="mt-4 flex gap-2">
+      <div class="flex gap-2">
         <button
           on:click={analyze}
           disabled={loading}
@@ -133,14 +118,6 @@
         >
           {loading ? '⏳ Analyzing...' : '🚀 Analyze Impact'}
         </button>
-        {relationFilter && (
-          <button
-            on:click={() => (relationFilter = '')}
-            class="px-4 py-2.5 rounded-lg bg-neutral-800/50 hover:bg-neutral-800 text-neutral-300 text-sm"
-          >
-            Clear Filter
-          </button>
-        )}
       </div>
     </div>
 
@@ -211,12 +188,10 @@
                     </span>
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <div class="flex items-center justify-center gap-2">
-                      <div class={`w-24 h-6 rounded-full bg-gradient-to-r ${getScoreColor(impact.impact_score)} relative overflow-hidden`}>
-                        <div class="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent"></div>
-                        <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
-                          {(impact.impact_score * 100).toFixed(0)}%
-                        </div>
+                    <div class={`w-24 h-6 rounded-full bg-gradient-to-r ${getScoreColor(impact.impact_score)} relative overflow-hidden`}>
+                      <div class="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent"></div>
+                      <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
+                        {(impact.impact_score * 100).toFixed(0)}%
                       </div>
                     </div>
                   </td>
