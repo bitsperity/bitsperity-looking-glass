@@ -158,9 +158,9 @@
             >
               <div class="flex items-start justify-between mb-3">
                 <div class="flex-1">
-                  <div class="text-sm font-semibold text-neutral-200 truncate">{warning.thought1?.title || 'Untitled'}</div>
+                  <div class="text-sm font-semibold text-neutral-200 truncate">{(warning.thought1 || warning.thought_1)?.title || 'Untitled'}</div>
                   <div class="text-xs text-neutral-500 mt-1">vs</div>
-                  <div class="text-sm font-semibold text-neutral-200 truncate mt-1">{warning.thought2?.title || 'Untitled'}</div>
+                  <div class="text-sm font-semibold text-neutral-200 truncate mt-1">{(warning.thought2 || warning.thought_2)?.title || 'Untitled'}</div>
                 </div>
                 <div class="text-right ml-3 flex-shrink-0">
                   <div class="text-2xl font-bold text-amber-400">{Math.round((warning.similarity || 0) * 100)}%</div>
@@ -168,8 +168,8 @@
                 </div>
               </div>
               <div class="flex gap-2 text-xs">
-                <span class="px-2 py-1 rounded bg-indigo-950/50 text-indigo-300">{warning.thought1?.type || 'thought'}</span>
-                <span class="px-2 py-1 rounded bg-amber-950/50 text-amber-300">{warning.thought2?.type || 'thought'}</span>
+                <span class="px-2 py-1 rounded bg-indigo-950/50 text-indigo-300">{(warning.thought1 || warning.thought_1)?.type || 'thought'}</span>
+                <span class="px-2 py-1 rounded bg-amber-950/50 text-amber-300">{(warning.thought2 || warning.thought_2)?.type || 'thought'}</span>
                 <span class="ml-auto px-2 py-1 rounded bg-blue-950/50 text-blue-300">🔍 Click to compare →</span>
               </div>
             </button>
