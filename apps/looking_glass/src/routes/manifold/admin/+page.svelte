@@ -4,7 +4,7 @@
   import { getDuplicateWarnings } from '$lib/api/manifold';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
-  import DuplicateWarningCard from '$lib/components/manifold/DuplicateWarningCard.svelte';
+  import DuplicateComparisonModal from '$lib/components/manifold/DuplicateComparisonModal.svelte';
 
   let dryRunCount: number | null = null;
   let scanned: number | null = null;
@@ -13,6 +13,8 @@
   let duplicateWarnings: any[] = [];
   let threshold = 0.92;
   let warningsLoading = false;
+  let selectedDuplicate: any = null;
+  let showComparisonModal = false;
 
   async function doDryRun() {
     const res = await reindex(true);
@@ -147,33 +149,30 @@
       {:else}
         <div class="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
           {#each duplicateWarnings as warning, idx (idx)}
-            <div class="bg-neutral-900/50 border border-amber-500/30 rounded-lg p-4 hover:border-amber-500/60 transition-colors">
+            <button
+              on:click={() => {
+                selectedDuplicate = warning;
+                showComparisonModal = true;
+              }}
+              class="w-full text-left bg-neutral-900/50 border border-amber-500/30 rounded-lg p-4 hover:border-amber-500/60 hover:bg-neutral-900 transition-all active:scale-95"
+            >
               <div class="flex items-start justify-between mb-3">
-                <div>
-                  <div class="text-sm font-semibold text-neutral-200">{warning.thought1?.title || 'Thought 1'}</div>
-                  <div class="text-xs text-neutral-400 mt-1">vs</div>
-                  <div class="text-sm font-semibold text-neutral-200 mt-1">{warning.thought2?.title || 'Thought 2'}</div>
+                <div class="flex-1">
+                  <div class="text-sm font-semibold text-neutral-200 truncate">{warning.thought1?.title || 'Untitled'}</div>
+                  <div class="text-xs text-neutral-500 mt-1">vs</div>
+                  <div class="text-sm font-semibold text-neutral-200 truncate mt-1">{warning.thought2?.title || 'Untitled'}</div>
                 </div>
-                <div class="text-right">
+                <div class="text-right ml-3 flex-shrink-0">
                   <div class="text-2xl font-bold text-amber-400">{Math.round((warning.similarity || 0) * 100)}%</div>
                   <div class="text-xs text-amber-300">similar</div>
                 </div>
               </div>
-              <div class="flex gap-2">
-                <button 
-                  on:click={() => handleLinkDuplicate(warning.thought1?.id, warning.thought2?.id)}
-                  class="flex-1 px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-all active:scale-95"
-                >
-                  🔗 Link as Related
-                </button>
-                <button 
-                  on:click={() => handleDelete(warning.thought2?.id)}
-                  class="flex-1 px-3 py-2 rounded bg-red-600/20 border border-red-500/50 hover:bg-red-600/40 text-sm font-medium text-red-300 transition-all active:scale-95"
-                >
-                  🗑️ Delete Second
-                </button>
+              <div class="flex gap-2 text-xs">
+                <span class="px-2 py-1 rounded bg-indigo-950/50 text-indigo-300">{warning.thought1?.type || 'thought'}</span>
+                <span class="px-2 py-1 rounded bg-amber-950/50 text-amber-300">{warning.thought2?.type || 'thought'}</span>
+                <span class="ml-auto px-2 py-1 rounded bg-blue-950/50 text-blue-300">🔍 Click to compare →</span>
               </div>
-            </div>
+            </button>
           {/each}
         </div>
       {/if}
@@ -306,6 +305,18 @@
     </div>
   </GlassPanel>
 </div>
+
+<!-- Duplicate Comparison Modal -->
+<DuplicateComparisonModal 
+  open={showComparisonModal}
+  duplicate={selectedDuplicate}
+  onLink={handleLinkDuplicate}
+  onDelete={handleDelete}
+  onClose={() => {
+    showComparisonModal = false;
+    selectedDuplicate = null;
+  }}
+/>
 
 <style>
   input[type="range"] {
