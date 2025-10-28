@@ -102,10 +102,14 @@
       </div>
 
       {#if warningsLoading}
-        <div class="text-neutral-500 text-center py-4">Loading…</div>
+        <div class="space-y-2 max-h-[50vh] overflow-y-auto">
+          <div class="h-16 bg-neutral-700/50 rounded animate-pulse"></div>
+          <div class="h-16 bg-neutral-700/50 rounded animate-pulse"></div>
+        </div>
       {:else if duplicateWarnings.length === 0}
-        <div class="text-center py-8 text-neutral-500">
-          ✓ No duplicate warnings at {(threshold * 100).toFixed(0)}% similarity
+        <div class="flex flex-col items-center justify-center py-8 text-center">
+          <div class="text-4xl mb-3">✓</div>
+          <div class="text-sm text-neutral-400">No duplicate warnings at {(threshold * 100).toFixed(0)}% similarity</div>
         </div>
       {:else}
         <div class="space-y-2 max-h-[50vh] overflow-y-auto">

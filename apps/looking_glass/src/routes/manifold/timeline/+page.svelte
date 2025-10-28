@@ -148,13 +148,9 @@
 
   <!-- Results -->
   {#if loading}
-    <div class="text-center py-12 text-neutral-400">
-      <div class="text-lg">Loading timeline…</div>
-    </div>
+    <GlassPanel title="📅 Results" loading={true} />
   {:else if error}
-    <div class="bg-red-950/20 border border-red-500/50 rounded-lg p-4 text-red-300">
-      {error}
-    </div>
+    <GlassPanel title="📅 Results" error={error} />
   {:else if data && dayCount > 0}
     <GlassPanel title="📅 Results">
       <div class="space-y-1 mb-3 text-sm">
@@ -212,10 +208,7 @@
       </div>
     </GlassPanel>
   {:else}
-    <div class="text-center py-12 text-neutral-500">
-      <div class="text-lg">No thoughts found</div>
-      <div class="text-sm mt-2">Try adjusting your filters</div>
-    </div>
+    <GlassPanel title="📅 Results" emptyMessage="No thoughts found" />
   {/if}
 </div>
 

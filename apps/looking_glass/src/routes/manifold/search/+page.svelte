@@ -171,14 +171,19 @@
 
   <!-- Main Content -->
   {#if loading}
-    <div class="text-center py-12 text-neutral-400">
-      <div class="text-lg">Searching…</div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2">
+        <GlassPanel title="🔍 Results" loading={true} />
+      </div>
+      <GlassPanel title="🏷️ Facets" loading={true} />
     </div>
   {:else if error}
-    <div class="bg-red-950/20 border border-red-500/50 rounded-lg p-4 text-red-300">
-      {error}
-    </div>
-  {:else}
+    <GlassPanel error={error} title="❌ Search Error" />
+  {:else if results.length === 0}
+    <GlassPanel title="🔍 Results" emptyMessage="No results found. Try a different search." />
+  {/if}
+
+  {#if !loading && !error && results.length > 0}
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <!-- Left: Facets -->
       <aside class="md:col-span-1 space-y-3">

@@ -57,13 +57,14 @@
   <ManifoldNav />
 
   {#if loading}
-    <div class="text-neutral-400 text-center py-12">
-      <div class="text-lg">Loading…</div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <GlassPanel loading={true} />
+      <GlassPanel loading={true} />
+      <GlassPanel loading={true} />
     </div>
+    <GlassPanel title="📊 Active Sessions" loading={true} />
   {:else if error}
-    <div class="bg-red-950/20 border border-red-500/50 rounded-lg p-4 text-red-300">
-      {error}
-    </div>
+    <GlassPanel error={error} title="❌ Error" />
   {:else}
     <!-- KPI Cards -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -101,6 +102,8 @@
           {/each}
         </div>
       </GlassPanel>
+    {:else}
+      <GlassPanel title="📊 Active Sessions" emptyMessage="No active sessions yet" />
     {/if}
 
     <!-- Duplicate Warnings KPI -->
