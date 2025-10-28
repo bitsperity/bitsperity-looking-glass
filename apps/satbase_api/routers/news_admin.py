@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from libs.satbase_core.storage.news_db import NewsDB
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.utils.quality import calculate_quality_score
+from libs.satbase_core.adapters.http import fetch_text_with_retry
 import httpx
 
 router = APIRouter()
@@ -492,6 +493,121 @@ def reset_all_bodies(
         "affected": affected_count,
         "clear_flag": clear_flag,
         "message": f"Reset {affected_count} article bodies. Re-crawling enabled: {clear_flag}"
+    }
+
+
+@router.post("/admin/news/refetch-bodies")
+def refetch_missing_bodies(
+    max_items: int = 100,
+    dry_run: bool = False
+):
+    """
+    Re-fetch bodies for articles that have no body AND are not tagged as no_body_crawl.
+    
+    Useful after reset-bodies to re-crawl with improved Trafilatura extraction.
+    
+    Parameters:
+    - max_items: Max articles to process (default 100, prevents timeouts)
+    - dry_run: Preview without fetching (shows which articles would be processed)
+    
+    Returns: Summary of fetched/failed articles
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    success_count = 0
+    failed_count = 0
+    skipped_count = 0
+    sample_success = []
+    sample_failed = []
+    
+    with db.conn() as conn:
+        # Find articles without body that are not flagged
+        rows = conn.execute("""
+            SELECT id, url, title, body_text
+            FROM news_articles
+            WHERE (body_available = 0 OR body_text IS NULL)
+              AND (no_body_crawl = 0 OR no_body_crawl IS NULL)
+            ORDER BY fetched_at DESC
+            LIMIT ?
+        """, (max_items,)).fetchall()
+        
+        total_candidates = len(rows)
+        
+        if dry_run:
+            return {
+                "status": "dry_run",
+                "total_candidates": total_candidates,
+                "sample": [
+                    {"id": r[0], "url": r[1], "title": r[2][:60]}
+                    for r in rows[:10]
+                ]
+            }
+        
+        for row in rows:
+            article_id, url, title, current_body = row
+            
+            # Skip if body already exists (edge case)
+            if current_body and len(current_body.strip()) > 100:
+                skipped_count += 1
+                continue
+            
+            try:
+                # Fetch body with Trafilatura (via fetch_text_with_retry)
+                body_text = fetch_text_with_retry(
+                    url,
+                    max_retries=2,
+                    timeout=20
+                )
+                
+                if body_text and len(body_text.strip()) > 100:
+                    # Success: Update database
+                    conn.execute("""
+                        UPDATE news_articles
+                        SET body_text = ?, body_available = 1
+                        WHERE id = ?
+                    """, (body_text[:1000000], article_id))  # Cap at 1MB
+                    
+                    success_count += 1
+                    
+                    if len(sample_success) < 5:
+                        sample_success.append({
+                            "id": article_id,
+                            "title": title[:60],
+                            "body_length": len(body_text)
+                        })
+                else:
+                    # Failed: No body or too short
+                    failed_count += 1
+                    
+                    if len(sample_failed) < 5:
+                        sample_failed.append({
+                            "id": article_id,
+                            "title": title[:60],
+                            "reason": "no_content_or_too_short"
+                        })
+                    
+            except Exception as e:
+                failed_count += 1
+                
+                if len(sample_failed) < 5:
+                    sample_failed.append({
+                        "id": article_id,
+                        "title": title[:60],
+                        "error": str(e)[:100]
+                    })
+                
+                log("refetch_body_error", article_id=article_id, error=str(e)[:100])
+    
+    return {
+        "status": "ok",
+        "total_candidates": len(rows),
+        "success": success_count,
+        "failed": failed_count,
+        "skipped": skipped_count,
+        "sample_success": sample_success,
+        "sample_failed": sample_failed,
+        "message": f"Successfully fetched {success_count} bodies, {failed_count} failed"
     }
 
 
