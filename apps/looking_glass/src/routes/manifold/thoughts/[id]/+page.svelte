@@ -325,7 +325,7 @@
       <VersionDiff thought={item} />
     {/if}
     {#if activeTab === 'relations'}
-      <GlassPanel title="🔗 Relations" class="h-full">
+      <GlassPanel title="🔗 Relations">
         <div class="text-xs">ariadne_facts: {JSON.stringify(item.links?.ariadne_facts || [])}</div>
         <div class="text-xs">ariadne_entities: {JSON.stringify(item.links?.ariadne_entities || [])}</div>
         <div class="mt-2 text-xs">related_thoughts:</div>
