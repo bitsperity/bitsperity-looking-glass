@@ -187,7 +187,7 @@
   {/if}
 
   {#if !loading && !error && results.length > 0}
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <!-- Left: Facets -->
       <aside class="md:col-span-1 space-y-3">
         <GlassPanel title="🏷️ Facets">
@@ -282,65 +282,8 @@
           {/each}
         </div>
       </section>
-
-      <!-- Right: Sticky Preview (sticky) -->
-      {#if selectedResult}
-        <aside class="md:col-span-1">
-          <div class="sticky top-6">
-            <GlassPanel title="👁️ Preview">
-              <div class="space-y-3">
-                <div>
-                  <div class="text-xs font-medium text-neutral-400 mb-1">Type</div>
-                  <div class="text-sm text-neutral-200">{selectedResult.thought?.type}</div>
-                </div>
-
-                <div>
-                  <div class="text-xs font-medium text-neutral-400 mb-1">Title</div>
-                  <div class="text-sm font-semibold text-neutral-100">{selectedResult.thought?.title}</div>
-                </div>
-
-                {#if selectedResult.thought?.summary}
-                  <div>
-                    <div class="text-xs font-medium text-neutral-400 mb-1">Summary</div>
-                    <div class="text-xs text-neutral-300 line-clamp-4">
-                      {selectedResult.thought.summary}
-                    </div>
-                  </div>
-                {/if}
-
-                {#if selectedResult.thought?.tickers?.length}
-                  <div>
-                    <div class="text-xs font-medium text-neutral-400 mb-1">Tickers</div>
-                    <div class="flex flex-wrap gap-1">
-                      {#each selectedResult.thought.tickers as ticker}
-                        <span class="text-xs bg-indigo-950/50 text-indigo-300 rounded px-2 py-0.5">{ticker}</span>
-                      {/each}
-                    </div>
-                  </div>
-                {/if}
-
-                <div class="flex gap-2 pt-2">
-                  <a 
-                    class="flex-1 px-2 py-1 rounded bg-neutral-700 hover:bg-neutral-600 text-xs text-center text-neutral-200 transition-colors"
-                    href={`/manifold/thoughts/${selectedResult.id}`}
-                  >
-                    Open
-                  </a>
-                  <button
-                    class="flex-1 px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-xs text-white transition-colors"
-                    on:click={() => { previewId = selectedResult.id; }}
-                  >
-                    Preview
-                  </button>
-                </div>
-              </div>
-            </GlassPanel>
-          </div>
-        </aside>
-      {/if}
     </div>
   {/if}
-</div>
 
 <StickyPreview thought={selectedResult} isPinned={previewPinned} />
 

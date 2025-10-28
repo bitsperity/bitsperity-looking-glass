@@ -152,7 +152,7 @@
     <GlassPanel title="📈 Interactive Timeline">
       <InteractiveTimeline 
         data={Object.entries(data.bucketed || {})
-          .map(([date, items]: any) => ({
+          .map(([date, items]) => ({
             date,
             count: (items || []).length,
             sessions: groupBySession(items || [])

@@ -113,7 +113,7 @@
         </div>
       {:else}
         <div class="space-y-2 max-h-[50vh] overflow-y-auto">
-          {#each duplicateWarnings as warning (warning.thought1?.id + warning.thought2?.id)}
+          {#each duplicateWarnings as warning, idx (idx)}
             <DuplicateWarningCard 
               {warning}
               onLinkDuplicate={handleLinkDuplicate}
