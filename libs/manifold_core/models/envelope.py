@@ -12,6 +12,7 @@ ThoughtType = Literal[
     "decision",
     "reflection",
     "question",
+    "summary",
 ]
 
 StatusType = Literal["active", "validated", "invalidated", "archived"]
@@ -34,7 +35,7 @@ class Epistemology(BaseModel):
 
 class RetrievalInfo(BaseModel):
     embedding_model: Optional[str] = None
-    vector_hint: Optional[Literal["text", "title"]] = None
+    vector_hint: Optional[Literal["text", "title", "summary"]] = None
     keywords: List[str] = Field(default_factory=list)
 
 
@@ -43,7 +44,12 @@ class Flags(BaseModel):
     pinned: bool = False
 
 
-# ---- Type-specific payloads ----
+class VersionSnapshot(BaseModel):
+    version: int
+    at: datetime
+    by: Optional[str] = None
+    changes: Optional[Dict[str, Any]] = None  # e.g. {"title": "old->new", "status": "active->validated"}
+
 
 class HypothesisPayload(BaseModel):
     decision_deadline: Optional[datetime] = None
@@ -71,7 +77,7 @@ TypePayload = HypothesisPayload | DecisionPayload | Dict[str, Any]
 
 
 class ThoughtEnvelope(BaseModel):
-    """Standard Manifold envelope v1."""
+    """Standard Manifold envelope v2 - clean, SOLID, no legacy."""
 
     id: Optional[str] = None
     type: ThoughtType
@@ -87,12 +93,19 @@ class ThoughtEnvelope(BaseModel):
 
     title: str
     content: str
-    summary: Optional[str] = None
+    summary: Optional[str] = None  # 1-3 sentences, agent-maintained
 
     tags: List[str] = Field(default_factory=list)
     tickers: List[str] = Field(default_factory=list)
     sectors: List[str] = Field(default_factory=list)
     timeframe: Optional[str] = None
+
+    # Session/Workspace/Tree structure
+    session_id: Optional[str] = None
+    workspace_id: Optional[str] = None
+    parent_id: Optional[str] = None  # for chunking: reference to parent thought
+    ordinal: Optional[int] = None  # order within parent
+    section: Optional[str] = None  # section title (e.g. "Revenue Model", "Margin Analysis")
 
     links: Links = Field(default_factory=Links)
     epistemology: Epistemology = Field(default_factory=Epistemology)
@@ -110,6 +123,9 @@ class ThoughtEnvelope(BaseModel):
     quarantine_reason: Optional[str] = None
     embedding_version: Optional[str] = None
     last_embedded_at: Optional[datetime] = None
+
+    # Light versioning: append-only snapshots
+    versions: List[VersionSnapshot] = Field(default_factory=list)
 
     @field_validator("confidence_score")
     @classmethod

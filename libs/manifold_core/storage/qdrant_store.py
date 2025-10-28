@@ -11,7 +11,7 @@ class QdrantConfig(BaseModel):
     url: str = "http://localhost:6333"
     collection: str = "manifold_thoughts"
     vector_dim: int = 1024
-    vector_names: List[str] = ["text", "title"]
+    vector_names: List[str] = ["text", "title", "summary"]
     cosine: bool = True
 
 
@@ -22,10 +22,11 @@ class QdrantStore:
         self.client = QdrantClient(url=qdrant_url)
 
     def initialize_collection(self) -> None:
-        """Initialize collection with named vectors."""
+        """Initialize collection with named vectors (text, title, summary)."""
         vectors_config = {
             "text": qm.VectorParams(size=self.vector_dim, distance=qm.Distance.COSINE),
             "title": qm.VectorParams(size=self.vector_dim, distance=qm.Distance.COSINE),
+            "summary": qm.VectorParams(size=self.vector_dim, distance=qm.Distance.COSINE),
         }
         try:
             self.client.get_collection(self.collection_name)
@@ -55,9 +56,35 @@ class QdrantStore:
                 "created_at",
                 field_schema=qm.PayloadSchemaType.DATETIME,
             )
+            # NEW: Session/Workspace/Tree indexes
+            self.client.create_payload_index(
+                self.collection_name,
+                "session_id",
+                field_schema=qm.PayloadSchemaType.KEYWORD,
+            )
+            self.client.create_payload_index(
+                self.collection_name,
+                "workspace_id",
+                field_schema=qm.PayloadSchemaType.KEYWORD,
+            )
+            self.client.create_payload_index(
+                self.collection_name,
+                "parent_id",
+                field_schema=qm.PayloadSchemaType.KEYWORD,
+            )
+            self.client.create_payload_index(
+                self.collection_name,
+                "ordinal",
+                field_schema=qm.PayloadSchemaType.INTEGER,
+            )
+            self.client.create_payload_index(
+                self.collection_name,
+                "section",
+                field_schema=qm.PayloadSchemaType.KEYWORD,
+            )
 
     def upsert_point(self, point_id: str, payload: Dict[str, Any], vectors: Dict[str, List[float]]):
-        """Upsert single point with named vectors."""
+        """Upsert single point with named vectors (text, title, summary)."""
         self.client.upsert(
             collection_name=self.collection_name,
             points=[qm.PointStruct(id=point_id, payload=payload, vector=vectors)],

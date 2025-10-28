@@ -230,3 +230,58 @@ def get_related_graph(
         "edges": edges,
     }
 
+
+@router.get("/{thought_id}/tree")
+def get_thought_tree(
+    thought_id: str,
+    depth: int = 2,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Get hierarchical tree: parent → thought → children, plus related thoughts."""
+    source = store.get_by_id(thought_id)
+    if not source:
+        raise HTTPException(404, f"Thought {thought_id} not found")
+    
+    result = {
+        "status": "ok",
+        "root": {"id": thought_id, "payload": source},
+        "parent": None,
+        "children": [],
+        "related": [],
+    }
+    
+    # Get parent (if exists)
+    parent_id = source.get("parent_id")
+    if parent_id:
+        parent = store.get_by_id(parent_id)
+        if parent:
+            result["parent"] = {"id": parent_id, "payload": parent}
+    
+    # Get children
+    children_filter = {"must": [{"key": "parent_id", "match": {"value": thought_id}}]}
+    children_points = store.scroll(payload_filter=children_filter, limit=100)
+    
+    children = []
+    for p in children_points:
+        children.append({
+            "id": str(p.id),
+            "payload": p.payload,
+            "ordinal": p.payload.get("ordinal", 0)
+        })
+    
+    children.sort(key=lambda x: x["ordinal"])
+    result["children"] = children
+    
+    # Get related thoughts
+    links = source.get("links", {})
+    related_ids = links.get("related_thoughts", [])
+    related = []
+    for rid in related_ids:
+        thought = store.get_by_id(rid)
+        if thought:
+            related.append({"id": rid, "payload": thought})
+    
+    result["related"] = related
+    
+    return result
+

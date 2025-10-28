@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apps.manifold_api.routers.thoughts import router as thoughts_router
 from apps.manifold_api.routers.health import router as health_router
-from apps.manifold_api.routers import search, relations, promote, admin
+from apps.manifold_api.routers import search, relations, promote, admin, sessions
 from apps.manifold_api.routers import graph as graph_router
 
 # Configure logging
@@ -68,6 +68,7 @@ app.include_router(search.router)
 app.include_router(relations.router)
 app.include_router(promote.router)
 app.include_router(admin.router)
+app.include_router(sessions.router)
 app.include_router(graph_router.router)
 
 

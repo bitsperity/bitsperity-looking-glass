@@ -1,6 +1,6 @@
 # apps/manifold_api/routers/search.py
 """Search, timeline, stats endpoints."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from libs.manifold_core.models.requests import SearchRequest
 from libs.manifold_core.models.responses import SearchResponse, StatsResponse
 from libs.manifold_core.storage.qdrant_store import QdrantStore
@@ -9,17 +9,31 @@ from libs.manifold_core.scoring import compute_final_score, apply_mmr, compute_s
 from apps.manifold_api.dependencies import get_qdrant_store, get_embedding_provider_dep
 from datetime import datetime, timedelta
 from collections import defaultdict
+from pydantic import BaseModel
+from typing import Optional, List
 
 router = APIRouter(prefix="/v1/memory", tags=["search"])
 
 
+class SearchRequestV2(BaseModel):
+    """Extended search with vector_type and include_content."""
+    query: str
+    limit: int = 50
+    offset: int = 0
+    vector_type: str = "summary"  # "text" | "title" | "summary"
+    include_content: bool = True  # Phase 1 cheap: False → only id/title/summary/type/tickers/score
+    boosts: Optional[dict] = None
+    diversity: Optional[dict] = None
+    filters: Optional[dict] = None
+
+
 @router.post("/search", response_model=SearchResponse)
 def search_thoughts(
-    request: SearchRequest,
+    request: SearchRequestV2,
     store: QdrantStore = Depends(get_qdrant_store),
     embedder: EmbeddingProvider = Depends(get_embedding_provider_dep),
 ):
-    """Semantic + filter search with facets."""
+    """Semantic + filter search with optional 2-phase retrieval (cheap summary discovery)."""
     # Embed query (only if query is not empty)
     query_vec = None
     if request.query and request.query.strip():
@@ -28,9 +42,10 @@ def search_thoughts(
     # Convert filters to Qdrant payload filter
     qdrant_filter = _build_qdrant_filter(request.filters)
     
-    # Query Qdrant (text vector or filter-only)
+    # Query Qdrant (use specified vector_type: text | title | summary)
+    vector_name = request.vector_type or "summary"
     raw_results = store.query(
-        vector_name="text",
+        vector_name=vector_name,
         query_vector=query_vec,
         payload_filter=qdrant_filter,
         limit=request.limit or 50,
@@ -67,13 +82,29 @@ def search_thoughts(
             k=request.limit or 50,
         )
     
+    # Phase 2: Strip content if include_content=False (cheap discovery mode)
+    if not request.include_content:
+        for cand in candidates:
+            thought = cand["thought"]
+            # Keep: id, title, summary, type, tickers, score
+            # Strip: content, links, epistemology, etc.
+            cand["thought"] = {
+                "id": thought.get("id"),
+                "title": thought.get("title"),
+                "summary": thought.get("summary"),
+                "type": thought.get("type"),
+                "tickers": thought.get("tickers", []),
+                "confidence_score": thought.get("confidence_score"),
+                "created_at": thought.get("created_at"),
+            }
+    
     # Facets
     facets = {}
-    if request.facets:
-        facets = store.get_facets(request.facets, qdrant_filter)
+    if request.filters and "facets" in request.filters:
+        facets = store.get_facets(request.filters["facets"], qdrant_filter)
     # facet_suggest: top keys by frequency if no facets requested
     facet_suggest = {}
-    if not request.facets:
+    if not request.filters or "facets" not in request.filters:
         facet_suggest = store.get_facets(["type", "status", "tickers", "sectors"], qdrant_filter)
     
     return SearchResponse(
@@ -91,6 +122,8 @@ def get_timeline(
     to_dt: str | None = None,
     type: str | None = None,
     tickers: str | None = None,
+    session_id: str | None = None,
+    workspace_id: str | None = None,
     days: int | None = 30,
     bucket: str | None = "day",
     limit: int = 1000,
@@ -98,7 +131,7 @@ def get_timeline(
 ):
     """Timeline view: thoughts in date range, grouped by day or week.
 
-    - Filters: type (exact), tickers (OR across list), created_at range (from_dt/to_dt or last `days`).
+    - Filters: type (exact), tickers (OR across list), created_at range (from_dt/to_dt or last `days`), session_id, workspace_id.
     - Bucketing: `bucket=day` (default) or `bucket=week`.
     - Robustness: If created_at range filtering yields no results (e.g., index type mismatch),
       fallback to filter by type/tickers only and apply the date filter in-app.
@@ -112,7 +145,7 @@ def get_timeline(
         eff_from = (now - timedelta(days=days)).isoformat() + "Z"
         eff_to = now.isoformat() + "Z"
 
-    # Build base MUST conditions (type + tickers)
+    # Build base MUST conditions (type + tickers + session/workspace)
     must_base = []
     if type:
         must_base.append({"key": "type", "match": {"value": type}})
@@ -121,6 +154,10 @@ def get_timeline(
             t = ticker.strip()
             if t:
                 must_base.append({"key": "tickers", "match": {"value": t}})
+    if session_id:
+        must_base.append({"key": "session_id", "match": {"value": session_id}})
+    if workspace_id:
+        must_base.append({"key": "workspace_id", "match": {"value": workspace_id}})
 
     # First attempt: include created_at range at the storage level
     must_q = list(must_base)
@@ -191,9 +228,11 @@ def get_timeline(
 def get_stats(
     tickers: str | None = None,
     timeframe: str | None = None,
+    session_id: str | None = None,
+    workspace_id: str | None = None,
     store: QdrantStore = Depends(get_qdrant_store)
 ):
-    """Aggregated stats."""
+    """Aggregated stats with session/workspace filter."""
     # Build filters
     must = []
     if tickers:
@@ -201,6 +240,10 @@ def get_stats(
             must.append({"key": "tickers", "match": {"value": ticker}})
     if timeframe:
         must.append({"key": "timeframe", "match": {"value": timeframe}})
+    if session_id:
+        must.append({"key": "session_id", "match": {"value": session_id}})
+    if workspace_id:
+        must.append({"key": "workspace_id", "match": {"value": workspace_id}})
     
     filters = {"must": must} if must else None
     
