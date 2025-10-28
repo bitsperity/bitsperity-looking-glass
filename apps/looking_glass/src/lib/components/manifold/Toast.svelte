@@ -31,8 +31,6 @@
 {#if visible}
   <div
     class="fixed bottom-6 right-6 z-50 animate-slideIn"
-    in:transition={{ duration: 300 }}
-    out:transition={{ duration: 200 }}
   >
     <div
       class={`

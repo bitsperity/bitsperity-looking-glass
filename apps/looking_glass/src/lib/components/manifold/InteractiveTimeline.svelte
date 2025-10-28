@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import * as d3 from 'd3';
 
   export let data: { date: string; count: number; sessions?: Record<string, number> }[] = [];
   export let onSelectRange: (start: string, end: string) => void = () => {};
@@ -8,8 +7,13 @@
   let svgElement: SVGSVGElement;
   let selectedRange: [string, string] | null = null;
   let hoveredDate: string | null = null;
+  let d3: any = null;
 
-  onMount(() => {
+  onMount(async () => {
+    // Dynamically import D3 only on client side
+    const d3Module = await import('d3');
+    d3 = d3Module;
+    
     if (!svgElement || data.length === 0) return;
 
     const margin = { top: 20, right: 20, bottom: 30, left: 40 };

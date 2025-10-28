@@ -98,6 +98,4 @@
   {/if}
 </div>
 
-<ThoughtPreviewModal thoughtId={previewId} onClose={() => { previewId = null; }} />
-
 
