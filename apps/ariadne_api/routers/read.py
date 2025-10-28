@@ -800,3 +800,200 @@ async def find_similar_regimes(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to find similar regimes: {str(e)}")
 
+
+# ==============================================================================
+# PHASE 1: FUNDAMENT - Search, Path, Time-Slice Endpoints
+# ==============================================================================
+
+@router.get("/search")
+async def search_nodes(
+    text: str = Query(..., min_length=1, description="Suchtext"),
+    labels: str | None = Query(None, description="Komma-separierte Node-Labels (z.B. 'Company,Event')"),
+    limit: int = Query(10, ge=1, le=100),
+    store: GraphStore = Depends(get_graph_store)
+):
+    """
+    Freie Textsuche über alle Nodes via Fulltext-Index.
+    
+    Args:
+        text: Suchtext
+        labels: Optional Filter auf bestimmte Node-Labels
+        limit: Max. Anzahl Ergebnisse
+    
+    Returns:
+        Liste von Nodes mit Score
+    """
+    try:
+        query = """
+            CALL db.index.fulltext.queryNodes('nodeFulltext', $text)
+            YIELD node, score
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT $limit
+        """
+        
+        results = store.execute_read(query, {
+            "text": text,
+            "limit": limit
+        })
+        
+        nodes = []
+        for record in results:
+            node = dict(record["node"])
+            nodes.append({
+                "id": node.get("id"),
+                "label": record["node"].labels[0] if record["node"].labels else "Unknown",
+                "name": node.get("name") or node.get("title"),
+                "score": record["score"],
+                "properties": node
+            })
+        
+        return {
+            "status": "success",
+            "query": text,
+            "count": len(nodes),
+            "results": nodes
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@router.get("/path")
+async def find_path(
+    from_id: str = Query(..., description="Start Node ID"),
+    to_id: str = Query(..., description="End Node ID"),
+    max_hops: int = Query(5, ge=1, le=20),
+    algo: str = Query("shortest", regex="^(shortest|ksp)$"),
+    store: GraphStore = Depends(get_graph_store)
+):
+    """
+    Finde Pfade zwischen zwei Nodes mittels APOC.
+    
+    Args:
+        from_id: Start Node
+        to_id: End Node
+        max_hops: Max. Hop-Länge
+        algo: 'shortest' oder 'ksp' (k-shortest paths)
+    
+    Returns:
+        Liste von Pfaden mit Nodes und Edges
+    """
+    try:
+        # APOC path expansion mit flexiblem Filter
+        query = """
+            MATCH (start), (end)
+            WHERE id(start) = $from_id AND id(end) = $to_id
+            CALL apoc.path.expandConfig(start, {
+                relationshipFilter: '',
+                minLevel: 1,
+                maxLevel: $max_hops,
+                bfs: true,
+                uniqueness: 'NODE_GLOBAL'
+            }) YIELD path
+            WHERE end IN nodes(path)
+            RETURN path
+            LIMIT 10
+        """
+        
+        results = store.execute_read(query, {
+            "from_id": int(from_id) if from_id.isdigit() else from_id,
+            "to_id": int(to_id) if to_id.isdigit() else to_id,
+            "max_hops": max_hops
+        })
+        
+        paths = []
+        for record in results:
+            path = record["path"]
+            nodes = [dict(n) for n in path.nodes]
+            edges = [{"type": r.type, "properties": dict(r)} for r in path.relationships]
+            paths.append({
+                "length": len(path),
+                "nodes": nodes,
+                "edges": edges
+            })
+        
+        return {
+            "status": "success",
+            "from": from_id,
+            "to": to_id,
+            "path_count": len(paths),
+            "paths": paths
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Path finding failed: {str(e)}")
+
+
+@router.get("/time-slice")
+async def get_time_slice(
+    as_of: str = Query(..., description="ISO datetime (z.B. '2025-01-15T12:00:00')"),
+    topic: str | None = Query(None),
+    tickers: str | None = Query(None, description="Komma-separierte Tickers"),
+    limit: int = Query(100, ge=1, le=1000),
+    store: GraphStore = Depends(get_graph_store)
+):
+    """
+    Hole Graph-Snapshot zu einem bestimmten Zeitpunkt via valid_from/valid_to.
+    
+    Args:
+        as_of: ISO datetime für Snapshot
+        topic: Optional Topic-Filter
+        tickers: Optional Ticker-Filter (komma-separiert)
+        limit: Max. Kanten im Snapshot
+    
+    Returns:
+        Subgraph zum Zeitpunkt (Nodes und Edges im valid time window)
+    """
+    try:
+        # Parse datetime
+        datetime.fromisoformat(as_of)
+        
+        query = """
+            MATCH (source)-[r]->(target)
+            WHERE (r.valid_from IS NULL OR r.valid_from <= $as_of)
+              AND (r.valid_to IS NULL OR r.valid_to >= $as_of)
+            RETURN source, r, target
+            LIMIT $limit
+        """
+        
+        results = store.execute_read(query, {
+            "as_of": as_of,
+            "limit": limit
+        })
+        
+        nodes = {}
+        edges = []
+        
+        for record in results:
+            source = dict(record["source"])
+            target = dict(record["target"])
+            rel = dict(record["r"])
+            
+            # Deduplicate nodes by ID
+            sid = source.get("id", str(id(record["source"])))
+            tid = target.get("id", str(id(record["target"])))
+            
+            nodes[sid] = source
+            nodes[tid] = target
+            edges.append({
+                "type": record["r"].type,
+                "source": sid,
+                "target": tid,
+                "properties": rel
+            })
+        
+        return {
+            "status": "success",
+            "as_of": as_of,
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "nodes": list(nodes.values()),
+            "edges": edges
+        }
+    
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid datetime format. Use ISO format: YYYY-MM-DDTHH:MM:SS")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Time-slice query failed: {str(e)}")
+

@@ -119,6 +119,75 @@ class GraphStore:
                 CREATE INDEX regime_dates IF NOT EXISTS
                 FOR (r:Regime) ON (r.start_date, r.end_date)
             """)
+            
+            # Fulltext Index für freie Textsuche über alle relevanten Node-Typen
+            session.run("""
+                CREATE FULLTEXT INDEX nodeFulltext IF NOT EXISTS
+                FOR (n:Company|Event|Concept|Hypothesis|Pattern|Regime)
+                ON EACH [n.name, n.title, n.description, n.content]
+            """)
+    
+    def project_gds_graph(self, name: str, node_labels: list, rel_types: list) -> dict:
+        """Projektiere Named GDS Graph für Analysen
+        
+        Args:
+            name: Name der GDS Projektion (z.B. 'cent_graph')
+            node_labels: Liste von Node-Labels (z.B. ['Company', 'Event'])
+            rel_types: Liste von Relationship-Typen (z.B. ['AFFECTS', 'SUPPLIES_TO'])
+        
+        Returns:
+            Status Dict mit Projektion-Info
+        """
+        label_str = '|'.join(node_labels) if node_labels else '*'
+        rel_str = '|'.join(rel_types) if rel_types else '*'
+        
+        query = f"""
+            CALL gds.graph.project(
+                $graph_name,
+                '{label_str}',
+                '{rel_str}'
+            ) YIELD graphName, nodeCount, relationshipCount
+            RETURN graphName, nodeCount, relationshipCount
+        """
+        
+        with self.driver.session() as session:
+            try:
+                result = session.run(query, {"graph_name": name})
+                record = result.single()
+                if record:
+                    return {
+                        "graph_name": record["graphName"],
+                        "node_count": record["nodeCount"],
+                        "relationship_count": record["relationshipCount"]
+                    }
+                return {"error": "GDS projection failed"}
+            except Exception as e:
+                return {"error": str(e)}
+    
+    def drop_gds_graph(self, name: str) -> dict:
+        """Cleanup GDS Graph nach Nutzung
+        
+        Args:
+            name: Name der GDS Projektion
+        
+        Returns:
+            Status Dict
+        """
+        query = """
+            CALL gds.graph.drop($graph_name)
+            YIELD graphName
+            RETURN graphName
+        """
+        
+        with self.driver.session() as session:
+            try:
+                result = session.run(query, {"graph_name": name})
+                record = result.single()
+                if record:
+                    return {"dropped": record["graphName"]}
+                return {"error": "GDS graph drop failed"}
+            except Exception as e:
+                return {"error": str(e)}
     
     def execute_read(self, query: str, parameters: dict | None = None) -> list[dict]:
         """Execute read query and return results"""
