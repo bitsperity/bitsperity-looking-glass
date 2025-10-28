@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/manifold/dashboard/+page.svelte";
+export { default as component } from "../../../../src/routes/manifold/analytics/+page.svelte";

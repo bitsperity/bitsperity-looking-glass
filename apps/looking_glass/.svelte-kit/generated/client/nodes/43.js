@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/satbase/overview/+page.svelte";
+export { default as component } from "../../../../src/routes/satbase/news/+page.svelte";

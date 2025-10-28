@@ -1,1 +1,2 @@
-export { default as component } from "../../../../src/routes/satbase/convert/+page.svelte";
+import * as universal from "../../../../src/routes/satbase/+page.ts";
+export { universal };

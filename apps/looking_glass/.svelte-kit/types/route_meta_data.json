@@ -78,6 +78,9 @@
 	"/manifold/admin": [
 		"src/routes/+layout.ts"
 	],
+	"/manifold/analytics": [
+		"src/routes/+layout.ts"
+	],
 	"/manifold/dashboard": [
 		"src/routes/+layout.ts"
 	],

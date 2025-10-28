@@ -48,7 +48,8 @@ export const nodes = [
 	() => import('./nodes/44'),
 	() => import('./nodes/45'),
 	() => import('./nodes/46'),
-	() => import('./nodes/47')
+	() => import('./nodes/47'),
+	() => import('./nodes/48')
 ];
 
 export const server_loads = [];
@@ -78,25 +79,26 @@ export const dictionary = {
 		"/coalescence/runs/[id]": [26,[3]],
 		"/manifold": [27],
 		"/manifold/admin": [28],
-		"/manifold/dashboard": [29],
-		"/manifold/graph": [30],
-		"/manifold/promote/[id]": [31],
-		"/manifold/relations/[id]": [32],
-		"/manifold/search": [33],
-		"/manifold/thoughts": [34],
-		"/manifold/thoughts/[id]": [35],
-		"/manifold/timeline": [36],
-		"/satbase": [37,[4]],
-		"/satbase/convert": [38,[4]],
-		"/satbase/jobs": [39,[4]],
-		"/satbase/macro": [40,[4]],
-		"/satbase/maintenance": [41,[4]],
-		"/satbase/news": [42,[4]],
-		"/satbase/overview": [43,[4]],
-		"/satbase/prices": [44,[4]],
-		"/satbase/topics": [45,[4]],
-		"/satbase/watchlist": [46,[4]],
-		"/tesseract": [47]
+		"/manifold/analytics": [29],
+		"/manifold/dashboard": [30],
+		"/manifold/graph": [31],
+		"/manifold/promote/[id]": [32],
+		"/manifold/relations/[id]": [33],
+		"/manifold/search": [34],
+		"/manifold/thoughts": [35],
+		"/manifold/thoughts/[id]": [36],
+		"/manifold/timeline": [37],
+		"/satbase": [38,[4]],
+		"/satbase/convert": [39,[4]],
+		"/satbase/jobs": [40,[4]],
+		"/satbase/macro": [41,[4]],
+		"/satbase/maintenance": [42,[4]],
+		"/satbase/news": [43,[4]],
+		"/satbase/overview": [44,[4]],
+		"/satbase/prices": [45,[4]],
+		"/satbase/topics": [46,[4]],
+		"/satbase/watchlist": [47,[4]],
+		"/tesseract": [48]
 	};
 
 export const hooks = {
