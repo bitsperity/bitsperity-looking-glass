@@ -390,9 +390,11 @@ def check_duplicate(
                     "status": hit.payload.get("status"),
                 })
         
+        is_duplicate = len(candidates) > 0
         return {
             "status": "ok",
             "threshold": threshold,
+            "is_duplicate": is_duplicate,
             "similar_count": len(candidates),
             "similar": candidates
         }

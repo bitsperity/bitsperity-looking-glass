@@ -251,7 +251,8 @@ def upsert_session_summary(
         return {
             "status": "ok",
             "session_id": session_id,
-            "summary_id": str(thought_id),
+            "thought_id": str(thought_id),
+            "title": title,
             "message": "Summary created/updated"
         }
     except Exception as e:
