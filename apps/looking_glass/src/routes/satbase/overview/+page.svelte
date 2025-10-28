@@ -315,7 +315,7 @@
 					<div class="quality-grid">
 						<div class="quality-item">
 							<span class="quality-label">Body Coverage</span>
-							<span class="quality-value">{Math.round((metricsData.total_articles / (metricsData.total_articles + metricsData.duplicate_count || 1)) * 100)}%</span>
+							<span class="quality-value">{metricsData.body_coverage_percent || 0}%</span>
 						</div>
 						<div class="quality-item">
 							<span class="quality-label">Duplicates</span>

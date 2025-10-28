@@ -134,6 +134,12 @@ def news_metrics():
             WHERE LENGTH(body_text) > 50
         """).fetchone()
         
+        # Articles with bodies (real body coverage)
+        with_body = conn.execute("""
+            SELECT COUNT(*) FROM news_articles
+            WHERE body_available = 1 AND LENGTH(COALESCE(body_text, '')) > 50
+        """).fetchone()[0]
+        
         # Language breakdown
         langs = conn.execute("""
             SELECT language, COUNT(*) as count
@@ -153,10 +159,14 @@ def news_metrics():
             LIMIT 10
         """).fetchall()
     
+    body_coverage_percent = round((with_body / stats["total"] * 100) if stats["total"] > 0 else 0, 1)
+    
     return {
         "total_articles": stats["total"],
         "unique_articles": stats["total"] - len(duplicates),
         "duplicate_count": len(duplicates),
+        "articles_with_bodies": with_body,
+        "body_coverage_percent": body_coverage_percent,
         "articles_per_topic": {t["name"]: t["count"] for t in all_topics},
         "crawl_success_rate_24h": crawl_rate,
         "body_text": {
