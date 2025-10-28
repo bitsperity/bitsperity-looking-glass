@@ -9,6 +9,7 @@
     { href: '/manifold/timeline', label: 'Timeline' },
     { href: '/manifold/thoughts', label: 'Thoughts' },
     { href: '/manifold/graph', label: 'Graph' },
+    { href: '/manifold/analytics', label: 'Analytics' },
     { href: '/manifold/admin', label: 'Admin' }
   ];
 </script>
