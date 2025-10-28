@@ -529,3 +529,42 @@ async def get_detailed_stats(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
 
+
+@router.post("/v1/kg/admin/snapshot-degrees")
+async def snapshot_degrees(
+    label: str = "Company",
+    store: GraphStore = Depends(get_graph_store)
+):
+    """
+    Create temporal snapshots for anomaly detection.
+    
+    Updates degree_7d_ago property on all nodes to enable temporal anomaly detection.
+    Should be run daily via scheduler.
+    
+    Agent use case: "Prepare for temporal anomaly detection"
+    """
+    try:
+        # Update snapshot properties - use COUNT instead of size()
+        update_query = f"""
+        MATCH (n:{label})
+        OPTIONAL MATCH (n)-[r]-()
+        WITH n, count(DISTINCT r) as current_degree
+        SET n.degree_7d_ago = coalesce(n.current_degree_snapshot, current_degree),
+            n.current_degree_snapshot = current_degree,
+            n.last_snapshot_at = datetime()
+        RETURN count(n) as updated_nodes
+        """
+        
+        result = store.execute_write(update_query, {})
+        
+        return {
+            "status": "success",
+            "message": f"Snapshot completed for {label} nodes",
+            "nodes_updated": result[0]["updated_nodes"] if result else 0,
+            "label": label,
+            "timestamp": True
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Snapshot failed: {str(e)}")
+
