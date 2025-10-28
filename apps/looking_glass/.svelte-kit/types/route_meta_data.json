@@ -36,10 +36,16 @@
 		"src/routes/+layout.ts",
 		"src/routes/+layout.ts"
 	],
+	"/ariadne/intelligence/confidence": [
+		"src/routes/+layout.ts"
+	],
 	"/ariadne/intelligence/impact": [
 		"src/routes/+layout.ts"
 	],
 	"/ariadne/intelligence/opportunities": [
+		"src/routes/+layout.ts"
+	],
+	"/ariadne/intelligence/risk": [
 		"src/routes/+layout.ts"
 	],
 	"/ariadne/learn": [
