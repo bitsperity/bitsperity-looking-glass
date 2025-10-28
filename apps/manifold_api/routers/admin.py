@@ -676,3 +676,62 @@ def get_overview(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating overview: {str(e)}")
 
+
+@router.get("/relation-timeline")
+def get_relation_timeline(
+    session_id: str | None = None,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Get timeline of all relation creations with timestamps."""
+    try:
+        filters = None
+        if session_id:
+            filters = {"must": [{"key": "session_id", "match": {"value": session_id}}]}
+        
+        all_points = store.scroll(payload_filter=filters, limit=10000)
+        
+        # Collect all relations with timestamps
+        timeline_events = []
+        
+        for point in all_points:
+            payload = point.payload
+            source_id = str(point.id)
+            source_title = payload.get("title", "Untitled")
+            
+            relations = payload.get("links", {}).get("relations", [])
+            for rel in relations:
+                if isinstance(rel, dict):
+                    timeline_events.append({
+                        "source_id": source_id,
+                        "source_title": source_title,
+                        "target_id": rel.get("related_id"),
+                        "relation_type": rel.get("type", "related"),
+                        "weight": rel.get("weight", 1.0),
+                        "created_at": rel.get("created_at", "unknown"),
+                    })
+        
+        # Sort by timestamp
+        timeline_events.sort(key=lambda x: x["created_at"], reverse=True)
+        
+        # Group by date
+        by_date = {}
+        for event in timeline_events:
+            created_at = event["created_at"]
+            if created_at != "unknown":
+                date = created_at.split("T")[0]  # YYYY-MM-DD
+            else:
+                date = "unknown"
+            
+            if date not in by_date:
+                by_date[date] = []
+            by_date[date].append(event)
+        
+        return {
+            "status": "ok",
+            "total_relations": len(timeline_events),
+            "by_date": by_date,
+            "all_events": timeline_events[:100],  # Last 100
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting relation timeline: {str(e)}")
+
