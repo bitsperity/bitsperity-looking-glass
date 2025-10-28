@@ -327,6 +327,16 @@
       {/if}
     </div>
   {/if}
+
+  <!-- Link to History -->
+  <div class="text-center py-4">
+    <a
+      href="/ariadne/manage/learning/history"
+      class="text-sm text-neutral-400 hover:text-neutral-300 transition-colors underline"
+    >
+      📚 View adjustment history →
+    </a>
+  </div>
 </div>
 
 <style>

@@ -64,6 +64,9 @@
 	"/ariadne/manage/learning": [
 		"src/routes/+layout.ts"
 	],
+	"/ariadne/manage/learning/history": [
+		"src/routes/+layout.ts"
+	],
 	"/ariadne/manage/quality": [
 		"src/routes/+layout.ts"
 	],
