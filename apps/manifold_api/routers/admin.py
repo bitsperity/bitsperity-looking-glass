@@ -596,7 +596,7 @@ def get_graph_metrics(
             thought_degrees[thought_id] = len(related)
             
             for rel in related:
-                rel_type = rel.get("type", "related")
+                rel_type = rel.get("type", "related") if isinstance(rel, dict) else "related"
                 if rel_type not in relations_by_type:
                     relations_by_type[rel_type] = 0
                 relations_by_type[rel_type] += 1
