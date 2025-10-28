@@ -125,14 +125,16 @@
   <!-- Query Input -->
   <div class="flex gap-2">
     <input 
-      class="px-4 py-2 rounded bg-neutral-800 border border-neutral-700 w-full text-neutral-200 placeholder-neutral-500 hover:border-indigo-500 transition-colors focus:outline-none focus:border-indigo-500"
+      aria-label="Search thoughts by semantic query"
+      class="px-4 py-2 rounded bg-neutral-800 border border-neutral-700 w-full text-neutral-200 placeholder-neutral-500 hover:border-indigo-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:border-indigo-500"
       placeholder="Search thoughts… (type to search)" 
       bind:value={q} 
       on:input={handleInput}
       on:keydown={(e) => e.key === 'Enter' && doSearch()} 
     />
     <button 
-      class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"
+      aria-label="Execute search"
+      class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-all duration-150 shadow-lg hover:shadow-indigo-500/50 active:scale-95 focus-visible:ring-2 focus-visible:ring-indigo-400"
       on:click={doSearch}
       disabled={loading}
     >

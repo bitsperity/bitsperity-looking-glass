@@ -170,7 +170,7 @@
 
     <!-- Tab Content -->
     {#if activeTab === 'details'}
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn">
         <div class="space-y-2">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
@@ -347,5 +347,20 @@
     {/if}
   {/if}
 </div>
+
+<style>
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  :global(.animate-fadeIn) {
+    animation: fadeIn 0.2s ease-out;
+  }
+</style>
 
 
