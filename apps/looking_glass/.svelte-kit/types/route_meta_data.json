@@ -16,6 +16,9 @@
 	"/ariadne/dashboard": [
 		"src/routes/+layout.ts"
 	],
+	"/ariadne/explore": [
+		"src/routes/+layout.ts"
+	],
 	"/ariadne/graph": [
 		"src/routes/ariadne/graph/+page.ts",
 		"src/routes/+layout.ts"
@@ -29,7 +32,16 @@
 	"/ariadne/impact": [
 		"src/routes/+layout.ts"
 	],
+	"/ariadne/intelligence": [
+		"src/routes/+layout.ts"
+	],
 	"/ariadne/learn": [
+		"src/routes/+layout.ts"
+	],
+	"/ariadne/manage": [
+		"src/routes/+layout.ts"
+	],
+	"/ariadne/overview": [
 		"src/routes/+layout.ts"
 	],
 	"/ariadne/patterns": [

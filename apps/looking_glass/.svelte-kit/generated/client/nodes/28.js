@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/manifold/admin/+page.svelte";
+export { default as component } from "../../../../src/routes/coalescence/rules/+page.svelte";
