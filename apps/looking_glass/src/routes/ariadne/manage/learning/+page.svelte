@@ -52,7 +52,17 @@
       }
 
       const data = await response.json();
-      feedbackUpdates = (data.learning_updates || []).slice(0, 50); // Show top 50
+      
+      // Transform API response: use capped_increase as adjustment
+      feedbackUpdates = (data.learning_updates || [])
+        .slice(0, 50)
+        .map((u: any) => ({
+          relation_id: u.relation_id,
+          target_name: u.target_name || 'Unknown',
+          old_confidence: u.old_confidence || 0,
+          new_confidence: u.new_confidence || 0,
+          adjustment: u.capped_increase || (u.new_confidence - u.old_confidence) || 0,
+        }));
 
       previewStats = {
         totalUpdates: data.adjusted_count || feedbackUpdates.length,
