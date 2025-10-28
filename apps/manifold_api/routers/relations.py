@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from libs.manifold_core.storage.qdrant_store import QdrantStore
 from apps.manifold_api.dependencies import get_qdrant_store
 from typing import Literal, Dict, Any, List, Set
+from datetime import datetime
 
 router = APIRouter(prefix="/v1/memory/thought", tags=["relations"])
 
@@ -33,21 +34,26 @@ def link_related(
         related.append(related_id)
     links["related_thoughts"] = related
 
-    # Maintain typed relations
+    # Maintain typed relations with timestamp
+    now = datetime.utcnow().isoformat() + "Z"
     typed: List[Dict[str, Any]] = links.get("relations", [])
     if not any(r.get("related_id") == related_id for r in typed):
         typed.append({
             "related_id": related_id,
             "type": relation_type,
             "weight": float(weight),
+            "created_at": now,
         })
     links["relations"] = typed
     source["links"] = links
     
+    # Update source's updated_at timestamp
+    source["updated_at"] = now
+    
     # Update
     store.upsert_point(thought_id, source, vectors={})
     
-    return {"status": "linked"}
+    return {"status": "linked", "created_at": now}
 
 
 @router.delete("/{thought_id}/related/{related_id}")
