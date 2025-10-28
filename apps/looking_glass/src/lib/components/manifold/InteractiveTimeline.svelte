@@ -63,8 +63,16 @@
       .enter()
       .append('rect')
       .attr('x', (d: any) => xScale(new Date(d.date)))
-      .attr('y', (d: any) => yScale(d[1]))
-      .attr('height', (d: any) => yScale(d[0]) - yScale(d[1]))
+      .attr('y', (d: any) => {
+        const yVal = yScale(d[1]);
+        return isNaN(yVal) ? height : yVal;
+      })
+      .attr('height', (d: any) => {
+        const y0 = yScale(d[0]);
+        const y1 = yScale(d[1]);
+        const h = Math.max(0, (isNaN(y0) ? height : y0) - (isNaN(y1) ? height : y1));
+        return isNaN(h) ? 0 : h;
+      })
       .attr('width', () => Math.max(2, (width / data.length) * 0.8))
       .style('opacity', 0.8)
       .on('mouseover', function(event: any, d: any) {

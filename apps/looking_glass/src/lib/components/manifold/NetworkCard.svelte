@@ -1,98 +1,72 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
 
   export let thought: any;
   export let relations: any[] = [];
 
-  let containerDiv: HTMLDivElement;
-  let sigma: any = null;
-
-  onMount(async () => {
-    if (!containerDiv || !thought) return;
-
-    // Dynamically import Sigma to avoid loading it globally
-    const SigmaModule = await import('sigma');
-    const Sigma = SigmaModule.default;
-
-    // Build graph data
-    const nodes = [
-      {
-        key: thought.id,
-        label: thought.title,
-        size: 20,
-        color: '#6366f1', // indigo
-        attributes: { type: 'center' }
-      },
-      ...relations.map((r: any, i: number) => ({
-        key: `related-${i}`,
-        label: r.title || `Related ${i + 1}`,
-        size: 12,
-        color: r.type === 'supports' ? '#10b981' : r.type === 'contradicts' ? '#ef4444' : '#3b82f6',
-        attributes: { type: 'related', relationType: r.type }
-      }))
-    ];
-
-    const edges = relations.map((r: any, i: number) => ({
-      source: thought.id,
-      target: `related-${i}`,
-      attributes: { type: r.type, weight: r.weight || 0.8 }
-    }));
-
-    const graph = {
-      nodes: nodes.map(n => ({ ...n })),
-      edges: edges.map(e => ({ ...e }))
-    };
-
-    try {
-      sigma = new Sigma({
-        container: containerDiv,
-        graph: graph,
-        settings: {
-          labelDensity: 0.3,
-          labelGridCellSize: 60,
-          labelSize: 12,
-          borderSize: 2,
-          edgeColor: { default: '#666' },
-          defaultNodeColor: '#999',
-          defaultEdgeColor: '#666'
-        }
-      });
-
-      // Auto-position nodes in a circle
-      sigma.getCamera().animateTo({ x: 0, y: 0, angle: 0, ratio: 1 }, { duration: 500 });
-    } catch (err) {
-      console.error('Error initializing Sigma.js graph:', err);
+  function getRelationColor(type: string) {
+    switch (type) {
+      case 'supports': return '#10b981';
+      case 'contradicts': return '#ef4444';
+      case 'followup': return '#3b82f6';
+      default: return '#8b5cf6';
     }
-  });
+  }
+
+  function getRelationLabel(type: string) {
+    switch (type) {
+      case 'supports': return '✓ Supports';
+      case 'contradicts': return '✗ Contradicts';
+      case 'followup': return '→ Followup';
+      default: return '◈ Related';
+    }
+  }
+
+  function navigateToThought(id: string) {
+    goto(`/manifold/thoughts/${id}`);
+  }
 </script>
 
 <div class="space-y-3">
-  <h3 class="font-semibold text-sm text-neutral-100">🔗 Related Thoughts Network</h3>
-
-  <div
-    bind:this={containerDiv}
-    class="rounded border border-white/10 h-48 bg-slate-900/50 overflow-hidden"
-  />
-
-  <!-- Legend -->
-  <div class="text-xs space-y-1 text-neutral-400">
-    <div class="flex items-center gap-2">
-      <div class="w-3 h-3 rounded-full" style="background-color: #10b981" />
-      <span>Supports</span>
-    </div>
-    <div class="flex items-center gap-2">
-      <div class="w-3 h-3 rounded-full" style="background-color: #ef4444" />
-      <span>Contradicts</span>
-    </div>
-    <div class="flex items-center gap-2">
-      <div class="w-3 h-3 rounded-full" style="background-color: #3b82f6" />
-      <span>Related</span>
-    </div>
-  </div>
+  <h3 class="font-semibold text-sm text-neutral-100">🔗 Related Thoughts ({relations.length})</h3>
 
   {#if relations.length === 0}
-    <div class="text-xs text-neutral-500 italic py-4 text-center">
+    <div class="text-xs text-neutral-500 italic py-4 text-center bg-neutral-900/50 rounded border border-neutral-700">
       No related thoughts yet
+    </div>
+  {:else}
+    <div class="space-y-2 max-h-64 overflow-y-auto">
+      {#each relations as rel, idx (idx)}
+        <div class="bg-neutral-900/50 border border-neutral-700 rounded p-3 hover:border-indigo-500/50 transition-colors cursor-pointer" on:click={() => navigateToThought(rel.target_id)}>
+          <div class="flex items-start gap-2 mb-2">
+            <div 
+              class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" 
+              style="background-color: {getRelationColor(rel.type)}"
+            />
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-semibold text-neutral-300">{getRelationLabel(rel.type)}</div>
+              <div class="text-xs text-neutral-400 truncate">{rel.weight ? `Weight: ${(rel.weight * 100).toFixed(0)}%` : ''}</div>
+            </div>
+          </div>
+          <div class="text-sm font-medium text-neutral-200 truncate">{rel.target_title || 'Untitled'}</div>
+        </div>
+      {/each}
+    </div>
+
+    <!-- Legend -->
+    <div class="text-xs space-y-1 text-neutral-400 pt-2 border-t border-neutral-700">
+      <div class="flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full" style="background-color: #10b981" />
+        <span>Supports</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full" style="background-color: #ef4444" />
+        <span>Contradicts</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="w-2 h-2 rounded-full" style="background-color: #3b82f6" />
+        <span>Followup</span>
+      </div>
     </div>
   {/if}
 </div>
