@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 from libs.satbase_core.storage.news_db import NewsDB
 from libs.satbase_core.config.settings import load_settings
+from libs.satbase_core.utils.quality import calculate_quality_score
 import httpx
 
 router = APIRouter()
@@ -28,18 +29,22 @@ def list_topics_configured():
 def cleanup_junk_bodies(
     tag_only: bool = False,
     dry_run: bool = False,
-    max_items: int = 1000
+    max_items: int = 1000,
+    min_similarity_title: float = 0.25,
+    min_similarity_summary: float = 0.25,
+    fallback_length_threshold: int = 120,
 ):
     """
-    Scan all news, erkennen Junk-Bodies (access denied/too short/etc),
-    entfernt Body (optional), taggt `no_body_crawl`, und löscht Body-Vektor in Tesseract.
+    Scannt News und markiert Bodies als Junk, wenn semantische Ähnlichkeit (body↔title / body↔summary)
+    UNTER Schwellwert liegt. Fallback: zu kurz / bekannte Fehlerphrasen.
+    Entfernt Body, taggt `no_body_crawl`, löscht Body-Vektor in Tesseract.
     """
     s = load_settings()
     db = NewsDB(s.stage_dir.parent / "news.db")
     tesseract_base = "http://localhost:8081"
 
-    def is_junk(body: str | None) -> bool:
-        if not body or len(body.strip()) < 120:
+    def fallback_is_junk(body: str | None) -> bool:
+        if not body or len(body.strip()) < fallback_length_threshold:
             return True
         low = body.lower()
         for pat in ["access denied", "403", "404", "forbidden", "subscribe", "register"]:
@@ -66,13 +71,14 @@ def cleanup_junk_bodies(
 
     with db.conn() as conn:
         rows = conn.execute(
-            "SELECT id, url, body_text FROM news_articles ORDER BY fetched_at DESC LIMIT ?",
+            "SELECT id, url, title, description, body_text FROM news_articles ORDER BY fetched_at DESC LIMIT ?",
             (max_items,)
         ).fetchall()
         for row in rows:
             checked += 1
-            article_id, url, body_text = row
-            if is_junk(body_text):
+            article_id, url, title, description, body_text = row
+            # 1) Fallback-Quickcheck
+            if fallback_is_junk(body_text):
                 affected += 1
                 affected_ids.append(article_id)
                 if not dry_run:
@@ -88,6 +94,45 @@ def cleanup_junk_bodies(
                                     deleted_vectors += 1
                         except Exception:
                             pass
+                continue
+
+            # 2) Semantische Prüfung via Tesseract-Vektoren
+            try:
+                with httpx.Client(timeout=5.0) as client:
+                    sim = client.get(f"{tesseract_base}/v1/admin/similarity/{article_id}")
+                    if sim.status_code == 200:
+                        data = sim.json()
+                        s_tb = data.get("similarity", {}).get("title_body")
+                        s_sb = data.get("similarity", {}).get("summary_body")
+                        body_present = data.get("available", {}).get("body")
+                        # Wenn kein Body-Vektor existiert, Fallback-Regel anwenden
+                        if not body_present:
+                            if fallback_is_junk(body_text):
+                                affected += 1
+                                affected_ids.append(article_id)
+                                if not dry_run:
+                                    db.clear_body_and_tag(article_id, tag_skip=True)
+                                    tagged += 1
+                            continue
+                        # Markiere Junk wenn beide Ähnlichkeiten unter den Schwellwerten liegen
+                        cond_title = (s_tb is None) or (s_tb < min_similarity_title)
+                        cond_summary = (s_sb is None) or (s_sb < min_similarity_summary)
+                        if cond_title and cond_summary:
+                            affected += 1
+                            affected_ids.append(article_id)
+                            if not dry_run:
+                                db.clear_body_and_tag(article_id, tag_skip=True)
+                                tagged += 1
+                                if not tag_only:
+                                    try:
+                                        rr = client.delete(f"{tesseract_base}/v1/admin/vectors/{article_id}/body")
+                                        if rr.status_code == 200:
+                                            deleted_vectors += 1
+                                    except Exception:
+                                        pass
+            except Exception:
+                # Im Fehlerfall keine aggressive Löschung – lieber auslassen
+                pass
 
     return {
         "checked": checked,
@@ -409,3 +454,157 @@ def cleanup_old_jobs(days: int = Query(30, ge=1, le=365)):
 # Import uuid for retry function
 import uuid
 from libs.satbase_core.utils.logging import log
+
+
+@router.post("/admin/news/reset-bodies")
+def reset_all_bodies(
+    clear_flag: bool = True
+):
+    """
+    Reset ALL bodies: Set body_text=NULL, body_available=0, no_body_crawl=0.
+    
+    This allows re-crawling with the improved Trafilatura extraction.
+    
+    Parameters:
+    - clear_flag: If True, also reset no_body_crawl flags (default: True)
+    
+    Returns: Count of affected articles
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    with db.conn() as conn:
+        if clear_flag:
+            # Reset body AND allow re-crawling
+            result = conn.execute(
+                "UPDATE news_articles SET body_text = NULL, body_available = 0, no_body_crawl = 0"
+            )
+        else:
+            # Reset body but keep no_body_crawl flags intact
+            result = conn.execute(
+                "UPDATE news_articles SET body_text = NULL, body_available = 0"
+            )
+        
+        affected_count = result.rowcount
+    
+    return {
+        "status": "ok",
+        "affected": affected_count,
+        "clear_flag": clear_flag,
+        "message": f"Reset {affected_count} article bodies. Re-crawling enabled: {clear_flag}"
+    }
+
+
+@router.post("/admin/news/cleanup-quality")
+def cleanup_low_quality_bodies(
+    dry_run: bool = False,
+    max_items: int = 1000,
+    quality_threshold: float = 0.35
+):
+    """
+    Scan news bodies using Quality Score heuristics (no ML).
+    Remove low-quality bodies, tag to prevent re-crawling, delete Tesseract body vectors.
+    
+    Uses scientific metrics: link density, text density, paragraph count, stopword ratio,
+    token diversity, boilerplate phrase matching, navigation keywords, repetition.
+    
+    Parameters:
+    - dry_run: Preview without changes
+    - max_items: Max articles to check (default 1000)
+    - quality_threshold: Score threshold (0.0-1.0, default 0.35)
+    
+    Returns: Summary of affected articles
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    tesseract_base = "http://localhost:8081"
+    
+    checked = 0
+    affected = 0
+    tagged = 0
+    deleted_vectors = 0
+    affected_ids: list[str] = []
+    sample_results = []
+    
+    with db.conn() as conn:
+        rows = conn.execute(
+            "SELECT id, url, title, body_text FROM news_articles WHERE body_available = 1 ORDER BY fetched_at DESC LIMIT ?",
+            (max_items,)
+        ).fetchall()
+        
+        for row in rows:
+            checked += 1
+            article_id, url, title, body_text = row
+            
+            if not body_text or len(body_text.strip()) < 100:
+                # Too short → auto-junk
+                affected += 1
+                affected_ids.append(article_id)
+                sample_results.append({
+                    "id": article_id,
+                    "title": title[:60],
+                    "verdict": "junk",
+                    "reason": "too_short",
+                    "score": 0.0
+                })
+                
+                if not dry_run:
+                    db.clear_body_and_tag(article_id, tag_skip=True)
+                    tagged += 1
+                    # Delete body vector in Tesseract
+                    try:
+                        with httpx.Client(timeout=5.0) as client:
+                            r = client.delete(f"{tesseract_base}/v1/admin/vectors/{article_id}/body")
+                            if r.status_code == 200:
+                                deleted_vectors += 1
+                    except Exception:
+                        pass
+                continue
+            
+            # Quality Score Analysis
+            try:
+                quality_result = calculate_quality_score(body_text)
+                score = quality_result["score"]
+                verdict = quality_result["verdict"]
+                
+                if score < quality_threshold:
+                    affected += 1
+                    affected_ids.append(article_id)
+                    
+                    # Sample first 10 for debugging
+                    if len(sample_results) < 10:
+                        sample_results.append({
+                            "id": article_id,
+                            "title": title[:60],
+                            "score": score,
+                            "verdict": verdict,
+                            "metrics": quality_result["metrics"]
+                        })
+                    
+                    if not dry_run:
+                        db.clear_body_and_tag(article_id, tag_skip=True)
+                        tagged += 1
+                        # Delete body vector in Tesseract
+                        try:
+                            with httpx.Client(timeout=5.0) as client:
+                                r = client.delete(f"{tesseract_base}/v1/admin/vectors/{article_id}/body")
+                                if r.status_code == 200:
+                                    deleted_vectors += 1
+                        except Exception:
+                            pass
+                
+            except Exception as e:
+                # Scoring error → skip this article
+                log("quality_score_error", article_id=article_id, error=str(e)[:100])
+                continue
+    
+    return {
+        "checked": checked,
+        "affected": affected,
+        "tagged": tagged,
+        "deleted_vectors": deleted_vectors,
+        "dry_run": dry_run,
+        "quality_threshold": quality_threshold,
+        "sample_results": sample_results,
+        "ids": affected_ids[:50]  # First 50 IDs
+    }

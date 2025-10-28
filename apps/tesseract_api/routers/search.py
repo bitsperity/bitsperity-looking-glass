@@ -195,6 +195,48 @@ def build_filter(filters: dict):
     
     return {"must": must_conditions} if must_conditions else None
 
+@router.get("/admin/similarity/{news_id}")
+async def vector_internal_similarity(news_id: str):
+    """Return cosine similarities between stored vectors for an article.
+    Computes body↔title and body↔summary on the fly from Qdrant vectors.
+    """
+    try:
+        vector_store.ensure_collection()
+        # Scroll to get all vectors for news_id
+        points, _ = vector_store.scroll(
+            query_filter={"must": [{"key": "news_id", "match": {"value": news_id}}]},
+            limit=10,
+            with_payload=True,
+            with_vectors=True,
+        )
+
+        by_type = {p.payload.get("vector_type"): p for p in points if p.vector is not None}
+        body = by_type.get("body")
+        title = by_type.get("title")
+        summary = by_type.get("summary")
+
+        def dot(a, b):
+            # Vectors are normalized, dot == cosine
+            return float(sum(x * y for x, y in zip(a, b)))
+
+        sim_title_body = dot(title.vector, body.vector) if body and title else None
+        sim_summary_body = dot(summary.vector, body.vector) if body and summary else None
+
+        return {
+            "news_id": news_id,
+            "available": {
+                "title": bool(title),
+                "summary": bool(summary),
+                "body": bool(body),
+            },
+            "similarity": {
+                "title_body": sim_title_body,
+                "summary_body": sim_summary_body,
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compute internal similarity: {e}")
+
 @router.get("/tesseract/similar/{news_id}")
 async def find_similar(news_id: str, limit: int = 10, vector_type: str | None = None):
     """Find similar articles by vector similarity (news_id is Satbase ID)

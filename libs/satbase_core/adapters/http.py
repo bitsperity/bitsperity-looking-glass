@@ -54,11 +54,42 @@ def get_text(url: str, headers: dict[str, str] | None = None, timeout: float | N
 
 
 def extract_text_from_html(html: str) -> str | None:
-    """Extract plain text from HTML using BeautifulSoup"""
+    """
+    Extract article content from HTML using Trafilatura (SOTA Boilerplate Removal).
+    
+    Trafilatura automatically:
+    - Identifies main content (<article>, <main>, etc.)
+    - Removes navigation, sidebars, headers, footers
+    - Removes ads, cookie banners, social media widgets
+    - Preserves article structure (paragraphs, lists)
+    
+    Fallback: BeautifulSoup if Trafilatura fails
+    """
+    # Try Trafilatura first (best quality)
+    try:
+        import trafilatura
+        text = trafilatura.extract(
+            html,
+            include_comments=False,
+            include_tables=False,
+            no_fallback=False,
+            favor_precision=True,  # Less text, higher quality (removes more edge cases)
+            favor_recall=False,    # Don't include questionable blocks
+        )
+        
+        if text and len(text.strip()) > 100:
+            # Clean surrogates
+            text = text.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='ignore')
+            return text
+    except ImportError:
+        pass  # Fall through to BeautifulSoup
+    except Exception:
+        pass  # Fall through to BeautifulSoup
+    
+    # Fallback: BeautifulSoup (basic extraction, keeps boilerplate)
     try:
         from bs4 import BeautifulSoup
     except ImportError:
-        # Fallback: return HTML if BeautifulSoup not available
         return html
     
     try:
