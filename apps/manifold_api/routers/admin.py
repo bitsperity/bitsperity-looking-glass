@@ -484,3 +484,195 @@ def get_duplicate_warnings(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error scanning duplicates: {str(e)}")
 
+
+@router.get("/statistics")
+def get_statistics(
+    session_id: str | None = None,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Get comprehensive statistics about thoughts."""
+    try:
+        # Build filter
+        filters = None
+        if session_id:
+            filters = {"must": [{"key": "session_id", "match": {"value": session_id}}]}
+        
+        # Get all thoughts
+        all_points = store.scroll(payload_filter=filters, limit=10000)
+        
+        # Calculate statistics
+        type_dist = {}
+        status_dist = {}
+        confidence_dist = {}
+        created_by_month = {}
+        has_relations = 0
+        has_parent = 0
+        relation_count = 0
+        
+        for point in all_points:
+            payload = point.payload
+            
+            # Type distribution
+            t = payload.get("type", "unknown")
+            type_dist[t] = type_dist.get(t, 0) + 1
+            
+            # Status distribution
+            s = payload.get("status", "unknown")
+            status_dist[s] = status_dist.get(s, 0) + 1
+            
+            # Confidence distribution
+            c = payload.get("confidence_level", "unknown")
+            confidence_dist[c] = confidence_dist.get(c, 0) + 1
+            
+            # Temporal distribution
+            created_at = payload.get("created_at")
+            if created_at:
+                month = created_at[:7]  # YYYY-MM
+                created_by_month[month] = created_by_month.get(month, 0) + 1
+            
+            # Relations
+            related = payload.get("links", {}).get("related_thoughts", [])
+            if related:
+                has_relations += 1
+                relation_count += len(related)
+            
+            # Parent-child
+            if payload.get("parent_id"):
+                has_parent += 1
+        
+        return {
+            "status": "ok",
+            "total_thoughts": len(all_points),
+            "distributions": {
+                "by_type": type_dist,
+                "by_status": status_dist,
+                "by_confidence": confidence_dist,
+                "by_month": created_by_month,
+            },
+            "relations": {
+                "thoughts_with_relations": has_relations,
+                "total_relations": relation_count,
+                "avg_relations_per_thought": round(relation_count / len(all_points), 2) if all_points else 0,
+            },
+            "hierarchy": {
+                "thoughts_with_parent": has_parent,
+                "orphan_thoughts": len(all_points) - has_parent,
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating statistics: {str(e)}")
+
+
+@router.get("/graph/metrics")
+def get_graph_metrics(
+    session_id: str | None = None,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Calculate graph metrics (centrality, clustering, etc)."""
+    try:
+        # Build filter
+        filters = None
+        if session_id:
+            filters = {"must": [{"key": "session_id", "match": {"value": session_id}}]}
+        
+        # Get all thoughts
+        all_points = store.scroll(payload_filter=filters, limit=10000)
+        
+        # Build adjacency structure
+        relations_by_type = {}
+        thought_degrees = {}  # How many relations each thought has
+        thought_info = {}
+        
+        for point in all_points:
+            payload = point.payload
+            thought_id = str(point.id)
+            thought_info[thought_id] = {
+                "title": payload.get("title"),
+                "type": payload.get("type"),
+                "confidence": payload.get("confidence_level"),
+            }
+            
+            related = payload.get("links", {}).get("related_thoughts", [])
+            thought_degrees[thought_id] = len(related)
+            
+            for rel in related:
+                rel_type = rel.get("type", "related")
+                if rel_type not in relations_by_type:
+                    relations_by_type[rel_type] = 0
+                relations_by_type[rel_type] += 1
+        
+        # Calculate metrics
+        total_thoughts = len(all_points)
+        total_relations = sum(thought_degrees.values())
+        
+        # Network metrics
+        density = (2 * total_relations) / (total_thoughts * (total_thoughts - 1)) if total_thoughts > 1 else 0
+        avg_degree = total_relations / total_thoughts if total_thoughts > 0 else 0
+        
+        # Find central nodes (highest degree)
+        sorted_by_degree = sorted(
+            [(tid, degree) for tid, degree in thought_degrees.items()],
+            key=lambda x: x[1],
+            reverse=True
+        )
+        top_central = [
+            {
+                "id": tid,
+                "title": thought_info[tid]["title"],
+                "degree": degree,
+                "type": thought_info[tid]["type"],
+            }
+            for tid, degree in sorted_by_degree[:10]
+        ]
+        
+        return {
+            "status": "ok",
+            "network": {
+                "total_nodes": total_thoughts,
+                "total_edges": total_relations,
+                "density": round(density, 4),
+                "average_degree": round(avg_degree, 2),
+                "relation_types": relations_by_type,
+            },
+            "centrality": {
+                "top_by_degree": top_central,
+            },
+            "degree_distribution": {
+                "min": min(thought_degrees.values()) if thought_degrees else 0,
+                "max": max(thought_degrees.values()) if thought_degrees else 0,
+                "median": sorted(thought_degrees.values())[len(thought_degrees) // 2] if thought_degrees else 0,
+                "isolated_nodes": sum(1 for d in thought_degrees.values() if d == 0),
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculating graph metrics: {str(e)}")
+
+
+@router.get("/overview")
+def get_overview(
+    session_id: str | None = None,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Get complete overview of thought system (combines statistics & metrics)."""
+    try:
+        # Get statistics
+        stats_resp = get_statistics(session_id=session_id, store=store)
+        
+        # Get metrics
+        metrics_resp = get_graph_metrics(session_id=session_id, store=store)
+        
+        # Build overview
+        return {
+            "status": "ok",
+            "session_id": session_id or "all",
+            "summary": {
+                "total_thoughts": stats_resp["total_thoughts"],
+                "network_density": metrics_resp["network"]["density"],
+                "average_relations": metrics_resp["network"]["average_degree"],
+            },
+            "statistics": stats_resp,
+            "metrics": metrics_resp,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating overview: {str(e)}")
+
