@@ -3,79 +3,175 @@
   import { fetchDashboard } from '$lib/services/manifoldService';
   import KpiCard from '$lib/components/manifold/KpiCard.svelte';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
+  import SessionCard from '$lib/components/manifold/SessionCard.svelte';
+  import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
+  import * as api from '$lib/api/manifold';
+  import { goto } from '$app/navigation';
 
   let loading = true;
   let data: any = {};
   let error: string | null = null;
+  let sessions: any[] = [];
+  let duplicateWarnings: any[] = [];
+  let timelineData: any = {};
 
   onMount(async () => {
     try {
-      data = await fetchDashboard();
+      const [dashboard, sessionsResp, warningsResp, timeline] = await Promise.all([
+        fetchDashboard(),
+        api.getSessions(10),
+        api.getDuplicateWarnings(0.92, 5),
+        api.timeline({ type: undefined, tickers: undefined }),
+      ]);
+      
+      data = dashboard;
+      sessions = sessionsResp.sessions || [];
+      duplicateWarnings = warningsResp.duplicates || [];
+      timelineData = timeline || {};
     } catch (e: any) {
-      error = e?.message ?? 'Error';
+      error = e?.message ?? 'Error loading dashboard';
     } finally {
       loading = false;
     }
   });
+
+  function openSearch(sessionId: string) {
+    goto(`/manifold/search?session_id=${encodeURIComponent(sessionId)}`);
+  }
+
+  function openGraph(sessionId: string) {
+    goto(`/manifold/graph?session_id=${encodeURIComponent(sessionId)}`);
+  }
+
+  $: timelineEntries = Object.entries(timelineData.bucketed || {}).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14);
+  $: maxCount = Math.max(...timelineEntries.map(([, items]) => (items as any[]).length), 1);
 </script>
 
 <div class="p-6 space-y-6 h-full overflow-auto">
-  <h1 class="text-2xl font-semibold">Manifold · Dashboard</h1>
+  <div class="flex items-center justify-between">
+    <h1 class="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+      Manifold · Command Center
+    </h1>
+  </div>
+  
   <ManifoldNav />
 
   {#if loading}
-    <div class="text-neutral-400">Loading…</div>
+    <div class="text-neutral-400 text-center py-12">
+      <div class="text-lg">Loading…</div>
+    </div>
   {:else if error}
-    <div class="text-red-400">{error}</div>
+    <div class="bg-red-950/20 border border-red-500/50 rounded-lg p-4 text-red-300">
+      {error}
+    </div>
   {:else}
+    <!-- KPI Cards -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <KpiCard 
         title="Health" 
-        value={data.health.status} 
-        subtitle="Qdrant: {data.health.qdrant_connected ? 'connected' : 'down'} · Collection: {data.health.collection_name}"
+        value={data.health?.status ?? '?'} 
+        subtitle="Qdrant: {data.health?.qdrant_connected ? 'connected' : 'down'} · Collection: {data.health?.collection_name}"
         icon="✓"
       />
 
       <KpiCard 
         title="Device" 
-        value={data.device.cuda_available ? '🚀 GPU' : 'CPU'} 
-        subtitle="{data.device.gpu_name || 'CPU mode'} · {data.device.model_device}"
+        value={data.device?.cuda_available ? '🚀 GPU' : 'CPU'} 
+        subtitle="{data.device?.gpu_name || 'CPU mode'} · {data.device?.model_device}"
       />
 
       <KpiCard 
         title="Thoughts" 
-        value={data.statsAll.total} 
-        subtitle="Avg confidence: {Math.round((data.statsAll.avg_confidence ?? 0) * 100)}% · Validation rate: {Math.round((data.statsAll.validation_rate ?? 0) * 100)}%"
+        value={data.statsAll?.total ?? 0} 
+        subtitle="Avg confidence: {Math.round((data.statsAll?.avg_confidence ?? 0) * 100)}% · Validation rate: {Math.round((data.statsAll?.validation_rate ?? 0) * 100)}%"
         icon="💭"
       />
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="bg-neutral-900 rounded p-4 border border-neutral-800">
-        <div class="text-sm text-neutral-400 mb-2">By Type</div>
-        <div class="space-y-1">
-          {#each Object.entries(data.statsAll.by_type || {}) as [type, count]}
-            <div class="flex justify-between text-sm">
-              <span class="text-neutral-300">{type}</span>
-              <span class="text-neutral-500">{count}</span>
-            </div>
+    <!-- Sessions Panel -->
+    {#if sessions.length > 0}
+      <GlassPanel title="📊 Active Sessions">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {#each sessions as session (session.session_id)}
+            <SessionCard 
+              {session}
+              onOpenSearch={openSearch}
+              onOpenGraph={openGraph}
+            />
           {/each}
         </div>
-      </div>
+      </GlassPanel>
+    {/if}
 
-      <div class="bg-neutral-900 rounded p-4 border border-neutral-800">
-        <div class="text-sm text-neutral-400 mb-2">By Status</div>
-        <div class="space-y-1">
-          {#each Object.entries(data.statsAll.by_status || {}) as [status, count]}
-            <div class="flex justify-between text-sm">
-              <span class="text-neutral-300">{status}</span>
-              <span class="text-neutral-500">{count}</span>
+    <!-- Duplicate Warnings KPI -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <GlassPanel title="⚠️ Duplicate Warnings">
+        <div class="space-y-3">
+          <div class="text-3xl font-bold text-amber-400">
+            {duplicateWarnings.length}
+          </div>
+          <div class="text-sm text-neutral-400">
+            potential duplicates detected
+          </div>
+          {#if duplicateWarnings.length > 0}
+            <button 
+              class="w-full px-3 py-2 rounded bg-amber-700 hover:bg-amber-600 text-sm font-medium text-white transition-colors"
+              on:click={() => goto('/manifold/admin')}
+            >
+              Review in Admin
+            </button>
+          {/if}
+        </div>
+      </GlassPanel>
+
+      <!-- Timeline Mini (last 14 days) -->
+      <GlassPanel title="📈 Timeline (14d)">
+        <div class="flex items-end gap-1 h-20">
+          {#each timelineEntries as [date, items] (date)}
+            <div 
+              class="flex-1 bg-gradient-to-t from-indigo-500 to-indigo-400 rounded-t transition-all hover:from-indigo-400 hover:to-indigo-300"
+              style="height: {(items.length / maxCount) * 100}%"
+              title="{date}: {items.length} thoughts"
+            />
+          {/each}
+        </div>
+        <div class="text-xs text-neutral-500 mt-2 text-right">
+          {timelineEntries[0]?.[0] ?? 'N/A'} → {timelineEntries[timelineEntries.length - 1]?.[0] ?? 'N/A'}
+        </div>
+      </GlassPanel>
+    </div>
+
+    <!-- Stats by Type & Status -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <GlassPanel title="By Type">
+        <div class="space-y-2">
+          {#each Object.entries(data.statsAll?.by_type || {}) as [type, count] (type)}
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-neutral-300 capitalize">{type}</span>
+              <span class="text-sm font-semibold text-indigo-400">{count}</span>
             </div>
           {/each}
         </div>
-      </div>
+      </GlassPanel>
+
+      <GlassPanel title="By Status">
+        <div class="space-y-2">
+          {#each Object.entries(data.statsAll?.by_status || {}) as [status, count] (status)}
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-neutral-300 capitalize">{status}</span>
+              <span class="text-sm font-semibold text-emerald-400">{count}</span>
+            </div>
+          {/each}
+        </div>
+      </GlassPanel>
     </div>
   {/if}
 </div>
+
+<style>
+  :global(body) {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 27, 75, 0.4) 100%);
+  }
+</style>
 
 

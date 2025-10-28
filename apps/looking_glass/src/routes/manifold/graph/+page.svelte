@@ -21,6 +21,8 @@
   let type = ''; 
   let status = ''; 
   let tickers = '';
+  let sessionId = '';
+  let workspaceId = '';
   let previewId: string | null = null;
   let containerEl: HTMLDivElement;
   let renderer: any = null;
@@ -40,7 +42,9 @@
         limit: 400, 
         type: type || undefined, 
         status: status || undefined, 
-        tickers: tickers || undefined 
+        tickers: tickers || undefined,
+        session_id: sessionId || undefined,
+        workspace_id: workspaceId || undefined,
       });
       nodes = resp.nodes || []; 
       edges = resp.edges || [];
@@ -188,15 +192,17 @@
       for (const e of edges) {
         const id = `edge_${edgeId++}`;
         if (graph.hasNode(e.from) && graph.hasNode(e.to)) {
-          const edgeColor = colorForEdgeType(e.type);
-          const edgeSize = Math.max(1, Math.min(5, (e.weight || 1.0) * 3)); // Weight 0-1 → size 1-3
+          const isSection = e.type === 'section-of';
+          const edgeColor = isSection ? '#4b5563' : colorForEdgeType(e.type); // gray für section-of
+          const edgeSize = isSection ? 0.5 : Math.max(1, Math.min(5, (e.weight || 1.0) * 3));
           
           graph.addEdge(e.from, e.to, { 
             label: e.type || 'related', 
             size: edgeSize, 
             color: edgeColor,
-            type: 'arrow',
+            type: 'arrow', // Sigma supports only 'arrow' and 'line'
             relationWeight: e.weight || 1.0,
+            isDashed: isSection,
           });
         }
       }
@@ -227,13 +233,13 @@
         enableEdgeEvents: true,
         labelSize: 14,
         labelWeight: 'bold',
-        labelColor: { color: '#e5e5e5' }, // Hell-graue Labels für dunklen Hintergrund
+        labelColor: { color: '#e5e5e5' },
         edgeLabelSize: 11,
         edgeLabelWeight: 'normal',
         edgeLabelColor: { color: '#a3a3a3' },
         defaultNodeColor: '#9ca3af',
         defaultEdgeColor: '#4b5563',
-        labelRenderedSizeThreshold: 8, // Labels nur ab bestimmter Node-Größe
+        labelRenderedSizeThreshold: 8,
       });
       
       // Node click handlers
@@ -305,13 +311,14 @@
 
   function colorForEdgeType(edgeType?: string): string {
     const edgeColors: Record<string, string> = {
-      related: '#6b7280',      // neutral-500
-      supports: '#22c55e',     // green-500 (positive)
-      contradicts: '#ef4444',  // red-500 (negative)
-      followup: '#3b82f6',     // blue-500 (continuation)
-      duplicate: '#a855f7',    // purple-500 (same)
-      informs: '#14b8a6',      // teal-500
-      questions: '#f59e0b',    // amber-500
+      related: '#6b7280',
+      supports: '#22c55e',
+      contradicts: '#ef4444',
+      followup: '#3b82f6',
+      duplicate: '#a855f7',
+      informs: '#14b8a6',
+      questions: '#f59e0b',
+      'section-of': '#6b7280',
     };
     
     return edgeColors[edgeType || 'related'] || '#6b7280';
@@ -363,7 +370,7 @@
 
   <!-- Filter Controls -->
   <div class="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
       <div>
         <label class="text-xs text-neutral-400 mb-1 block">Type</label>
         <input 
@@ -388,16 +395,30 @@
           bind:value={tickers} 
         />
       </div>
-      <div class="flex items-end">
-        <button 
-          class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 w-full text-sm font-medium transition-colors"
-          on:click={load}
-          disabled={loading}
-        >
-          {loading ? 'Loading…' : 'Reload Graph'}
-        </button>
+      <div>
+        <label class="text-xs text-neutral-400 mb-1 block">Session</label>
+        <input 
+          class="px-3 py-2 rounded bg-neutral-800 w-full text-sm" 
+          placeholder="session-alpha" 
+          bind:value={sessionId} 
+        />
+      </div>
+      <div>
+        <label class="text-xs text-neutral-400 mb-1 block">Workspace</label>
+        <input 
+          class="px-3 py-2 rounded bg-neutral-800 w-full text-sm" 
+          placeholder="workspace-id" 
+          bind:value={workspaceId} 
+        />
       </div>
     </div>
+    <button 
+      class="mt-3 w-full px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
+      on:click={load}
+      disabled={loading}
+    >
+      {loading ? 'Loading…' : 'Reload Graph'}
+    </button>
   </div>
 
   {#if loading}
@@ -624,6 +645,10 @@
             <div class="flex items-center gap-2">
               <div class="w-8 h-0.5 bg-purple-500"></div>
               <span class="text-neutral-400">duplicate</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-0.5 bg-gray-500"></div>
+              <span class="text-neutral-400">section-of</span>
             </div>
           </div>
           <div class="mt-2 text-[11px] text-neutral-500">

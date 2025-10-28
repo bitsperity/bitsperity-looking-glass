@@ -75,4 +75,58 @@ export const bulkUnquarantine = (ids: string[]) => http<{ status: string; update
 export const bulkReembed = (ids: string[], vectors: ('text'|'title')[] = ['text','title']) => http<{ status: string; updated: number }>(`/v1/memory/bulk/reembed`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, vectors }) });
 export const bulkPromote = (ids: string[]) => http<{ status: string; marked: number }>(`/v1/memory/bulk/promote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
 
+// Sessions (NEW)
+export const getSessions = (limit = 100) => 
+  http<any>(`/v1/memory/sessions?limit=${limit}`);
+
+export const getSessionThoughts = (sid: string, include_content = true) => 
+  http<any>(`/v1/memory/session/${sid}/thoughts?include_content=${include_content}`);
+
+export const getSessionGraph = (sid: string) => 
+  http<any>(`/v1/memory/session/${sid}/graph`);
+
+export const getSessionSummary = (sid: string) => 
+  http<any>(`/v1/memory/session/${sid}/summary`);
+
+export const upsertSessionSummary = (sid: string, body: any) => 
+  http<any>(`/v1/memory/session/${sid}/summary`, { 
+    method: 'POST', 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify(body) 
+  });
+
+// Children & Tree (NEW)
+export const getChildren = (id: string) => 
+  http<any>(`/v1/memory/thought/${id}/children`);
+
+export const getTree = (id: string, depth = 3) => 
+  http<any>(`/v1/memory/thought/${id}/tree?depth=${depth}`);
+
+// Duplicate Warnings (NEW)
+export const checkDuplicate = (body: any) => 
+  http<any>(`/v1/memory/check-duplicate`, { 
+    method: 'POST', 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify(body) 
+  });
+
+export const getDuplicateWarnings = (threshold = 0.92, limit = 50, session_id?: string) => {
+  const q = new URLSearchParams({ threshold: String(threshold), limit: String(limit) });
+  if (session_id) q.set('session_id', session_id);
+  return http<any>(`/v1/memory/warnings/duplicates?${q.toString()}`);
+};
+
+// Enhanced Search V2 (NEW)
+export const searchV2 = (body: {
+  query?: string;
+  vector_type?: 'summary' | 'text' | 'title';
+  include_content?: boolean;
+  filters?: any;
+  limit?: number;
+}) => http<any>(`/v1/memory/search`, { 
+  method: 'POST', 
+  headers: { 'Content-Type': 'application/json' }, 
+  body: JSON.stringify(body) 
+});
+
 
