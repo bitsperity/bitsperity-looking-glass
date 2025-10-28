@@ -52,6 +52,10 @@
 		"src/routes/+layout.ts"
 	],
 	"/ariadne/manage": [
+		"src/routes/+layout.ts",
+		"src/routes/+layout.ts"
+	],
+	"/ariadne/manage/quality": [
 		"src/routes/+layout.ts"
 	],
 	"/ariadne/overview": [

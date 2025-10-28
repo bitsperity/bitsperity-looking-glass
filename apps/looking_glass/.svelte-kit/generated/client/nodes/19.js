@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/ariadne/intelligence/risk/+page.svelte";
+export { default as component } from "../../../../src/routes/ariadne/intelligence/opportunities/+page.svelte";
