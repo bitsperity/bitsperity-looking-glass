@@ -451,7 +451,8 @@ def get_duplicate_warnings(
                             "title": other_point.payload.get("title"),
                             "type": other_point.payload.get("type"),
                         },
-                        "reason": "identical_title"
+                        "reason": "identical_title",
+                        "similarity": threshold  # Add similarity score
                     })
                     
                     if len(duplicates) >= limit:
