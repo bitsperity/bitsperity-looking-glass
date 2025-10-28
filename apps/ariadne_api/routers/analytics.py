@@ -88,10 +88,11 @@ async def get_centrality(
         nodes = []
         for record in results:
             node = dict(record["node"])
+            labels = list(record["node"].labels) if hasattr(record["node"], "labels") else []
             nodes.append({
                 "id": node.get("id"),
                 "name": node.get("name") or node.get("title"),
-                "label": record["node"].labels[0] if record["node"].labels else "Unknown",
+                "label": labels[0] if labels else "Unknown",
                 "score": record["score"],
                 "properties": node
             })
@@ -174,13 +175,14 @@ async def get_communities(
         communities = {}
         for record in results:
             node = dict(record["node"])
+            labels = list(record["node"].labels) if hasattr(record["node"], "labels") else []
             comm_id = record["communityId"]
             if comm_id not in communities:
                 communities[comm_id] = []
             communities[comm_id].append({
                 "id": node.get("id"),
                 "name": node.get("name") or node.get("title"),
-                "label": record["node"].labels[0] if record["node"].labels else "Unknown"
+                "label": labels[0] if labels else "Unknown"
             })
         
         # Cleanup
@@ -261,10 +263,11 @@ async def get_similarity(
         similar = []
         for record in results:
             node = dict(record["similarNode"])
+            labels = list(record["similarNode"].labels) if hasattr(record["similarNode"], "labels") else []
             similar.append({
                 "id": node.get("id"),
                 "name": node.get("name") or node.get("title"),
-                "label": record["similarNode"].labels[0] if record["similarNode"].labels else "Unknown",
+                "label": labels[0] if labels else "Unknown",
                 "similarity_score": record["similarity"],
                 "properties": node
             })
@@ -346,10 +349,11 @@ async def predict_links(
         predictions = []
         for record in results:
             node = dict(record["potential"])
+            labels = list(record["potential"].labels) if hasattr(record["potential"], "labels") else []
             predictions.append({
                 "id": node.get("id"),
                 "name": node.get("name") or node.get("title"),
-                "label": record["potential"].labels[0] if record["potential"].labels else "Unknown",
+                "label": labels[0] if labels else "Unknown",
                 "prediction_score": record["score"],
                 "properties": node
             })

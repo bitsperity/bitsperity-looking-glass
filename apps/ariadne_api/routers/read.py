@@ -840,9 +840,10 @@ async def search_nodes(
         nodes = []
         for record in results:
             node = dict(record["node"])
+            labels = list(record["node"].labels) if hasattr(record["node"], "labels") else []
             nodes.append({
                 "id": node.get("id"),
-                "label": record["node"].labels[0] if record["node"].labels else "Unknown",
+                "label": labels[0] if labels else "Unknown",
                 "name": node.get("name") or node.get("title"),
                 "score": record["score"],
                 "properties": node
