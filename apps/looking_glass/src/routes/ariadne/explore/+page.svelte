@@ -58,8 +58,8 @@
     loading = true;
     error = null;
     try {
-      // Backend braucht topic ODER tickers - default Topic verwenden
-      const resp = await getContext({ topic: 'technology', limit: 200, depth: 2 });
+      // Load graph with TSLA as default ticker to show data
+      const resp = await getContext({ tickers: ['TSLA'], limit: 200, depth: 2 });
       allNodes = resp.subgraph.nodes;
       allEdges = resp.subgraph.edges;
       applyFilters();
