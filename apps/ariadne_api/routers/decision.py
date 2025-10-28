@@ -285,7 +285,7 @@ async def get_impact_simulation(
          // Build path snippet
          WITH {{
              target_id: elementId(target),
-             target_name: coalesce(target.name, target.title, 'Unknown'),
+             target_name: coalesce(target.name, target.title, target.content, 'Unknown'),
              target_type: labels(target)[0],
              impact_score: round(impact_score, 3),
              depth: depth
