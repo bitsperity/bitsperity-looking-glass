@@ -4,11 +4,13 @@
   import { saveThought, softDeleteThought } from '$lib/services/manifoldService';
   import ThoughtCard from '$lib/components/manifold/ThoughtCard.svelte';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
-  import ThoughtPreviewModal from '$lib/components/manifold/ThoughtPreviewModal.svelte';
+  import CreateThoughtModal from '$lib/components/manifold/CreateThoughtModal.svelte';
   import { goto } from '$app/navigation';
 
   let items: any[] = [];
-  let loading = false; let error: string | null = null;
+  let loading = false; 
+  let error: string | null = null;
+  let showCreateModal = false;
 
   let form = {
     type: 'observation',
@@ -64,40 +66,23 @@
 </script>
 
 <div class="p-6 space-y-4 h-full overflow-auto">
-  <h1 class="text-2xl font-semibold">Manifold · Thoughts</h1>
+  <div class="flex items-center justify-between">
+    <h1 class="text-3xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+      Manifold · Thoughts
+    </h1>
+    <button 
+      on:click={() => showCreateModal = true}
+      class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-all duration-150 shadow-lg hover:shadow-indigo-500/50 active:scale-95"
+    >
+      ✨ Create Thought
+    </button>
+  </div>
   <ManifoldNav />
 
-  <div class="bg-neutral-900 rounded p-4 border border-neutral-800">
-    <div class="text-sm text-neutral-400 mb-2">Create Thought</div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-      <select class="px-3 py-2 rounded bg-neutral-800" bind:value={form.type}>
-        <option value="observation">observation</option>
-        <option value="hypothesis">hypothesis</option>
-        <option value="analysis">analysis</option>
-        <option value="decision">decision</option>
-        <option value="reflection">reflection</option>
-        <option value="question">question</option>
-      </select>
-      <select class="px-3 py-2 rounded bg-neutral-800" bind:value={form.status}>
-        <option value="active">active</option>
-        <option value="validated">validated</option>
-        <option value="invalidated">invalidated</option>
-        <option value="archived">archived</option>
-      </select>
-      <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Title" bind:value={form.title} />
-      <textarea class="px-3 py-2 rounded bg-neutral-800 md:col-span-2" rows="4" placeholder="Content" bind:value={form.content} />
-      <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Tickers (comma)" bind:value={tickersInput} />
-      <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Tags (comma)" bind:value={tagsInput} />
-      <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Sectors (comma)" bind:value={sectorsInput} />
-      <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Timeframe (e.g. Q1-2025)" bind:value={form.timeframe} />
-      <div class="flex items-center gap-2">
-        <div class="text-xs text-neutral-400">Confidence</div>
-        <input type="range" min="0" max="1" step="0.01" bind:value={form.confidence_score} class="w-full" />
-        <div class="text-xs text-neutral-300 w-10 text-right">{Math.round(form.confidence_score*100)}%</div>
-      </div>
-    </div>
-    <button class="mt-3 px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500" on:click={create}>Create</button>
-  </div>
+  <CreateThoughtModal 
+    open={showCreateModal} 
+    onSuccess={() => { showCreateModal = false; load(); }} 
+  />
 
   {#if loading}
     <div class="text-neutral-400">Loading…</div>

@@ -13,9 +13,9 @@
 
   {#if loading}
     <div class="space-y-3">
-      <div class="h-4 bg-neutral-700/50 rounded animate-pulse"></div>
-      <div class="h-4 bg-neutral-700/50 rounded animate-pulse w-5/6"></div>
-      <div class="h-4 bg-neutral-700/50 rounded animate-pulse w-4/6"></div>
+      <div class="h-4 bg-gradient-to-r from-neutral-700 via-neutral-600 to-neutral-700 rounded animate-shimmer"></div>
+      <div class="h-4 bg-gradient-to-r from-neutral-700 via-neutral-600 to-neutral-700 rounded animate-shimmer w-5/6"></div>
+      <div class="h-4 bg-gradient-to-r from-neutral-700 via-neutral-600 to-neutral-700 rounded animate-shimmer w-4/6"></div>
     </div>
   {:else if error}
     <div class="flex items-start gap-3 p-4 bg-red-950/30 border border-red-500/50 rounded-lg">
@@ -49,5 +49,19 @@
       opacity: 1;
       transform: translateY(0);
     }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: -1000px 0;
+    }
+    100% {
+      background-position: 1000px 0;
+    }
+  }
+
+  :global(.animate-shimmer) {
+    animation: shimmer 2s infinite;
+    background-size: 200% 100%;
   }
 </style>

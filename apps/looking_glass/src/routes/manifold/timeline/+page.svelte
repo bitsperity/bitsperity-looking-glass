@@ -3,6 +3,7 @@
   import { timeline, getSessions } from '$lib/api/manifold';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
+  import InteractiveTimeline from '$lib/components/manifold/InteractiveTimeline.svelte';
   import { goto } from '$app/navigation';
 
   let type = '';
@@ -138,13 +139,33 @@
       </div>
     </div>
     <button 
-      class="mt-3 w-full px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
+      class="mt-3 w-full px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors shadow-lg hover:shadow-indigo-500/50 active:scale-95"
       on:click={load}
       disabled={loading}
     >
       {loading ? 'Loading…' : 'Apply Filters'}
     </button>
   </GlassPanel>
+
+  <!-- Interactive Timeline -->
+  {#if data && Object.keys(data.bucketed || {}).length > 0}
+    <GlassPanel title="📈 Interactive Timeline">
+      <InteractiveTimeline 
+        data={Object.entries(data.bucketed || {})
+          .map(([date, items]: any) => ({
+            date,
+            count: (items || []).length,
+            sessions: groupBySession(items || [])
+          }))
+          .sort((a, b) => a.date.localeCompare(b.date))}
+        onSelectRange={(start, end) => {
+          from_dt = start;
+          to_dt = end;
+          load();
+        }}
+      />
+    </GlassPanel>
+  {/if}
 
   <!-- Results -->
   {#if loading}

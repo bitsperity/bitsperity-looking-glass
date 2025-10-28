@@ -6,7 +6,7 @@
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import SearchControls from '$lib/components/manifold/SearchControls.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
-  import ThoughtPreviewModal from '$lib/components/manifold/ThoughtPreviewModal.svelte';
+  import StickyPreview from '$lib/components/manifold/StickyPreview.svelte';
   import * as api from '$lib/api/manifold';
   import { page } from '$app/stores';
 
@@ -22,6 +22,7 @@
   let miniBuckets: { date: string; count: number }[] = [];
   let previewId: string | null = null;
   let selectedResultId: string | null = null;
+  let previewPinned: boolean = false;
   let loading = false;
   let error: string | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -339,6 +340,6 @@
   {/if}
 </div>
 
-<ThoughtPreviewModal thoughtId={previewId} onClose={() => { previewId = null; }} />
+<StickyPreview thought={selectedResult} isPinned={previewPinned} />
 
 

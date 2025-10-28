@@ -5,6 +5,7 @@
   import { similar, unlinkRelated } from '$lib/api/manifold';
   import TreeView from '$lib/components/manifold/TreeView.svelte';
   import VersionDiff from '$lib/components/manifold/VersionDiff.svelte';
+  import NetworkCard from '$lib/components/manifold/NetworkCard.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
 
   let id = '';
@@ -315,6 +316,7 @@
               {/each}
             </div>
           </div>
+          <NetworkCard thought={item} relations={item.links?.relations || []} />
         </div>
       </div>
     {/if}
