@@ -233,26 +233,26 @@
                     <div class="text-xs text-neutral-500 mt-1">{opp.node_id.slice(0, 8)}...</div>
                   </td>
                   <td class="px-6 py-4 text-center">
-                    <div class={`w-20 h-6 rounded-full bg-gradient-to-r ${getScoreColor(opp.score)} relative overflow-hidden`}>
+                    <div class={`w-20 h-6 rounded-full bg-gradient-to-r ${getScoreColor(opp.opportunity_score)} relative overflow-hidden`}>
                       <div class="absolute inset-0 bg-gradient-to-r from-white/20 to-transparent"></div>
                       <div class="absolute inset-0 flex items-center justify-center text-xs font-bold text-white">
-                        {(opp.score * 100).toFixed(0)}%
+                        {(opp.opportunity_score * 100).toFixed(0)}%
                       </div>
                     </div>
                   </td>
                   <td class="px-6 py-4 text-center">
                     <div class="inline-block px-2.5 py-1 rounded-full bg-cyan-950/40 border border-cyan-600/30 text-cyan-300 text-xs font-medium">
-                      {getFactorPercent(opp.gap_factor)}
+                      {getFactorPercent(opp.factors?.gap_severity)}
                     </div>
                   </td>
                   <td class="px-6 py-4 text-center">
                     <div class="inline-block px-2.5 py-1 rounded-full bg-purple-950/40 border border-purple-600/30 text-purple-300 text-xs font-medium">
-                      {getFactorPercent(opp.centrality_factor)}
+                      {getFactorPercent(opp.factors?.centrality)}
                     </div>
                   </td>
                   <td class="px-6 py-4 text-center">
                     <div class="inline-block px-2.5 py-1 rounded-full bg-orange-950/40 border border-orange-600/30 text-orange-300 text-xs font-medium">
-                      {getFactorPercent(opp.anomaly_factor)}
+                      {getFactorPercent(opp.factors?.anomaly)}
                     </div>
                   </td>
                 </tr>
