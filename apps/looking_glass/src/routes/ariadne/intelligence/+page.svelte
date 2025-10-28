@@ -1,18 +1,21 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
 
   $: current = $page.url.searchParams.get('view') || 'impact';
 
   const VIEWS = [
-    { id: 'impact', label: '📊 Impact Simulation', desc: 'Propagate impact through the graph' },
-    { id: 'opportunities', label: '🎯 Opportunities', desc: 'Find high-value nodes to explore' },
-    { id: 'confidence', label: '🔗 Confidence', desc: 'Transitive confidence propagation' },
-    { id: 'risk', label: '⚠️ Risk Scoring', desc: 'Calculate risk profiles' },
+    { id: 'impact', label: '📊 Impact Simulation', desc: 'Propagate impact through the graph', route: '/ariadne/intelligence/impact' },
+    { id: 'opportunities', label: '🎯 Opportunities', desc: 'Find high-value nodes to explore', route: '/ariadne/intelligence/opportunities' },
+    { id: 'confidence', label: '🔗 Confidence', desc: 'Transitive confidence propagation', route: '/ariadne/intelligence/confidence' },
+    { id: 'risk', label: '⚠️ Risk Scoring', desc: 'Calculate risk profiles', route: '/ariadne/intelligence/risk' },
   ];
 
   function updateView(viewId: string) {
-    window.history.replaceState({}, '', `?view=${viewId}`);
-    current = viewId;
+    const view = VIEWS.find(v => v.id === viewId);
+    if (view) {
+      goto(view.route);
+    }
   }
 </script>
 
@@ -46,68 +49,8 @@
       {/each}
     </div>
 
-    <!-- Content Area -->
-    <div class="bg-gradient-to-br from-neutral-900/50 to-neutral-800/30 border border-neutral-700/50 rounded-xl p-8 backdrop-blur-sm">
-      {#if current === 'impact'}
-        <div class="text-center py-12">
-          <div class="text-2xl font-bold text-neutral-100 mb-3">📊 Impact Simulation</div>
-          <p class="text-neutral-400 mb-6">Coming soon - Propagate events through the graph with decay functions</p>
-          <div class="inline-flex gap-3">
-            <div class="px-4 py-2 rounded-lg bg-indigo-600/20 border border-indigo-600/30 text-indigo-300 text-sm">
-              ⚡ Exponential Decay
-            </div>
-            <div class="px-4 py-2 rounded-lg bg-purple-600/20 border border-purple-600/30 text-purple-300 text-sm">
-              📈 Linear Decay
-            </div>
-          </div>
-        </div>
-      {:else if current === 'opportunities'}
-        <div class="text-center py-12">
-          <div class="text-2xl font-bold text-neutral-100 mb-3">🎯 Opportunity Scoring</div>
-          <p class="text-neutral-400 mb-6">Coming soon - Find high-value nodes based on gaps, centrality, and anomalies</p>
-          <div class="inline-flex gap-3">
-            <div class="px-4 py-2 rounded-lg bg-emerald-600/20 border border-emerald-600/30 text-emerald-300 text-sm">
-              🕳️ Gap Detection
-            </div>
-            <div class="px-4 py-2 rounded-lg bg-cyan-600/20 border border-cyan-600/30 text-cyan-300 text-sm">
-              ⭐ Centrality
-            </div>
-            <div class="px-4 py-2 rounded-lg bg-amber-600/20 border border-amber-600/30 text-amber-300 text-sm">
-              🔴 Anomalies
-            </div>
-          </div>
-        </div>
-      {:else if current === 'confidence'}
-        <div class="text-center py-12">
-          <div class="text-2xl font-bold text-neutral-100 mb-3">🔗 Confidence Propagation</div>
-          <p class="text-neutral-400 mb-6">Coming soon - Calculate transitive confidence along graph paths</p>
-          <div class="inline-flex gap-3">
-            <div class="px-4 py-2 rounded-lg bg-blue-600/20 border border-blue-600/30 text-blue-300 text-sm">
-              × Product Mode
-            </div>
-            <div class="px-4 py-2 rounded-lg bg-indigo-600/20 border border-indigo-600/30 text-indigo-300 text-sm">
-              ↓ Min Mode
-            </div>
-            <div class="px-4 py-2 rounded-lg bg-purple-600/20 border border-purple-600/30 text-purple-300 text-sm">
-              ≈ Avg Mode
-            </div>
-          </div>
-        </div>
-      {:else if current === 'risk'}
-        <div class="text-center py-12">
-          <div class="text-2xl font-bold text-neutral-100 mb-3">⚠️ Risk Scoring</div>
-          <p class="text-neutral-400 mb-6">Coming soon - Quantify risk for entities based on graph analysis</p>
-          <div class="inline-flex gap-3">
-            <div class="px-4 py-2 rounded-lg bg-red-600/20 border border-red-600/30 text-red-300 text-sm">
-              📊 Risk Metrics
-            </div>
-            <div class="px-4 py-2 rounded-lg bg-orange-600/20 border border-orange-600/30 text-orange-300 text-sm">
-              🔗 Lineage Tracing
-            </div>
-          </div>
-        </div>
-      {/if}
-    </div>
+    <!-- Slot for sub-page content -->
+    <slot />
   </div>
 </div>
 
