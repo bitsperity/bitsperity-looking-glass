@@ -45,7 +45,16 @@
 
       const riskData = await riskResponse.json();
       if (riskData.status === 'success') {
-        riskProfile = riskData.risk_profile;
+        // Transform API response to match our interface
+        riskProfile = {
+          ticker: riskData.ticker,
+          name: selectedTicker, // We don't get name from API, use ticker
+          type: 'Company',
+          risk_score: (riskData.risk_score || 0) / 10, // Normalize to 0-1
+          centrality_factor: 0, // API doesn't return this
+          connection_count: riskData.factors?.total_relations || 0,
+          high_risk_relations: Math.round((riskData.factors?.low_confidence_ratio || 0) * (riskData.factors?.total_relations || 0)),
+        };
       }
 
       // Fetch lineage
@@ -56,7 +65,13 @@
       if (lineageResponse.ok) {
         const lineageData = await lineageResponse.json();
         if (lineageData.status === 'success') {
-          lineageChains = lineageData.lineage_chains || [];
+          // Transform lineage data
+          lineageChains = (lineageData.lineage || []).map((item: any) => ({
+            source: item.source || selectedTicker,
+            chain: item.path || [],
+            confidence: item.confidence || 0,
+            evidence: item.evidence || [],
+          }));
         }
       }
     } catch (e: any) {
