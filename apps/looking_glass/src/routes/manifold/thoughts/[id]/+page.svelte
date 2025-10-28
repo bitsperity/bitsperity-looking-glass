@@ -6,6 +6,7 @@
   import TreeView from '$lib/components/manifold/TreeView.svelte';
   import VersionDiff from '$lib/components/manifold/VersionDiff.svelte';
   import NetworkCard from '$lib/components/manifold/NetworkCard.svelte';
+  import TypePayloadRenderer from '$lib/components/manifold/TypePayloadRenderer.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
 
   let id = '';
@@ -282,28 +283,11 @@
           </div>
           <div class="bg-neutral-900 rounded p-4 border border-neutral-800">
             <div class="text-sm text-neutral-400 mb-2">Type Payload</div>
-            {#if item.type === 'hypothesis'}
-              <div class="space-y-2">
-                <input class="px-3 py-2 rounded bg-neutral-800 w-full" placeholder="Decision deadline (ISO)" bind:value={item.type_payload.decision_deadline} />
-                <input class="px-3 py-2 rounded bg-neutral-800 w-full" placeholder="Validation criteria" bind:value={item.type_payload.validation_criteria} />
-                <input class="px-3 py-2 rounded bg-neutral-800 w-full" placeholder="Risk to invalid" bind:value={item.type_payload.risk_to_invalid} />
-                <input class="px-3 py-2 rounded bg-neutral-800 w-full" placeholder="Expected outcome" bind:value={item.type_payload.expected_outcome} />
-              </div>
-            {/if}
-            {#if item.type === 'decision'}
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                <select class="px-3 py-2 rounded bg-neutral-800" bind:value={item.type_payload.action}>
-                  <option value="buy">buy</option>
-                  <option value="sell">sell</option>
-                  <option value="hold">hold</option>
-                </select>
-                <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Instrument" bind:value={item.type_payload.instrument} />
-                <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Size" bind:value={item.type_payload.size} />
-                <input class="px-3 py-2 rounded bg-neutral-800" placeholder="Price" bind:value={item.type_payload.price} />
-                <input class="px-3 py-2 rounded bg-neutral-800 md:col-span-2" placeholder="Rationale" bind:value={item.type_payload.rationale} />
-                <input class="px-3 py-2 rounded bg-neutral-800 md:col-span-2" placeholder="Risk" bind:value={item.type_payload.risk} />
-              </div>
-            {/if}
+            <TypePayloadRenderer 
+              type={item.type} 
+              payload={item.type_payload || {}} 
+              onChange={(p) => { item.type_payload = p; }}
+            />
           </div>
           <div class="bg-neutral-900 rounded p-4 border border-neutral-800">
             <div class="text-sm text-neutral-400 mb-1">Similar</div>

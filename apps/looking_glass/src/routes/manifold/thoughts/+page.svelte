@@ -1,16 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { search } from '$lib/api/manifold';
+  import { search, getThought } from '$lib/api/manifold';
   import { saveThought, softDeleteThought } from '$lib/services/manifoldService';
   import ThoughtCard from '$lib/components/manifold/ThoughtCard.svelte';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import CreateThoughtModal from '$lib/components/manifold/CreateThoughtModal.svelte';
+  import ThoughtPreviewModal from '$lib/components/manifold/ThoughtPreviewModal.svelte';
   import { goto } from '$app/navigation';
 
   let items: any[] = [];
   let loading = false; 
   let error: string | null = null;
   let showCreateModal = false;
+  let previewId: string | null = null;
+  let previewThought: any | null = null;
 
   let form = {
     type: 'observation',
@@ -61,8 +64,21 @@
     goto(`/manifold/thoughts/${id}`);
   }
 
+  async function showPreview(id: string) {
+    try {
+      previewThought = await getThought(id);
+      previewId = id;
+    } catch (e: any) {
+      console.error('Error loading preview:', e);
+    }
+  }
+
+  function closePreview() {
+    previewId = null;
+    previewThought = null;
+  }
+
   onMount(load);
-  let previewId: string | null = null;
 </script>
 
 <div class="p-6 space-y-4 h-full overflow-auto">
@@ -84,6 +100,13 @@
     onSuccess={() => { showCreateModal = false; load(); }} 
   />
 
+  <ThoughtPreviewModal
+    open={!!previewId}
+    thought={previewThought}
+    onClose={closePreview}
+    onOpen={openThought}
+  />
+
   {#if loading}
     <div class="text-neutral-400">Loading…</div>
   {:else if error}
@@ -92,7 +115,7 @@
     <div class="text-sm text-neutral-400 mb-2">{items.length} thoughts</div>
     <div class="space-y-2">
       {#each items as it}
-        <ThoughtCard thought={it} onOpen={openThought} onDelete={remove} onPreview={(id)=>{ previewId=id; }} />
+        <ThoughtCard thought={it} onOpen={openThought} onDelete={remove} onPreview={showPreview} />
       {/each}
     </div>
   {/if}
