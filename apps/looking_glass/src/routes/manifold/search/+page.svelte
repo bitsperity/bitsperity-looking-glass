@@ -286,5 +286,6 @@
   {/if}
 
 <StickyPreview thought={selectedResult} isPinned={previewPinned} />
+</div>
 
 
