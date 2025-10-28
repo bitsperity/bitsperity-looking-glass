@@ -128,11 +128,11 @@
                   </div>
                   <div class="bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-lg p-3 border border-blue-500/20">
                     <div class="text-xs text-blue-400 mb-1">Vectors</div>
-                    <div class="text-lg font-bold text-neutral-100">{embedStatus.total_vectors.toLocaleString()}</div>
+                    <div class="text-lg font-bold text-neutral-100">{(embedStatus?.total_vectors ?? 0).toLocaleString()}</div>
                   </div>
                   <div class="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 rounded-lg p-3 border border-emerald-500/20">
                     <div class="text-xs text-emerald-400 mb-1">Articles</div>
-                    <div class="text-lg font-bold text-neutral-100">{embedStatus.total_embedded_articles.toLocaleString()}</div>
+                    <div class="text-lg font-bold text-neutral-100">{(embedStatus?.total_embedded_articles ?? 0).toLocaleString()}</div>
                   </div>
                 </div>
               {/if}
@@ -179,7 +179,7 @@
                 <div>
                   <div class="flex justify-between text-xs mb-2">
                     <span class="text-neutral-400 font-medium">Progress</span>
-                    <span class="text-neutral-200 font-mono">{embedStatus.processed.toLocaleString()} / {embedStatus.total.toLocaleString()}</span>
+                    <span class="text-neutral-200 font-mono">{(embedStatus?.processed ?? 0).toLocaleString()} / {(embedStatus?.total ?? 0).toLocaleString()}</span>
                   </div>
                   <div class="relative w-full bg-neutral-900/50 rounded-full h-2.5 overflow-hidden shadow-inner">
                     <div 
@@ -272,9 +272,9 @@
                     {/if}
                   </div>
                   <div class="flex items-center gap-3 text-xs">
-                    <span class="text-blue-400 font-mono">{col.points_count.toLocaleString()} vectors</span>
+                    <span class="text-blue-400 font-mono">{(col?.points_count ?? 0).toLocaleString()} vectors</span>
                     <span class="text-neutral-600">·</span>
-                    <span class="text-purple-400 font-mono">{col.vector_size}D</span>
+                    <span class="text-purple-400 font-mono">{(col?.vector_size ?? 'N/A')}D</span>
                   </div>
                 </button>
               {/each}

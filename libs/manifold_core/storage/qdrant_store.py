@@ -205,18 +205,26 @@ class QdrantStore:
         
         conditions = []
         for clause in filters.get("must", []):
-            conditions.append(self._parse_condition(clause))
+            cond = self._parse_condition(clause)
+            if cond is not None:
+                conditions.append(cond)
         
         return qm.Filter(must=conditions) if conditions else None
 
-    def _parse_condition(self, clause: Dict) -> qm.Condition:
-        """Parse single condition."""
+    def _parse_condition(self, clause: Dict) -> Optional[qm.Condition]:
+        """Parse single condition. Returns None if value is None."""
         key = clause.get("key")
         if "match" in clause:
-            return qm.FieldCondition(key=key, match=qm.MatchValue(value=clause["match"]["value"]))
+            value = clause["match"].get("value")
+            if value is None:
+                return None
+            return qm.FieldCondition(key=key, match=qm.MatchValue(value=value))
         elif "range" in clause:
             return qm.FieldCondition(key=key, range=qm.Range(**clause["range"]))
         else:
-            return qm.FieldCondition(key=key, match=qm.MatchValue(value=clause.get("value")))
+            value = clause.get("value")
+            if value is None:
+                return None
+            return qm.FieldCondition(key=key, match=qm.MatchValue(value=value))
 
 
