@@ -38,6 +38,9 @@
 	"/ariadne/intelligence/impact": [
 		"src/routes/+layout.ts"
 	],
+	"/ariadne/intelligence/opportunities": [
+		"src/routes/+layout.ts"
+	],
 	"/ariadne/learn": [
 		"src/routes/+layout.ts"
 	],
