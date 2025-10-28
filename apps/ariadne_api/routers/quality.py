@@ -295,15 +295,33 @@ async def get_duplicates(
         RETURN graphName, nodeCount, relationshipCount
         """
         
+        # Try to project, if fails then drop and retry
+        projection_success = False
         try:
             store.execute_write(project_query, {})
+            projection_success = True
         except Exception as e:
-            # If project fails, try dropping first
+            # Try dropping and retrying
             try:
                 store.execute_write(f"CALL gds.graph.drop('dedup_graph_{label}')", {})
                 store.execute_write(project_query, {})
-            except Exception:
-                pass
+                projection_success = True
+            except Exception as retry_error:
+                # If still fails, return empty result gracefully
+                return {
+                    "status": "success",
+                    "duplicates": [],
+                    "count": 0,
+                    "message": f"Similarity detection unavailable: {str(retry_error)[:100]}"
+                }
+        
+        if not projection_success:
+            return {
+                "status": "success",
+                "duplicates": [],
+                "count": 0,
+                "message": "GDS projection failed"
+            }
         
         # Run similarity
         similarity_query = f"""

@@ -61,11 +61,11 @@ test_endpoint() {
 # Main execution
 print_header "ARIADNE BACKEND PHASE 3+4: ENDPOINT VALIDATION"
 
-echo -e "\n${YELLOW}Step 1: Reset Graph${NC}"
-curl -s -X POST "$API/v1/kg/admin/reset?confirm=true" | jq '.' || echo "Reset attempt made"
+echo -e "\n${YELLOW}Step 1: Populate complex test data${NC}"
+python3 scripts/populate_ariadne_phase34.py
 
-echo -e "\n${YELLOW}Step 2: Create Temporal Snapshot${NC}"
-curl -s -X POST "$API/v1/kg/admin/snapshot-degrees?label=Company" | jq '.' || echo "Snapshot creation"
+echo -e "\n${YELLOW}Step 2: Verify graph${NC}"
+curl -s http://localhost:8082/v1/kg/admin/stats | jq '.' || echo "Graph verification"
 
 print_header "PHASE 3: QUALITY ENDPOINTS"
 
