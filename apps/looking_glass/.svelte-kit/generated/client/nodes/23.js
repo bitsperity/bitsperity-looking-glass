@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/ariadne/manage/dedup/+page.svelte";
+export { default as component } from "../../../../src/routes/ariadne/manage/admin/+page.svelte";
