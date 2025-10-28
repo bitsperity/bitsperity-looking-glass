@@ -76,10 +76,11 @@ def _analyze_news_coverage(stage_dir: Path) -> dict:
     
     result = {
         "total_articles": 0,
+        "articles_with_bodies": 0,
+        "body_coverage_percent": 0,
         "date_range": {"from": None, "to": None},
         "sources": {},
-        "tickers_mentioned": 0,
-        "articles_with_bodies": 0
+        "tickers_mentioned": 0
     }
     
     # Check if database exists
@@ -94,7 +95,16 @@ def _analyze_news_coverage(stage_dir: Path) -> dict:
     result["date_range"]["to"] = stats["latest"]
     result["sources"]["mediastack"] = {"count": stats["total"]}
     result["tickers_mentioned"] = stats["unique_tickers"]
-    result["articles_with_bodies"] = stats["total"]  # All have bodies now!
+    
+    # Calculate real body coverage (articles with body_text AND body_available = 1)
+    with db.conn() as conn:
+        with_body = conn.execute("""
+            SELECT COUNT(*) FROM news_articles
+            WHERE body_available = 1 AND LENGTH(COALESCE(body_text, '')) > 50
+        """).fetchone()[0]
+    
+    result["articles_with_bodies"] = with_body
+    result["body_coverage_percent"] = round((with_body / stats["total"] * 100) if stats["total"] > 0 else 0, 1)
     
     return result
 
