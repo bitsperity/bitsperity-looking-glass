@@ -60,7 +60,7 @@ def get_graph_store() -> GraphStore:
 
 
 # Import routers (after get_graph_store definition to avoid circular import)
-from .routers import health, read, write, learn, ingest, validate, admin, suggestions, analytics, quality, decision
+from .routers import health, read, write, learn, ingest, validate, admin, suggestions, analytics, quality, decision, admin_dedup, admin_learning
 
 # Register routers
 app.include_router(health.router, prefix="")
@@ -72,6 +72,8 @@ app.include_router(analytics.router, prefix="/v1/kg/analytics")
 app.include_router(quality.router, prefix="/v1/kg/quality")
 app.include_router(decision.router, prefix="/v1/kg/decision")
 app.include_router(admin.router, prefix="")  # Admin endpoints for graph maintenance
+app.include_router(admin_dedup.router, prefix="/v1/kg/admin")  # New: dedup endpoints (Phase B)
+app.include_router(admin_learning.router, prefix="/v1/kg/admin")  # New: learning endpoints (Phase D)
 app.include_router(ingest.router, prefix="")
 app.include_router(suggestions.router, prefix="")
 
