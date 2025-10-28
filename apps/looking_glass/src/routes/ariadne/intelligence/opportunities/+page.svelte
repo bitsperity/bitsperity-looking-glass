@@ -28,6 +28,16 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       results = await response.json();
+      
+      // Compute stats from opportunities array
+      if (results.status === 'success' && results.opportunities && results.opportunities.length > 0) {
+        const scores = results.opportunities.map((o: any) => o.opportunity_score);
+        results.summary = {
+          max_score: Math.max(...scores),
+          avg_score: scores.reduce((a: number, b: number) => a + b, 0) / scores.length,
+          count: results.opportunities.length
+        };
+      }
     } catch (e: any) {
       error = e?.message ?? 'Failed to analyze opportunities';
     } finally {

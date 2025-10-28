@@ -2,12 +2,11 @@
   import { onMount } from 'svelte';
 
   interface PathResult {
-    source: string;
-    target: string;
+    source_name: string;
+    target_name: string;
     depth: number;
     confidence: number;
-    path_nodes: string[];
-    path_rels: string[];
+    target_type: string;
   }
 
   let sourceNode = 'TSLA';
@@ -52,9 +51,16 @@
       const data = await response.json();
       
       if (data.status === 'success') {
-        results = data.results || [];
+        results = data.propagations || [];
         
-        if (results.length > 0) {
+        if (data.summary) {
+          stats = {
+            totalPaths: data.count || results.length,
+            avgConfidence: data.summary.avg_confidence || 0,
+            minConfidence: data.summary.min_confidence || 0,
+            maxConfidence: data.summary.max_confidence || 0,
+          };
+        } else if (results.length > 0) {
           const confidences = results.map(r => r.confidence).filter(c => typeof c === 'number');
           stats = {
             totalPaths: results.length,
@@ -229,24 +235,24 @@
               <td class="px-6 py-3">Source → Target</td>
               <td class="px-6 py-3">Confidence</td>
               <td class="px-6 py-3">Depth</td>
-              <td class="px-6 py-3">Path</td>
+              <td class="px-6 py-3">Type</td>
             </tr>
           </thead>
           <tbody>
             {#each results as result}
               <tr class="border-b border-neutral-700/50 hover:bg-neutral-800/30 transition-colors">
                 <td class="px-6 py-4">
-                  <div class="font-medium text-neutral-200">{result.source} → {result.target}</div>
+                  <div class="font-medium text-neutral-200">{result.source_name} → {result.target_name}</div>
                 </td>
                 <td class="px-6 py-4">
                   <div class="flex items-center gap-2">
                     <div class="w-16 h-2 bg-neutral-700 rounded-full overflow-hidden">
                       <div
-                        class={`h-full {getConfidenceColor(result.confidence)} transition-all`}
+                        class={`h-full ${getConfidenceColor(result.confidence)} transition-all`}
                         style="width: {result.confidence * 100}%"
                       />
                     </div>
-                    <span class={`font-semibold text-sm`}>
+                    <span class="font-semibold text-sm text-neutral-300">
                       {Math.round(result.confidence * 100)}%
                     </span>
                   </div>
@@ -257,9 +263,9 @@
                   </span>
                 </td>
                 <td class="px-6 py-4">
-                  <div class="text-xs text-neutral-400 max-w-xs truncate">
-                    {result.path_nodes.join(' → ')}
-                  </div>
+                  <span class="px-2 py-1 rounded bg-indigo-950 border border-indigo-500/30 text-indigo-300 text-xs">
+                    {result.target_type}
+                  </span>
                 </td>
               </tr>
             {/each}

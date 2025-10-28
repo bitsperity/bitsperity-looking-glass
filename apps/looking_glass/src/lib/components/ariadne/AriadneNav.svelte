@@ -11,9 +11,8 @@
     { href: '/ariadne/write', label: '✍️ Write', icon: 'edit' },
   ];
 
-  function isActive(href: string) {
-    return current.startsWith(href);
-  }
+  // Reactive: automatically update when current changes
+  $: isActive = (href: string) => current.startsWith(href);
 </script>
 
 <nav class="sticky top-0 z-40 border-b border-neutral-800 bg-gradient-to-r from-neutral-950/80 to-neutral-900/80 backdrop-blur-xl">
