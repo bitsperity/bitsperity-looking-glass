@@ -55,6 +55,9 @@
 		"src/routes/+layout.ts",
 		"src/routes/+layout.ts"
 	],
+	"/ariadne/manage/dedup": [
+		"src/routes/+layout.ts"
+	],
 	"/ariadne/manage/quality": [
 		"src/routes/+layout.ts"
 	],
