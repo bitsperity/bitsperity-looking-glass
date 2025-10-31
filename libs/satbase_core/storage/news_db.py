@@ -475,7 +475,9 @@ class NewsDB:
         # Determine period format
         if granularity == "year":
             period_format = "strftime('%Y', a.published_at)"
-        else:  # month
+        elif granularity == "day":
+            period_format = "strftime('%Y-%m-%d', a.published_at)"
+        else:  # month (default)
             period_format = "strftime('%Y-%m', a.published_at)"
         
         with self.conn() as conn:

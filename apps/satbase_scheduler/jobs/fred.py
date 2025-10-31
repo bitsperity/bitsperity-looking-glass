@@ -1,8 +1,8 @@
-import logging
-
-from .utils import request_with_retries
-
-logger = logging.getLogger(__name__)
+"""
+FRED macro data refresh job.
+"""
+from jobs.utils import request_with_retries
+from job_wrapper import wrap_job
 
 
 CORE_FRED_SERIES = [
@@ -15,9 +15,15 @@ CORE_FRED_SERIES = [
 ]
 
 
-async def refresh_fred_core() -> None:
+@wrap_job("fred_daily", "Refresh FRED Core Indicators")
+async def refresh_fred_core() -> dict:
     """Update all core FRED indicators via Satbase API."""
-    await request_with_retries('POST', '/v1/ingest/macro/fred', json={'series': CORE_FRED_SERIES})
-    logger.info("Triggered refresh for %d FRED series", len(CORE_FRED_SERIES))
-
-
+    resp = await request_with_retries('POST', '/v1/ingest/macro/fred', json={'series': CORE_FRED_SERIES})
+    data = resp.json()
+    
+    return {
+        "status": "ok",
+        "series_count": len(CORE_FRED_SERIES),
+        "job_id": data.get('job_id'),
+        "message": f"Triggered refresh for {len(CORE_FRED_SERIES)} FRED series"
+    }

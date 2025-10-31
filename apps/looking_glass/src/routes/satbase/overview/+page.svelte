@@ -6,6 +6,7 @@
 	let coverage: any = null;
 	let topicsSummary: any = null;
 	let heatmapData: any = null;
+	let dailyHeatmapData: any = null;
 	let healthStatus: any = null;
 	let metricsData: any = null;
 	let analyticsData: any = null;
@@ -14,6 +15,7 @@
 	let loading = true;
 	let topicsLoading = false;
 	let heatmapLoading = false;
+	let dailyHeatmapLoading = false;
 	let healthLoading = false;
 	let metricsLoading = false;
 	let error = '';
@@ -21,6 +23,8 @@
 	let cacheTimeRemaining = 0;
 	let autoRefreshInterval: NodeJS.Timeout;
 	let selectedYear = new Date().getFullYear();
+	let selectedMonth = new Date().getMonth() + 1; // 1-12
+	let selectedYearForMonth = new Date().getFullYear();
 
 	onMount(async () => {
 		try {
@@ -178,6 +182,78 @@
 				heatmapLoading = false;
 			}
 		})();
+	}
+
+	// Reload daily heatmap when month changes
+	$: if (selectedMonth && selectedYearForMonth && topicsSummary?.topics) {
+		(async () => {
+			try {
+				dailyHeatmapLoading = true;
+				const allTopics = topicsSummary.topics.map((t: any) => t.name).join(',');
+				
+				// Calculate first and last day of selected month
+				const daysInMonth = new Date(selectedYearForMonth, selectedMonth, 0).getDate();
+				const fromDate = `${selectedYearForMonth}-${String(selectedMonth).padStart(2, '0')}-01`;
+				const toDate = `${selectedYearForMonth}-${String(selectedMonth).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+				
+				const response = await satbaseApi.getTopicsCoverage(
+					allTopics,
+					fromDate,
+					toDate,
+					'day',
+					'matrix'
+				);
+
+				// Transform matrix format to {topic: {day_index: count}}
+				if (response?.matrix && response?.topics && response?.periods) {
+					const transformed: Record<string, Record<number, number>> = {};
+					response.topics.forEach((topic: string) => {
+						transformed[topic] = {};
+					});
+
+					// Map each period to its day index (1-31)
+					response.matrix.forEach((row: number[], rowIdx: number) => {
+						const period = response.periods[rowIdx]; // e.g., "2025-09-15"
+						const dayIndex = parseInt(period.split('-')[2]); // Extract day (1-31)
+						
+						row.forEach((count: number, topicIdx: number) => {
+							const topic = response.topics[topicIdx];
+							transformed[topic][dayIndex] = count;
+						});
+					});
+
+					dailyHeatmapData = transformed;
+				} else {
+					dailyHeatmapData = {};
+				}
+			} catch (err) {
+				console.error('Failed to load daily heatmap:', err);
+				dailyHeatmapData = {};
+			} finally {
+				dailyHeatmapLoading = false;
+			}
+		})();
+	}
+
+	// Helper functions for month navigation
+	function getMonthName(monthNum: number): string {
+		const date = new Date(selectedYearForMonth, monthNum - 1, 1);
+		return date.toLocaleString('en-US', { month: 'short' });
+	}
+
+	function changeMonth(delta: number) {
+		selectedMonth += delta;
+		if (selectedMonth > 12) {
+			selectedMonth = 1;
+			selectedYearForMonth += 1;
+		} else if (selectedMonth < 1) {
+			selectedMonth = 12;
+			selectedYearForMonth -= 1;
+		}
+	}
+
+	function getDaysInMonth(year: number, month: number): number {
+		return new Date(year, month, 0).getDate();
 	}
 </script>
 
@@ -410,6 +486,60 @@
 			</div>
 		{:else}
 			<p class="no-data">No heatmap data available</p>
+		{/if}
+	</section>
+
+	<!-- Daily Topic Heatmap -->
+	<section class="section-card">
+		<div class="heatmap-header-section">
+			<div>
+				<h2>📅 Daily Topic Heatmap</h2>
+				<p class="heatmap-subtitle">Coverage by day and topic for {getMonthName(selectedMonth)} {selectedYearForMonth}</p>
+			</div>
+			<div class="month-selector">
+				<button on:click={() => changeMonth(-1)} title="Previous month">←</button>
+				<span class="month-display">{getMonthName(selectedMonth)} {selectedYearForMonth}</span>
+				<button on:click={() => changeMonth(1)} title="Next month">→</button>
+			</div>
+		</div>
+
+		{#if dailyHeatmapLoading}
+			<div class="heatmap-skeleton">
+				<div class="skeleton-bar" />
+				<div class="skeleton-bar" />
+				<div class="skeleton-bar" />
+			</div>
+		{:else if dailyHeatmapData && Object.keys(dailyHeatmapData).length > 0}
+			<div class="heatmap-wrapper">
+				<table class="heatmap-table daily-heatmap">
+					<thead>
+						<tr class="header-row">
+							<th class="topic-header">Topic</th>
+							{#each Array(getDaysInMonth(selectedYearForMonth, selectedMonth)) as _, dayIdx}
+								<th class="day-header">{dayIdx + 1}</th>
+							{/each}
+						</tr>
+					</thead>
+					<tbody>
+						{#each Object.entries(dailyHeatmapData) as [topic, dayData]}
+							<tr class="data-row">
+								<td class="topic-cell">{topic}</td>
+								{#each Array(getDaysInMonth(selectedYearForMonth, selectedMonth)) as _, dayIdx}
+									<td 
+										class="heatmap-cell" 
+										style="--intensity: {Math.min((dayData[dayIdx + 1] || 0) / 20, 1)}"
+										title="{dayData[dayIdx + 1] || 0} articles on {getMonthName(selectedMonth)} {dayIdx + 1}, {selectedYearForMonth}"
+									>
+										<span class="cell-value">{dayData[dayIdx + 1] > 0 ? dayData[dayIdx + 1] : ''}</span>
+									</td>
+								{/each}
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{:else}
+			<p class="no-data">No daily heatmap data available for {getMonthName(selectedMonth)} {selectedYearForMonth}</p>
 		{/if}
 	</section>
 
@@ -740,15 +870,36 @@
 		transition: color 200ms ease;
 	}
 
-	.year-selector button:hover {
+	.year-selector button:hover,
+	.month-selector button:hover {
 		color: var(--color-accent);
 	}
 
-	.year-display {
+	.year-display,
+	.month-display {
 		font-weight: 600;
 		color: var(--color-text);
 		min-width: 60px;
 		text-align: center;
+	}
+
+	.month-selector {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		background: var(--color-bg-card);
+		padding: 0.5rem 1rem;
+		border-radius: var(--radius-md);
+		border: 1px solid rgba(71, 85, 105, 0.3);
+	}
+
+	.month-selector button {
+		background: transparent;
+		border: none;
+		color: var(--color-text-secondary);
+		cursor: pointer;
+		font-size: 1.1rem;
+		transition: color 200ms ease;
 	}
 
 	.heatmap-skeleton {
@@ -796,9 +947,21 @@
 		width: 100px;
 	}
 
-	.month-header {
+	.month-header,
+	.day-header {
 		width: 50px;
 		font-size: 0.75rem;
+	}
+
+	.daily-heatmap .day-header {
+		width: 35px;
+		font-size: 0.7rem;
+		padding: 0.5rem 0.25rem;
+	}
+
+	.daily-heatmap .heatmap-cell {
+		padding: 0.4rem 0.25rem;
+		font-size: 0.7rem;
 	}
 
 	.data-row {

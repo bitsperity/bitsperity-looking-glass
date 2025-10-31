@@ -8,6 +8,7 @@
 		{ label: 'Watchlist', href: '/satbase/watchlist', icon: '📈', key: 'watchlist' },
 		{ label: 'Prices', href: '/satbase/prices', icon: '💹', key: 'prices' },
 		{ label: 'Macro', href: '/satbase/macro', icon: '📊', key: 'macro' },
+		{ label: 'Scheduler', href: '/satbase/scheduler', icon: '⏰', key: 'scheduler' },
 		{ label: 'Jobs', href: '/satbase/jobs', icon: '🔧', key: 'jobs' }
 	];
 

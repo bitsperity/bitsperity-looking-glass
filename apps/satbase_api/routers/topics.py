@@ -120,7 +120,7 @@ def get_topic_summary(limit: int = Query(10, ge=1, le=100), days: int = Query(30
 def get_topic_stats(
     from_: str | None = Query(None, alias="from"),
     to: str | None = None,
-    granularity: str = Query("month", description="'month' or 'year'")
+    granularity: str = Query("month", description="'day', 'month', or 'year'")
 ):
     """
     Get time-series counts of articles per topic.
@@ -162,7 +162,7 @@ def get_topic_coverage(
     topics: str = Query(..., description="Comma-separated topic names (e.g., 'AI,semiconductor')"),
     from_: str | None = Query(None, alias="from"),
     to: str | None = None,
-    granularity: str = Query("month", description="'month' or 'year'"),
+    granularity: str = Query("month", description="'day', 'month', or 'year'"),
     format: str = Query("flat", description="'flat' or 'matrix'")
 ):
     """

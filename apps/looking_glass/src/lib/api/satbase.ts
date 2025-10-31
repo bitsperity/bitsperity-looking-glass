@@ -320,7 +320,7 @@ export async function getTopicsCoverage(
   topics: string,
   from?: string,
   to?: string,
-  granularity: 'month' | 'year' = 'month',
+  granularity: 'day' | 'month' | 'year' = 'month',
   format: 'flat' | 'matrix' = 'flat'
 ): Promise<any> {
   const queryParams = new URLSearchParams();
@@ -472,4 +472,162 @@ export async function refreshWatchlist(params?: {
   only_active?: boolean;
 }): Promise<any> {
   return apiPost('/v1/watchlist/refresh', params || {});
+}
+
+// ============================================================================
+// Scheduler API
+// ============================================================================
+
+export interface SchedulerJob {
+  job_id: string;
+  name: string;
+  enabled: boolean;
+  trigger_type: 'cron' | 'interval';
+  trigger_config: any;
+  job_func: string;
+  max_instances: number;
+  next_run_time: string | null;
+  last_run_time: string | null;
+  last_run_status: 'success' | 'error' | 'running' | null;
+  last_run_duration_ms: number | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SchedulerExecution {
+  id: number;
+  job_id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: 'success' | 'error' | 'running' | 'cancelled';
+  duration_ms: number | null;
+  error_message: string | null;
+  result_summary: any;
+}
+
+export interface SchedulerGap {
+  id: number;
+  gap_type: 'news' | 'prices' | 'macro';
+  ticker: string | null;
+  series_id: string | null;
+  from_date: string;
+  to_date: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  priority: number;
+  detected_at: string;
+  filled_at: string | null;
+  fill_job_id: number | null;
+}
+
+export interface SchedulerStatus {
+  status: string;
+  stats: {
+    total_jobs: number;
+    enabled_jobs: number;
+    disabled_jobs: number;
+    recent_executions: {
+      total: number;
+      success: number;
+      error: number;
+      running: number;
+    };
+    unfilled_gaps: {
+      total: number;
+      by_type: Record<string, number>;
+      by_severity: Record<string, number>;
+    };
+  };
+  timestamp: string;
+}
+
+/**
+ * Get scheduler status and statistics
+ */
+export async function getSchedulerStatus(): Promise<SchedulerStatus> {
+  return apiGet('/v1/scheduler/status');
+}
+
+/**
+ * List all scheduler jobs
+ */
+export async function getSchedulerJobs(enabledOnly?: boolean): Promise<{ count: number; jobs: SchedulerJob[] }> {
+  const query = enabledOnly ? '?enabled_only=true' : '';
+  return apiGet(`/v1/scheduler/jobs${query}`);
+}
+
+/**
+ * Get a specific scheduler job
+ */
+export async function getSchedulerJob(jobId: string): Promise<SchedulerJob> {
+  return apiGet(`/v1/scheduler/jobs/${jobId}`);
+}
+
+/**
+ * Enable a scheduler job
+ */
+export async function enableSchedulerJob(jobId: string): Promise<any> {
+  return apiPost(`/v1/scheduler/jobs/${jobId}/enable`, {});
+}
+
+/**
+ * Disable a scheduler job
+ */
+export async function disableSchedulerJob(jobId: string): Promise<any> {
+  return apiPost(`/v1/scheduler/jobs/${jobId}/disable`, {});
+}
+
+/**
+ * Manually trigger a scheduler job
+ */
+export async function triggerSchedulerJob(jobId: string): Promise<any> {
+  return apiPost(`/v1/scheduler/jobs/${jobId}/trigger`, {});
+}
+
+/**
+ * Get execution history for a job
+ */
+export async function getJobExecutions(
+  jobId: string,
+  params?: { limit?: number; status?: string }
+): Promise<{ job_id: string; count: number; executions: SchedulerExecution[] }> {
+  const queryParams = new URLSearchParams();
+  if (params?.limit) queryParams.set('limit', params.limit.toString());
+  if (params?.status) queryParams.set('status_filter', params.status);
+  const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  return apiGet(`/v1/scheduler/jobs/${jobId}/executions${query}`);
+}
+
+/**
+ * Get all executions across all jobs
+ */
+export async function getAllExecutions(params?: {
+  limit?: number;
+  status?: string;
+  job_id?: string;
+}): Promise<{ count: number; executions: SchedulerExecution[] }> {
+  const queryParams = new URLSearchParams();
+  if (params?.limit) queryParams.set('limit', params.limit.toString());
+  if (params?.status) queryParams.set('status_filter', params.status);
+  if (params?.job_id) queryParams.set('job_id', params.job_id);
+  const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  return apiGet(`/v1/scheduler/executions${query}`);
+}
+
+/**
+ * Get detected gaps
+ */
+export async function getSchedulerGaps(params?: {
+  gap_type?: 'news' | 'prices' | 'macro';
+  severity?: 'critical' | 'high' | 'medium' | 'low';
+  filled?: boolean;
+  limit?: number;
+}): Promise<{ count: number; gaps: SchedulerGap[] }> {
+  const queryParams = new URLSearchParams();
+  if (params?.gap_type) queryParams.set('gap_type', params.gap_type);
+  if (params?.severity) queryParams.set('severity', params.severity);
+  if (params?.filled !== undefined) queryParams.set('filled', params.filled.toString());
+  if (params?.limit) queryParams.set('limit', params.limit.toString());
+  const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+  return apiGet(`/v1/scheduler/gaps${query}`);
 }

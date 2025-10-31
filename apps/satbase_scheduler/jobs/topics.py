@@ -1,24 +1,22 @@
 """
-Per-topic news ingestion job for Satbase scheduler.
-
-Fetches news for each topic derived from WATCHLIST (symbols), ensuring proper topic annotation.
-Implements throttling, logging, and retry logic.
+Topics news ingestion job.
 """
 import asyncio
 from datetime import datetime
 from typing import Any
 import httpx
 from libs.satbase_core.config.settings import load_settings
-from .utils import get_api_client
+from jobs.utils import get_api_client
+from job_wrapper import wrap_job
 
 
+@wrap_job("topics_ingest", "Per-Topic News Ingestion")
 async def ingest_topics_job() -> dict[str, Any]:
     """
     Main job: iterate through watchlist symbols and ingest news for each individually.
     Returns summary with counts.
     """
     s = load_settings()
-
     client = get_api_client()
 
     # Load topics from WATCHLIST (symbols)
@@ -26,10 +24,19 @@ async def ingest_topics_job() -> dict[str, Any]:
         wl = await _fetch_watchlist(client, s.api_url)
         topics = [it["symbol"] for it in wl]
     except Exception as e:
-        return {"status": "error", "error": f"Failed to load watchlist: {e}", "topics_count": 0}
+        return {
+            "status": "error",
+            "error": f"Failed to load watchlist: {e}",
+            "topics_count": 0
+        }
 
     if not topics:
-        return {"status": "ok", "message": "Watchlist empty", "topics_count": 0}
+        return {
+            "status": "ok",
+            "message": "Watchlist empty",
+            "topics_count": 0,
+            "articles_ingested": 0
+        }
 
     results = {
         "status": "ok",
@@ -53,7 +60,11 @@ async def ingest_topics_job() -> dict[str, Any]:
             })
         except Exception as e:
             results["failed"] += 1
-            results["topics"].append({"name": topic_name, "status": "error", "error": str(e)})
+            results["topics"].append({
+                "name": topic_name,
+                "status": "error",
+                "error": str(e)
+            })
 
     return results
 
@@ -117,6 +128,3 @@ async def _poll_job(client: httpx.AsyncClient, job_url: str, timeout_seconds: in
         except Exception:
             await asyncio.sleep(3)
     raise Exception("Job poll timeout")
-
-
-# Hot reload test

@@ -5,7 +5,7 @@ from starlette.requests import Request
 import time
 import logging
 
-from .routers import health, news, macro, prices, btc, convert, ingest, watchlist, status, topics, news_admin
+from .routers import health, news, macro, prices, btc, convert, ingest, watchlist, status, topics, news_admin, scheduler
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.news_db import NewsDB
 
@@ -66,4 +66,5 @@ app.include_router(convert.router, prefix="/v1")
 app.include_router(ingest.router, prefix="/v1")
 app.include_router(watchlist.router, prefix="/v1")
 app.include_router(topics.router, prefix="/v1")
+app.include_router(scheduler.router, prefix="/v1")
 

@@ -33,6 +33,22 @@ services:
       - QDRANT__LOG_LEVEL=INFO
     restart: unless-stopped
 
+  satbase-scheduler:
+    build:
+      context: .
+      dockerfile: apps/satbase_scheduler/Dockerfile
+    network_mode: host
+    environment:
+      - SATBASE_API_URL=http://localhost:8080
+      - ENABLE_RELOAD=false
+    volumes:
+      - ./apps/satbase_scheduler:/app
+      - ./libs:/app/libs
+      - ./data:/app/data
+    depends_on:
+      - satbase-api
+    restart: unless-stopped
+
   tesseract-api:
     build: .
     network_mode: host
