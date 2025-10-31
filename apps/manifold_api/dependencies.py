@@ -23,9 +23,23 @@ def get_qdrant_store() -> QdrantStore:
 def get_embedding_provider_dep() -> EmbeddingProvider:
     global _embedding_provider
     if not _embedding_provider:
+        import logging
         provider_type = os.getenv("MANIFOLD_EMBED_PROVIDER", "local")
         model_name = os.getenv("MANIFOLD_EMBED_MODEL", "mixedbread-ai/mxbai-embed-large-v1")
         device = os.getenv("MANIFOLD_EMBED_DEVICE", None)  # None = auto-detect (cuda if available)
-        _embedding_provider = get_embedding_provider(provider_type, model_name, device=device)
+        try:
+            _embedding_provider = get_embedding_provider(provider_type, model_name, device=device)
+        except Exception as e:
+            logging.error(f"Failed to load embedding provider with device={device}: {str(e)}", exc_info=True)
+            # Fallback: try CPU explicitly
+            if device != "cpu":
+                logging.warning(f"Falling back to CPU device")
+                try:
+                    _embedding_provider = get_embedding_provider(provider_type, model_name, device="cpu")
+                except Exception as e2:
+                    logging.error(f"Failed to load embedding provider on CPU: {str(e2)}", exc_info=True)
+                    raise
+            else:
+                raise
     return _embedding_provider
 

@@ -34,6 +34,42 @@ def get_tesseract_db():
     return tesseract_db
 
 
+@router.get("/admin/search-history")
+async def get_search_history(
+    limit: int = 50,
+    query_filter: str = None,
+    days: int = None
+):
+    """Get search history with optional filters"""
+    try:
+        db = get_tesseract_db()
+        history = db.get_search_history(
+            limit=limit,
+            query_filter=query_filter,
+            days=days
+        )
+        return {
+            "history": history,
+            "count": len(history),
+            "filters": {
+                "limit": limit,
+                "query_filter": query_filter,
+                "days": days
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get search history: {e}")
+
+@router.get("/admin/search-stats")
+async def get_search_stats(days: int = 30):
+    """Get search statistics"""
+    try:
+        db = get_tesseract_db()
+        stats = db.get_search_stats(days=days)
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get search stats: {e}")
+
 @router.delete("/admin/vectors/{news_id}/{vector_type}")
 async def delete_vector_type(news_id: str, vector_type: str):
     """Delete vectors for a news_id of a specific type (title|summary|body)."""
@@ -134,11 +170,29 @@ async def semantic_search(request: SearchRequest):
         )
         results.append(result)
     
-    return SearchResponse(
+    response = SearchResponse(
         query=request.query,
         count=len(results),
         results=results
     )
+    
+    # Log search asynchronously (non-blocking)
+    try:
+        db = get_tesseract_db()
+        # Use asyncio.create_task for non-blocking logging
+        asyncio.create_task(
+            asyncio.to_thread(
+                db.log_search,
+                request.query,
+                request.filters,
+                len(results)
+            )
+        )
+    except Exception as e:
+        # Don't fail search if logging fails
+        print(f"⚠️ Failed to log search: {e}")
+    
+    return response
 
 def build_filter(filters: dict):
     """Build Qdrant filter from request filters"""

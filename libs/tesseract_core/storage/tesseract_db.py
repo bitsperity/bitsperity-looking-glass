@@ -47,6 +47,21 @@ class TesseractDB:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_job_status ON embed_jobs(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_job_started_at ON embed_jobs(started_at)")
             
+            # Table: search_history (tracking semantic searches)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS search_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    query TEXT NOT NULL,
+                    filters TEXT,
+                    result_count INTEGER,
+                    created_at INTEGER NOT NULL
+                )
+            """)
+            
+            # Indexes for search_history
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_search_created_at ON search_history(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_search_query ON search_history(query)")
+            
             conn.commit()
     
     def conn(self):
@@ -64,6 +79,7 @@ class TesseractDB:
         with self.conn() as conn:
             conn.execute("DROP TABLE IF EXISTS embedded_articles")
             conn.execute("DROP TABLE IF EXISTS embed_jobs")
+            conn.execute("DROP TABLE IF EXISTS search_history")
             conn.commit()
     
     @staticmethod
@@ -203,3 +219,96 @@ class TesseractDB:
                 needing_embed.append(article)
         
         return needing_embed
+    
+    def log_search(self, query: str, filters: dict = None, result_count: int = 0):
+        """Log a semantic search query"""
+        now = int(datetime.now(timezone.utc).timestamp())
+        filters_json = json.dumps(filters) if filters else None
+        
+        with self.conn() as conn:
+            conn.execute("""
+                INSERT INTO search_history (query, filters, result_count, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (query, filters_json, result_count, now))
+            conn.commit()
+    
+    def get_search_history(
+        self, 
+        limit: int = 50, 
+        query_filter: str = None,
+        days: int = None
+    ) -> List[dict]:
+        """Get search history with optional filters"""
+        conditions = []
+        params = []
+        
+        if query_filter:
+            conditions.append("query LIKE ?")
+            params.append(f"%{query_filter}%")
+        
+        if days:
+            cutoff = int(datetime.now(timezone.utc).timestamp()) - (days * 86400)
+            conditions.append("created_at >= ?")
+            params.append(cutoff)
+        
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(limit)
+        
+        with self.conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM search_history {where_clause} ORDER BY created_at DESC LIMIT ?",
+                params
+            ).fetchall()
+            
+            result = []
+            for row in rows:
+                data = dict(row)
+                if data.get('filters'):
+                    try:
+                        data['filters'] = json.loads(data['filters'])
+                    except:
+                        data['filters'] = {}
+                result.append(data)
+            
+            return result
+    
+    def get_search_stats(self, days: int = 30) -> dict:
+        """Get search statistics"""
+        cutoff = int(datetime.now(timezone.utc).timestamp()) - (days * 86400)
+        
+        with self.conn() as conn:
+            # Total searches
+            total = conn.execute(
+                "SELECT COUNT(*) FROM search_history WHERE created_at >= ?",
+                (cutoff,)
+            ).fetchone()[0]
+            
+            # Unique queries
+            unique_queries = conn.execute(
+                "SELECT COUNT(DISTINCT query) FROM search_history WHERE created_at >= ?",
+                (cutoff,)
+            ).fetchone()[0]
+            
+            # Top queries
+            top_queries = conn.execute("""
+                SELECT query, COUNT(*) as count
+                FROM search_history
+                WHERE created_at >= ?
+                GROUP BY query
+                ORDER BY count DESC
+                LIMIT 10
+            """, (cutoff,)).fetchall()
+            
+            # Average result count
+            avg_results = conn.execute("""
+                SELECT AVG(result_count) FROM search_history
+                WHERE created_at >= ? AND result_count > 0
+            """, (cutoff,)).fetchone()[0] or 0
+            
+            return {
+                "total_searches": total,
+                "unique_queries": unique_queries,
+                "avg_result_count": round(avg_results, 1),
+                "top_queries": [{"query": row[0], "count": row[1]} for row in top_queries],
+                "days": days
+            }

@@ -245,6 +245,38 @@ def news_analytics(
     }
 
 
+@router.get("/news/integrity-check")
+def check_integrity():
+    """Verify data integrity of SQLite database."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    try:
+        stats = db.get_coverage_stats()
+        
+        return {
+            "total_articles": stats["total"],
+            "unique_topics": stats["unique_topics"],
+            "unique_tickers": stats["unique_tickers"],
+            "date_range": {
+                "from": stats["earliest"],
+                "to": stats["latest"]
+            },
+            "status": "OK" if stats["total"] > 0 else "EMPTY",
+            "message": "SQLite database is healthy and queryable"
+            }
+    
+    except Exception as e:
+        return JSONResponse(
+            {
+                "error": str(e),
+                "status": "ERROR",
+                "message": "Failed to check database integrity"
+            },
+            status_code=500
+        )
+
+
 @router.get("/news/{article_id}")
 def get_news_by_id(article_id: str):
     """Get a single news article by its ID"""
@@ -549,38 +581,6 @@ def get_news_gaps(
         "gaps": gaps,
         "min_articles_threshold": min_articles_per_day
     }
-
-
-@router.get("/news/integrity-check")
-def check_integrity():
-    """Verify data integrity of SQLite database."""
-    s = load_settings()
-    db = NewsDB(s.stage_dir.parent / "news.db")
-    
-    try:
-        stats = db.get_coverage_stats()
-        
-        return {
-            "total_articles": stats["total"],
-            "unique_topics": stats["unique_topics"],
-            "unique_tickers": stats["unique_tickers"],
-            "date_range": {
-                "from": stats["earliest"],
-                "to": stats["latest"]
-            },
-            "status": "OK" if stats["total"] > 0 else "EMPTY",
-            "message": "SQLite database is healthy and queryable"
-            }
-    
-    except Exception as e:
-        return JSONResponse(
-            {
-                "error": str(e),
-                "status": "ERROR",
-                "message": "Failed to check database integrity"
-            },
-            status_code=500
-        )
 
 @router.post("/news/{article_id}/update-body")
 def update_article_body(article_id: str, body_text: str = Body(..., embed=True)):

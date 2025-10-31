@@ -29,14 +29,8 @@ def get_history(thought_id: str, store: QdrantStore = Depends(get_qdrant_store))
     }
 
 
-@router.post("/thought/{thought_id}/rollback")
-def rollback_version(
-    thought_id: str,
-    body: dict,
-    store: QdrantStore = Depends(get_qdrant_store),
-):
-    """Rollback to version (placeholder: MVP only latest)."""
-    raise HTTPException(501, "Rollback not implemented in MVP")
+# Rollback endpoint removed - not implemented and not needed for MVP
+# TODO: Implement versioning system if rollback functionality is required
 
 
 @router.post("/thought/{thought_id}/reembed")
@@ -201,10 +195,8 @@ def bulk_promote(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
     return {"status": "ok", "marked": marked}
 
 
-@router.post("/merge")
-def merge_thoughts(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
-    """Merge two thoughts (placeholder)."""
-    raise HTTPException(501, "Merge not implemented in MVP")
+# Merge endpoint removed - not implemented and too complex for MVP
+# TODO: Implement merge functionality if needed in the future
 
 
 @router.post("/thought/{thought_id}/quarantine")
@@ -285,7 +277,9 @@ def restore_from_trash(
 @router.post("/explain/search")
 def explain_search(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
     """Explain search scoring (placeholder)."""
-    raise HTTPException(501, "Explain not implemented in MVP")
+    # Note: This endpoint is wrapped in MCP but returns 501 until implemented
+    # Keeping endpoint for future implementation - useful for Agents to understand search results
+    raise HTTPException(501, "Explain not implemented in MVP - returning gracefully")
 
 
 @router.get("/similar/{thought_id}")
