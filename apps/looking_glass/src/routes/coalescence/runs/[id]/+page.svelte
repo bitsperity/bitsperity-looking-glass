@@ -6,8 +6,11 @@
   import CostDisplay from '$lib/components/coalescence/CostDisplay.svelte';
 
   let run: RunDetail | null = null;
+  let toolBreakdown: any = null;
   let loading = true;
+  let loadingTools = false;
   let error: string | null = null;
+  let activeTab: 'chat' | 'tools' = 'chat';
   let expandedTools: Set<string> = new Set();
   let expandedMessages: Set<string> = new Set();
 
@@ -24,6 +27,24 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function loadToolBreakdown() {
+    if (toolBreakdown || loadingTools) return;
+    
+    try {
+      loadingTools = true;
+      toolBreakdown = await coalescenceClient.getRunToolsDetailed(runId);
+    } catch (e: any) {
+      console.error('Error loading tool breakdown:', e);
+    } finally {
+      loadingTools = false;
+    }
+  }
+
+  // Load tool breakdown when switching to tools tab
+  $: if (activeTab === 'tools' && run) {
+    loadToolBreakdown();
   }
 
   function toggleTool(toolId: string) {
@@ -89,6 +110,11 @@
     return `${tokens}`;
   }
 
+  // Helper to access MCP stats with proper typing
+  function getMcpStats(stats: unknown): any {
+    return stats as any;
+  }
+
   onMount(async () => {
     await loadRun();
   });
@@ -143,12 +169,34 @@
     {/if}
   </div>
 
-  <!-- Chat Messages -->
+  <!-- Tab Navigation -->
+  {#if run}
+    <div class="tab-nav">
+      <button 
+        class="tab-btn {activeTab === 'chat' ? 'active' : ''}"
+        on:click={() => activeTab = 'chat'}
+      >
+        💬 Chat
+      </button>
+      <button 
+        class="tab-btn {activeTab === 'tools' ? 'active' : ''}"
+        on:click={() => activeTab = 'tools'}
+      >
+        🔧 Tools
+        {#if run.execution.totalToolCalls > 0}
+          <span class="tab-badge">{run.execution.totalToolCalls}</span>
+        {/if}
+      </button>
+    </div>
+  {/if}
+
+  <!-- Content Area -->
   {#if loading}
     <div class="loading">Loading run details...</div>
   {:else if error}
     <div class="error-box">{error}</div>
-  {:else if run}
+  {:else if run && activeTab === 'chat'}
+    <!-- Chat Tab -->
     <div class="chat-container">
       {#each run.turns || [] as turn}
         <!-- Turn Separator -->
@@ -301,6 +349,122 @@
           {/if}
         {/each}
       {/each}
+    </div>
+  {:else if run && activeTab === 'tools'}
+    <!-- Tools Breakdown Tab -->
+    <div class="tools-container">
+      {#if loadingTools}
+        <div class="loading">Loading tool breakdown...</div>
+      {:else if toolBreakdown}
+        <!-- Tool Stats Overview -->
+        <div class="tool-stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Tools</div>
+            <div class="stat-value">{toolBreakdown.totalTools || 0}</div>
+          </div>
+          <div class="stat-card success">
+            <div class="stat-label">✅ Success</div>
+            <div class="stat-value">{toolBreakdown.byStatus?.success || 0}</div>
+          </div>
+          <div class="stat-card error">
+            <div class="stat-label">❌ Error</div>
+            <div class="stat-value">{toolBreakdown.byStatus?.error || 0}</div>
+          </div>
+          <div class="stat-card pending">
+            <div class="stat-label">⏳ Pending</div>
+            <div class="stat-value">{toolBreakdown.byStatus?.pending || 0}</div>
+          </div>
+        </div>
+
+        <!-- MCP Breakdown -->
+        {#if toolBreakdown.byMcp && Object.keys(toolBreakdown.byMcp).length > 0}
+          <div class="mcp-breakdown">
+            <h3 class="section-title">📦 MCP Breakdown</h3>
+            <div class="mcp-grid">
+              {#each Object.entries(toolBreakdown.byMcp) as [mcpName, stats]}
+                {@const mcpStats = getMcpStats(stats)}
+                <div class="mcp-card">
+                  <div class="mcp-header">
+                    <span class="mcp-name">{mcpName}</span>
+                    <span class="mcp-count">{mcpStats.count} tools</span>
+                  </div>
+                  <div class="mcp-stats">
+                    <div class="mcp-stat">
+                      <span class="mcp-stat-value success">{mcpStats.success || 0}</span>
+                      <span class="mcp-stat-label">✅</span>
+                    </div>
+                    <div class="mcp-stat">
+                      <span class="mcp-stat-value error">{mcpStats.error || 0}</span>
+                      <span class="mcp-stat-label">❌</span>
+                    </div>
+                    <div class="mcp-stat">
+                      <span class="mcp-stat-value">{formatTime(mcpStats.avgDuration || 0)}</span>
+                      <span class="mcp-stat-label">avg</span>
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <!-- Tool Timeline -->
+        {#if toolBreakdown.timeline && toolBreakdown.timeline.length > 0}
+          <div class="tool-timeline">
+            <h3 class="section-title">📊 Tool Timeline</h3>
+            <div class="timeline-list">
+              {#each toolBreakdown.timeline as tool, idx}
+                {@const toolId = `tool-${idx}`}
+                {@const isExpanded = expandedTools.has(toolId)}
+                <div class="timeline-item">
+                  <button 
+                    class="timeline-trigger"
+                    on:click={() => toggleTool(toolId)}
+                  >
+                    <span class="expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                    <span class="timeline-turn">Turn {tool.turnNumber}</span>
+                    <span class="timeline-tool-name">{tool.toolName}</span>
+                    <span class="timeline-status {tool.status}">
+                      {#if tool.status === 'success'}
+                        ✅
+                      {:else if tool.status === 'error'}
+                        ❌
+                      {:else}
+                        ⏳
+                      {/if}
+                    </span>
+                    <span class="timeline-duration">{formatTime(tool.duration)}</span>
+                    <span class="timeline-time">{new Date(tool.timestamp).toLocaleTimeString()}</span>
+                  </button>
+                  
+                  {#if isExpanded}
+                    <div class="timeline-details">
+                      {#if tool.args}
+                        <div class="detail-section">
+                          <div class="detail-label">Arguments:</div>
+                          <pre class="detail-content">{JSON.stringify(tool.args, null, 2)}</pre>
+                        </div>
+                      {/if}
+                      {#if tool.error}
+                        <div class="detail-section error">
+                          <div class="detail-label">Error:</div>
+                          <pre class="detail-content">{tool.error}</pre>
+                        </div>
+                      {/if}
+                      <div class="detail-section">
+                        <div class="detail-label">Result Size:</div>
+                        <div class="detail-content">{tool.resultSize ? `${(tool.resultSize / 1024).toFixed(1)} KB` : 'N/A'}</div>
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      {:else}
+        <div class="empty-state">No tool breakdown available</div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -874,5 +1038,267 @@
     font-size: 0.9rem;
     color: white;
     font-weight: 600;
+  }
+
+  /* Tab Navigation */
+  .tab-nav {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 0.75rem 1.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+    bottom: -1px;
+  }
+
+  .tab-btn:hover {
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .tab-btn.active {
+    color: white;
+    border-bottom-color: #3b82f6;
+  }
+
+  .tab-badge {
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #93c5fd;
+  }
+
+  /* Tools Container */
+  .tools-container {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+  }
+
+  .tool-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    text-align: center;
+  }
+
+  .stat-card.success {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(16, 185, 129, 0.04) 100%);
+    border-color: rgba(16, 185, 129, 0.2);
+  }
+
+  .stat-card.error {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.04) 100%);
+    border-color: rgba(239, 68, 68, 0.2);
+  }
+
+  .stat-card.pending {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.04) 100%);
+    border-color: rgba(245, 158, 11, 0.2);
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 0.5rem;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: white;
+    font-family: 'Monaco', monospace;
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 1rem;
+  }
+
+  .mcp-breakdown {
+    margin-bottom: 2rem;
+  }
+
+  .mcp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+
+  .mcp-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 1rem;
+  }
+
+  .mcp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .mcp-name {
+    font-weight: 700;
+    color: white;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+  }
+
+  .mcp-count {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .mcp-stats {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .mcp-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .mcp-stat-value {
+    font-weight: 700;
+    color: white;
+    font-size: 0.9rem;
+  }
+
+  .mcp-stat-value.success {
+    color: #86efac;
+  }
+
+  .mcp-stat-value.error {
+    color: #fca5a5;
+  }
+
+  .mcp-stat-label {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+  }
+
+  .tool-timeline {
+    margin-top: 2rem;
+  }
+
+  .timeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .timeline-item {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .timeline-trigger {
+    background: linear-gradient(135deg, rgba(180, 83, 9, 0.08) 0%, rgba(180, 83, 9, 0.04) 100%);
+    border: 1px solid rgba(180, 83, 9, 0.2);
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+    text-align: left;
+    font-weight: 600;
+  }
+
+  .timeline-trigger:hover {
+    background: linear-gradient(135deg, rgba(180, 83, 9, 0.12) 0%, rgba(180, 83, 9, 0.06) 100%);
+    border-color: rgba(180, 83, 9, 0.3);
+  }
+
+  .timeline-turn {
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 0.4rem;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #93c5fd;
+    min-width: 3.5rem;
+    text-align: center;
+  }
+
+  .timeline-tool-name {
+    flex: 1;
+    color: #fcd34d;
+    font-weight: 600;
+  }
+
+  .timeline-status {
+    font-size: 0.9rem;
+  }
+
+  .timeline-duration {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.75rem;
+    font-family: 'Monaco', monospace;
+    min-width: 3.5rem;
+    text-align: right;
+  }
+
+  .timeline-time {
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.7rem;
+    min-width: 5rem;
+    text-align: right;
+  }
+
+  .timeline-details {
+    margin-top: 0.4rem;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(180, 83, 9, 0.15);
+    border-radius: 0 0 0.75rem 0.75rem;
+    border-top: none;
+    overflow: hidden;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
   }
 </style>

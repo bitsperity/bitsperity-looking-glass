@@ -9,9 +9,8 @@ import { runAgent } from './agent-runner.js';
 import { logger } from './logger.js';
 import { createApiServer } from './api/server.js';
 import { OrchestrationDB } from './db/database.js';
-import { ConfigWatcher } from './config-watcher.js';
 import { ToolExecutor, type MCPConfig } from './tool-executor.js';
-import type { AgentsConfig } from './types.js';
+import type { AgentConfig } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,8 +22,43 @@ let currentCrons: Map<string, cron.ScheduledTask> = new Map();
 let toolExecutor: ToolExecutor | null = null;
 let budget: TokenBudgetManager | null = null;
 let db: OrchestrationDB | null = null;
+let agents: Map<string, AgentConfig> = new Map();  // Global agents map
 
-async function scheduleAgents(config: AgentsConfig): Promise<void> {
+const COALESCENCE_API_URL = process.env.COALESCENCE_API_URL || 'http://localhost:8084';
+
+async function loadAgentsFromBackend(): Promise<Map<string, AgentConfig>> {
+  logger.info({ apiUrl: COALESCENCE_API_URL }, 'Loading agents from backend API');
+  
+  try {
+    const response = await fetch(`${COALESCENCE_API_URL}/v1/agents`);
+    if (!response.ok) {
+      throw new Error(`Backend API error: ${response.status} - ${await response.text()}`);
+    }
+    
+    const data = await response.json() as { agents: any[] };
+    const agentsMap = new Map<string, AgentConfig>();
+    
+    for (const agentSummary of data.agents) {
+      // Load full agent config
+      const agentResponse = await fetch(`${COALESCENCE_API_URL}/v1/agents/${agentSummary.name}`);
+      if (!agentResponse.ok) {
+        logger.warn({ agent: agentSummary.name }, 'Failed to load agent config');
+        continue;
+      }
+      
+      const agentConfig = await agentResponse.json() as AgentConfig;
+      agentsMap.set(agentSummary.name, agentConfig);
+    }
+    
+    logger.info({ count: agentsMap.size }, 'Agents loaded from backend');
+    return agentsMap;
+  } catch (error: any) {
+    logger.error({ error: error.message }, 'Failed to load agents from backend');
+    throw error;
+  }
+}
+
+async function scheduleAgents(agents: Map<string, AgentConfig>, budgetConfig: { daily_tokens: number; monthly_budget_usd: number }): Promise<void> {
   logger.info('Scheduling agents...');
 
   // Stop and remove existing crons
@@ -35,7 +69,7 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
   currentCrons.clear();
 
   // Schedule each agent
-  for (const [agentName, agentConfig] of Object.entries(config.agents)) {
+  for (const [agentName, agentConfig] of agents.entries()) {
     if (!agentConfig.enabled) {
       logger.info({ agent: agentName }, 'Agent disabled, skipping');
       continue;
@@ -48,12 +82,12 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
     }
 
     logger.info(
-      { agent: agentName, schedule: agentConfig.schedule, batch: agentConfig.batch },
+      { agent: agentName, schedule: agentConfig.schedule },
       'Scheduling agent'
     );
 
     const task = cron.schedule(agentConfig.schedule, async () => {
-      logger.info({ agent: agentName, batch: agentConfig.batch }, 'Starting agent run');
+      logger.info({ agent: agentName }, 'Starting agent run');
       try {
         if (!toolExecutor || !db) throw new Error('ToolExecutor or Database not initialized');
         
@@ -79,7 +113,7 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
     currentCrons.set(agentName, task);
   }
 
-  const enabledAgents = Object.entries(config.agents).filter(([_, cfg]) => cfg.enabled);
+  const enabledAgents = Array.from(agents.entries()).filter(([_, cfg]) => cfg.enabled);
   logger.info(
     {
       totalScheduled: enabledAgents.length,
@@ -89,15 +123,14 @@ async function scheduleAgents(config: AgentsConfig): Promise<void> {
   );
 }
 
-async function reloadAgentsCallback(): Promise<void> {
+async function reloadAgentsCallback(budgetConfig: { daily_tokens: number; monthly_budget_usd: number }): Promise<void> {
   logger.info('Live reload triggered for agents configuration');
 
   try {
-    const configPath = process.env.ORCHESTRATOR_TEST_CONFIG || path.join(__dirname, '..', 'config', 'agents.yaml');
-    const configYaml = await fs.readFile(configPath, 'utf-8');
-    const config: AgentsConfig = yaml.parse(configYaml);
-
-    await scheduleAgents(config);
+    const newAgents = await loadAgentsFromBackend();
+    // Update global agents map so onRunAgent can access it
+    agents = newAgents;
+    await scheduleAgents(newAgents, budgetConfig);
     logger.info('Agents successfully reloaded');
   } catch (error) {
     logger.error({ error }, 'Failed to reload agents');
@@ -109,10 +142,8 @@ async function main() {
   logger.info('Starting Orchestrator (Coalescence)...');
 
   try {
-    // Load config
-    const configPath = process.env.ORCHESTRATOR_TEST_CONFIG || path.join(__dirname, '..', 'config', 'agents.yaml');
-    const configYaml = await fs.readFile(configPath, 'utf-8');
-    const config: AgentsConfig = yaml.parse(configYaml);
+    // Load agents from backend API (no YAML anymore)
+    agents = await loadAgentsFromBackend();
 
     // Load stdio MCP configuration for ToolExecutor
     const mcpConfigPath = path.join(__dirname, '..', 'config', 'mcps-stdio.yaml');
@@ -121,7 +152,7 @@ async function main() {
     const mcpConfig: MCPConfig = mcpConfigData.mcps;
 
     logger.info(
-      { agentCount: Object.keys(config.agents).length, mcpCount: Object.keys(mcpConfig).length },
+      { agentCount: agents.size, mcpCount: Object.keys(mcpConfig).length },
       'Configuration loaded'
     );
 
@@ -139,17 +170,21 @@ async function main() {
       'ToolExecutor initialized with tools loaded'
     );
 
-    // Initialize budget manager
-    budget = new TokenBudgetManager(config.budget);
+    // Initialize budget manager (use defaults if not provided)
+    const budgetConfig = {
+      daily_tokens: parseInt(process.env.DAILY_TOKEN_BUDGET || '100000'),
+      monthly_budget_usd: parseFloat(process.env.MONTHLY_BUDGET_USD || '100')
+    };
+    budget = new TokenBudgetManager(budgetConfig);
 
-    // Start API server with config
+    // Start API server
     const apiPort = parseInt(process.env.API_PORT || '3100');
     const configDir = path.join(__dirname, '..', 'config');
     
     // Callback for manual agent triggering
     const onRunAgent = async (agentName: string) => {
       if (!toolExecutor || !db) throw new Error('ToolExecutor or Database not initialized');
-      const agentConfig = config.agents[agentName];
+      const agentConfig = agents.get(agentName);
       if (!agentConfig) throw new Error(`Agent ${agentName} not found`);
       
       logger.info({ agent: agentName }, 'Manual agent trigger started');
@@ -165,17 +200,10 @@ async function main() {
     
     await createApiServer(db, apiPort, {
       configDir,
-      onAgentReload: reloadAgentsCallback,
+      toolExecutor,
+      onAgentReload: () => reloadAgentsCallback(budgetConfig),
       onRunAgent
     });
-
-    // Start config watcher
-    const configWatcher = new ConfigWatcher({
-      configDir,
-      debounceMs: 1000,
-      onAgentsChange: reloadAgentsCallback
-    });
-    configWatcher.start();
 
     // Reset budget daily at midnight
     cron.schedule('0 0 * * *', () => {
@@ -184,7 +212,7 @@ async function main() {
     });
 
     // Schedule initial agents
-    await scheduleAgents(config);
+    await scheduleAgents(agents, budgetConfig);
 
     logger.info('Orchestrator (Coalescence) running. Press Ctrl+C to exit.');
   } catch (error) {

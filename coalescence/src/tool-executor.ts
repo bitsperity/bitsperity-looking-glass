@@ -79,6 +79,40 @@ export class ToolExecutor {
   }
 
   /**
+   * Get tools filtered by MCP names
+   */
+  getClaudeToolsForMcps(mcpNames: string[]): Anthropic.Tool[] {
+    if (!mcpNames || mcpNames.length === 0) {
+      return this.getClaudeTools(); // Fallback: alle Tools
+    }
+    
+    return Array.from(this.tools.values())
+      .filter(tool => mcpNames.includes(tool.mcpName))
+      .map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.inputSchema as any
+      }));
+  }
+
+  /**
+   * Get tools filtered by specific tool names (prefixed names like "satbase_list-news")
+   */
+  getClaudeToolsForTools(toolNames: string[]): Anthropic.Tool[] {
+    if (!toolNames || toolNames.length === 0) {
+      return this.getClaudeTools(); // Fallback: alle Tools
+    }
+    
+    return Array.from(this.tools.values())
+      .filter(tool => toolNames.includes(tool.name))
+      .map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.inputSchema as any
+      }));
+  }
+
+  /**
    * Load tool definitions from an MCP server via stdio
    */
   private async loadMCPTools(

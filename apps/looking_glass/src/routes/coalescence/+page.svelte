@@ -18,33 +18,29 @@
       const prevAgents = agents;
       loading = true;
       error = null;
-      const [dashData, agentStats, config, runList] = await Promise.all([
+      const [dashData, agentStats, agentsList, runList] = await Promise.all([
         coalescenceClient.getDashboard(7),
         coalescenceClient.getAgents().then((r) => r.agents),
-        coalescenceClient.getConfigAgents(),
+        coalescenceClient.listAgents(),
         coalescenceClient.getRuns({ days: 7 }).then((r) => r.runs.slice(0, 5))
       ]);
       
       dashboard = dashData;
       recentRuns = runList;
       
-      // Merge config agents with stats
-      if (config.parsed?.agents) {
-        agents = Object.entries(config.parsed.agents).map(([name, agentConfig]: [string, any]) => {
-          const stats = agentStats.find((s: any) => s.name === name);
-          return {
-            name,
-            enabled: agentConfig.enabled ?? false,
-            model: agentConfig.model || 'N/A',
-            schedule: agentConfig.schedule || 'N/A',
-            total_runs: stats?.total_runs || 0,
-            total_cost_usd: stats?.total_cost_usd || 0,
-            last_run_at: stats?.last_run_at
-          };
-        });
-      } else {
-        agents = agentStats;
-      }
+      // Merge agents from API with stats
+      agents = agentsList.agents.map((agentConfig: any) => {
+        const stats = agentStats.find((s: any) => s.name === agentConfig.name);
+        return {
+          name: agentConfig.name,
+          enabled: agentConfig.enabled ?? false,
+          model: agentConfig.model || 'N/A',
+          schedule: agentConfig.schedule || 'N/A',
+          total_runs: stats?.total_runs || 0,
+          total_cost_usd: stats?.total_cost_usd || 0,
+          last_run_at: stats?.last_run_at
+        };
+      });
       
       // Only show loading on first load
       if (prevAgents.length === 0) {

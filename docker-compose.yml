@@ -146,8 +146,23 @@ services:
               count: 1
               capabilities: [gpu]
 
+  coalescence-api:
+    build:
+      context: .
+      dockerfile: apps/coalescence_api/Dockerfile
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - COALESCENCE_DB_PATH=/app/data/logs/orchestration.db
+    volumes:
+      - ./data:/app/data
+      - ./coalescence/src/db/schema.sql:/app/coalescence/src/db/schema.sql:ro
+    command: ["uvicorn", "apps.coalescence_api.main:app", "--host", "0.0.0.0", "--port", "8084", "--reload"]
+    restart: unless-stopped
+
   orchestrator:
-    build: ./orchestrator
+    build: ./coalescence
     network_mode: host
     env_file:
       - .env
@@ -157,22 +172,25 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - NODE_ENV=development
+      - COALESCENCE_API_URL=http://localhost:8084
       - VITE_COALESCENCE_BASE=http://127.0.0.1:3100
     volumes:
-      - ./orchestrator/src:/app/src
-      - ./orchestrator/tsconfig.json:/app/tsconfig.json
-      - ./orchestrator/logs:/app/logs
-      - ./orchestrator/config:/app/config
-      - ./orchestrator/agent-rules:/app/agent-rules
+      - ./coalescence/src:/app/src
+      - ./coalescence/tsconfig.json:/app/tsconfig.json
+      - ./coalescence/logs:/app/logs
+      - ./coalescence/config:/app/config
+      - ./coalescence/agent-rules:/app/agent-rules
       - ./mcps/satbase:/mcps/satbase:ro
       - ./mcps/tesseract:/mcps/tesseract:ro
       - ./mcps/manifold:/mcps/manifold:ro
       - ./mcps/ariadne:/mcps/ariadne:ro
+      - ./mcps/coalescence:/mcps/coalescence:ro
     depends_on:
       - satbase-api
       - tesseract-api
       - manifold-api
       - ariadne-api
+      - coalescence-api
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3100/health').then(r => process.exit(r.status === 200 ? 0 : 1)).catch(() => process.exit(1))"]

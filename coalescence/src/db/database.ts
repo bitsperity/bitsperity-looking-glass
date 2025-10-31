@@ -827,6 +827,298 @@ export class OrchestrationDB {
     }
   }
 
+  // ============= AGENT CONFIGS MANAGEMENT =============
+
+  saveAgentConfig(agentName: string, config: any): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO agent_configs (
+        name, enabled, model, schedule, system_prompt,
+        max_tokens_per_turn, max_steps, budget_daily_tokens,
+        timeout_minutes, config_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(name) DO UPDATE SET
+        enabled = excluded.enabled,
+        model = excluded.model,
+        schedule = excluded.schedule,
+        system_prompt = excluded.system_prompt,
+        max_tokens_per_turn = excluded.max_tokens_per_turn,
+        max_steps = excluded.max_steps,
+        budget_daily_tokens = excluded.budget_daily_tokens,
+        timeout_minutes = excluded.timeout_minutes,
+        config_json = excluded.config_json,
+        updated_at = datetime('now')
+    `);
+    stmt.run(
+      agentName,
+      config.enabled ?? true,
+      config.model,
+      config.schedule,
+      config.system_prompt || null,
+      config.max_tokens_per_turn || null,
+      config.max_steps || 5,
+      config.budget_daily_tokens,
+      config.timeout_minutes,
+      JSON.stringify(config)
+    );
+  }
+
+  getAgentConfig(agentName: string): any | null {
+    const stmt = this.db.prepare('SELECT * FROM agent_configs WHERE name = ?');
+    const row = stmt.get(agentName) as any;
+    if (!row) return null;
+
+    // Load turns
+    const turnsStmt = this.db.prepare(`
+      SELECT * FROM agent_turns 
+      WHERE agent_name = ? 
+      ORDER BY order_index ASC
+    `);
+    const turns = turnsStmt.all(agentName) as any[];
+
+    // Parse config
+    const config = JSON.parse(row.config_json);
+    config.turns = turns.map(t => ({
+      id: t.turn_id,
+      name: t.turn_name,
+      model: t.model,
+      max_tokens: t.max_tokens,
+      max_steps: t.max_steps,
+      mcps: t.mcps ? JSON.parse(t.mcps) : [],
+      prompt: t.prompt,
+      prompt_file: t.prompt_file,
+      rules: t.rules ? JSON.parse(t.rules) : []
+    }));
+
+    return {
+      agent: agentName,
+      enabled: row.enabled === 1,
+      model: row.model,
+      schedule: row.schedule,
+      system_prompt: row.system_prompt,
+      max_tokens_per_turn: row.max_tokens_per_turn,
+      max_steps: row.max_steps,
+      budget_daily_tokens: row.budget_daily_tokens,
+      timeout_minutes: row.timeout_minutes,
+      turns: config.turns,
+      created_at: row.created_at,
+      updated_at: row.updated_at
+    };
+  }
+
+  listAgentConfigs(): any[] {
+    const stmt = this.db.prepare(`
+      SELECT 
+        ac.*,
+        a.last_run_at,
+        a.last_run_id,
+        a.total_runs,
+        a.total_tokens,
+        a.total_cost_usd
+      FROM agent_configs ac
+      LEFT JOIN agents a ON ac.name = a.name
+      ORDER BY ac.created_at DESC
+    `);
+    return stmt.all() as any[];
+  }
+
+  updateAgentConfig(agentName: string, updates: any): void {
+    const fields: string[] = ['updated_at = datetime(\'now\')'];
+    const values: any[] = [];
+
+    if (updates.enabled !== undefined) {
+      fields.push('enabled = ?');
+      values.push(updates.enabled ? 1 : 0);
+    }
+    if (updates.model !== undefined) {
+      fields.push('model = ?');
+      values.push(updates.model);
+    }
+    if (updates.schedule !== undefined) {
+      fields.push('schedule = ?');
+      values.push(updates.schedule);
+    }
+    if (updates.system_prompt !== undefined) {
+      fields.push('system_prompt = ?');
+      values.push(updates.system_prompt);
+    }
+    if (updates.max_tokens_per_turn !== undefined) {
+      fields.push('max_tokens_per_turn = ?');
+      values.push(updates.max_tokens_per_turn);
+    }
+    if (updates.max_steps !== undefined) {
+      fields.push('max_steps = ?');
+      values.push(updates.max_steps);
+    }
+    if (updates.budget_daily_tokens !== undefined) {
+      fields.push('budget_daily_tokens = ?');
+      values.push(updates.budget_daily_tokens);
+    }
+    if (updates.timeout_minutes !== undefined) {
+      fields.push('timeout_minutes = ?');
+      values.push(updates.timeout_minutes);
+    }
+    if (updates.config_json !== undefined) {
+      fields.push('config_json = ?');
+      values.push(typeof updates.config_json === 'string' ? updates.config_json : JSON.stringify(updates.config_json));
+    }
+
+    if (fields.length === 1) return; // Only updated_at
+
+    values.push(agentName);
+    const stmt = this.db.prepare(`UPDATE agent_configs SET ${fields.join(', ')} WHERE name = ?`);
+    stmt.run(...values);
+  }
+
+  deleteAgentConfig(agentName: string): void {
+    const stmt = this.db.prepare('DELETE FROM agent_configs WHERE name = ?');
+    stmt.run(agentName);
+  }
+
+  saveAgentTurns(agentName: string, turns: any[]): void {
+    // Delete existing turns
+    const deleteStmt = this.db.prepare('DELETE FROM agent_turns WHERE agent_name = ?');
+    deleteStmt.run(agentName);
+
+    // Insert new turns
+    if (turns.length > 0) {
+      const insertStmt = this.db.prepare(`
+        INSERT INTO agent_turns (
+          agent_name, turn_id, turn_name, model, max_tokens, max_steps,
+          mcps, prompt, prompt_file, rules, order_index
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      turns.forEach((turn, index) => {
+        insertStmt.run(
+          agentName,
+          turn.id,
+          turn.name,
+          turn.model || null,
+          turn.max_tokens || null,
+          turn.max_steps || null,
+          turn.mcps ? JSON.stringify(turn.mcps) : null,
+          turn.prompt || null,
+          turn.prompt_file || null,
+          turn.rules ? JSON.stringify(turn.rules) : null,
+          index
+        );
+      });
+    }
+  }
+
+  // ============= INSIGHTS MANAGEMENT =============
+
+  saveInsight(insightId: string, agentName: string, insight: string, priority: string = 'medium', runId?: string, relatedEntities?: string[]): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO insights (id, agent_name, run_id, insight, priority, related_entities)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      insightId,
+      agentName,
+      runId || null,
+      insight,
+      priority,
+      relatedEntities ? JSON.stringify(relatedEntities) : null
+    );
+  }
+
+  getInsights(agentName: string, daysBack: number = 7): any[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM insights
+      WHERE agent_name = ? AND created_at >= datetime('now', '-' || ? || ' days')
+      ORDER BY created_at DESC
+    `);
+    return stmt.all(agentName, daysBack) as any[];
+  }
+
+  // ============= MESSAGES MANAGEMENT =============
+
+  saveMessage(messageId: string, fromAgent: string, toAgent: string, type: string, content: string, relatedEntities?: string[]): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO agent_messages (id, from_agent, to_agent, type, content, related_entities)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      messageId,
+      fromAgent,
+      toAgent,
+      type,
+      content,
+      relatedEntities ? JSON.stringify(relatedEntities) : null
+    );
+  }
+
+  getMessages(agentName: string, unreadOnly: boolean = true, fromAgent?: string): any[] {
+    let query = `
+      SELECT * FROM agent_messages
+      WHERE (to_agent = ? OR to_agent = 'all')
+    `;
+    const params: any[] = [agentName];
+
+    if (unreadOnly) {
+      query += ' AND read_at IS NULL';
+    }
+    if (fromAgent) {
+      query += ' AND from_agent = ?';
+      params.push(fromAgent);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const stmt = this.db.prepare(query);
+    return stmt.all(...params) as any[];
+  }
+
+  markMessageRead(messageId: string): void {
+    const stmt = this.db.prepare('UPDATE agent_messages SET read_at = datetime(\'now\') WHERE id = ?');
+    stmt.run(messageId);
+  }
+
+  // ============= CONTEXT MANAGEMENT =============
+
+  saveRunContext(contextId: string, agentName: string, runId: string, contextSummary: string, kgEntities?: any[], manifoldThoughts?: any[]): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO run_context_cache (id, agent_name, run_id, context_summary, kg_entities, manifold_thoughts)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      contextId,
+      agentName,
+      runId,
+      contextSummary,
+      kgEntities ? JSON.stringify(kgEntities) : null,
+      manifoldThoughts ? JSON.stringify(manifoldThoughts) : null
+    );
+  }
+
+  getRunContext(agentName: string, daysBack: number = 7): any {
+    // Get recent runs
+    const runsStmt = this.db.prepare(`
+      SELECT * FROM runs
+      WHERE agent = ? AND created_at >= datetime('now', '-' || ? || ' days')
+      ORDER BY created_at DESC
+      LIMIT 10
+    `);
+    const runs = runsStmt.all(agentName, daysBack) as any[];
+
+    // Get recent insights
+    const insights = this.getInsights(agentName, daysBack);
+
+    // Get recent messages
+    const messages = this.getMessages(agentName, false);
+
+    // Build context summary
+    const summary = `Recent runs: ${runs.length}, Insights: ${insights.length}, Messages: ${messages.length}`;
+
+    return {
+      summary,
+      runs: runs.slice(0, 5), // Last 5 runs
+      insights: insights.slice(0, 10), // Last 10 insights
+      messages: messages.slice(0, 10) // Last 10 messages
+    };
+  }
+
   close(): void {
     this.db.close();
     logger.info('Database closed');

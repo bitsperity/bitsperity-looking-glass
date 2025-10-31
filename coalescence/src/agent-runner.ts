@@ -98,8 +98,33 @@ async function processTurn(
     'Starting agentic loop with Tool Calling'
   );
 
-  // Get all tools as Claude tool definitions
-  const claudeTools = toolExecutor.getClaudeTools();
+  // Get tools filtered by turn.tools (preferred) or turn.mcps (fallback)
+  const turnTools = (turn as any).tools || [];
+  const turnMcps = turn.mcps || [];
+  
+  let claudeTools: Anthropic.Tool[];
+  if (turnTools.length > 0) {
+    // Use specific tool selection (new way)
+    claudeTools = toolExecutor.getClaudeToolsForTools(turnTools);
+    logger.info(
+      { turnNumber, tools: turnTools, toolCount: claudeTools.length },
+      'Tools filtered by specific tool selection'
+    );
+  } else if (turnMcps.length > 0) {
+    // Fallback to MCP selection (old way, for compatibility)
+    claudeTools = toolExecutor.getClaudeToolsForMcps(turnMcps);
+    logger.info(
+      { turnNumber, mcps: turnMcps, toolCount: claudeTools.length },
+      'Tools filtered by MCP selection'
+    );
+  } else {
+    // Fallback: alle Tools wenn nichts angegeben
+    claudeTools = toolExecutor.getClaudeTools();
+    logger.info(
+      { turnNumber, toolCount: claudeTools.length },
+      'No tool filter specified, using all tools'
+    );
+  }
 
   // Agentic loop: keep calling Claude until stop
   for (let step = 0; step < maxSteps; step++) {
@@ -108,6 +133,28 @@ async function processTurn(
     try {
       // Add user message on first step
       if (step === 0) {
+        // Add current date/time information at the start of the first turn
+        if (turnNumber === 1 && previousMessages.length === 0) {
+          const now = new Date();
+          const dateTime = now.toISOString();
+          const dateTimeReadable = now.toLocaleString('de-DE', { 
+            timeZone: 'Europe/Berlin',
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZoneName: 'short'
+          });
+          
+          messages.push({
+            role: 'user',
+            content: `Aktuelles Datum und Uhrzeit: ${dateTimeReadable} (ISO: ${dateTime})\n\nBeginn der Agent-Ausführung.`
+          });
+        }
+        
         messages.push({
           role: 'user',
           content: turn.prompt || 'Process the available data'
@@ -384,6 +431,33 @@ export async function runAgent(
         const turnRules = loadTurnRulesFromDB(turn.rules || configWithAgent.rules || [], db);
         if (turnRules) {
           db.insertMessage(turnId, runId, 'system', turnRules, 0, 0, 'rules');
+        }
+
+        // Add date/time information at the start of the first turn
+        if (turnIdx === 0) {
+          const now = new Date();
+          const dateTime = now.toISOString();
+          const dateTimeReadable = now.toLocaleString('de-DE', { 
+            timeZone: 'Europe/Berlin',
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            timeZoneName: 'short'
+          });
+          
+          db.insertMessage(
+            turnId, 
+            runId, 
+            'system', 
+            `Aktuelles Datum und Uhrzeit: ${dateTimeReadable} (ISO: ${dateTime})`, 
+            0, 
+            0, 
+            'datetime'
+          );
         }
 
         // Log user prompt BEFORE processing (turn prompt)

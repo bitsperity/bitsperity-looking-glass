@@ -6,7 +6,8 @@
     { href: '/coalescence/runs', label: 'Runs', icon: '🏃', key: 'runs' },
     { href: '/coalescence/agents', label: 'Agents', icon: '⚙️', key: 'agents' },
     { href: '/coalescence/rules', label: 'Rules', icon: '📋', key: 'rules' },
-    { href: '/coalescence/costs', label: 'Costs', icon: '💰', key: 'costs' }
+    { href: '/coalescence/costs', label: 'Costs', icon: '💰', key: 'costs' },
+    { href: '/coalescence/tools', label: 'Tools', icon: '🔧', key: 'tools' }
   ];
   
   function getActiveSection(pathname: string): string {

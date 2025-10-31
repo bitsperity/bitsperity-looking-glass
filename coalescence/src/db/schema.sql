@@ -190,3 +190,89 @@ CREATE TABLE IF NOT EXISTS turn_rules (
 
 CREATE INDEX IF NOT EXISTS idx_turn_rules_turn_id ON turn_rules(turn_id);
 CREATE INDEX IF NOT EXISTS idx_turn_rules_rule_id ON turn_rules(rule_id);
+
+-- Agent Configs (ersetzt YAML komplett)
+CREATE TABLE IF NOT EXISTS agent_configs (
+  name TEXT PRIMARY KEY,
+  enabled BOOLEAN DEFAULT 1,
+  model TEXT NOT NULL,
+  schedule TEXT NOT NULL,
+  system_prompt TEXT,
+  max_tokens_per_turn INTEGER,
+  max_steps INTEGER DEFAULT 5,
+  budget_daily_tokens INTEGER,
+  timeout_minutes INTEGER,
+  config_json TEXT NOT NULL,  -- Full config as JSON
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agent_turns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_name TEXT NOT NULL,
+  turn_id INTEGER NOT NULL,
+  turn_name TEXT NOT NULL,
+  model TEXT,
+  max_tokens INTEGER,
+  max_steps INTEGER,
+  mcps TEXT,  -- JSON array of MCP names
+  prompt TEXT,
+  prompt_file TEXT,
+  rules TEXT,  -- JSON array of rule IDs
+  order_index INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_name) REFERENCES agent_configs(name) ON DELETE CASCADE,
+  UNIQUE(agent_name, turn_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_turns_agent_name ON agent_turns(agent_name);
+CREATE INDEX IF NOT EXISTS idx_agent_turns_order ON agent_turns(agent_name, order_index);
+
+-- Insights (für Post-Run Knowledge Persistence)
+CREATE TABLE IF NOT EXISTS insights (
+  id TEXT PRIMARY KEY,
+  agent_name TEXT NOT NULL,
+  run_id TEXT,
+  insight TEXT NOT NULL,
+  priority TEXT DEFAULT 'medium',
+  related_entities TEXT,  -- JSON array
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_name) REFERENCES agent_configs(name),
+  FOREIGN KEY (run_id) REFERENCES runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_insights_agent ON insights(agent_name);
+CREATE INDEX IF NOT EXISTS idx_insights_run_id ON insights(run_id);
+CREATE INDEX IF NOT EXISTS idx_insights_priority ON insights(priority);
+
+-- Agent Messages (für Agent-to-Agent Kommunikation)
+CREATE TABLE IF NOT EXISTS agent_messages (
+  id TEXT PRIMARY KEY,
+  from_agent TEXT NOT NULL,
+  to_agent TEXT NOT NULL,  -- 'all' für Broadcast
+  type TEXT NOT NULL,
+  content TEXT NOT NULL,
+  related_entities TEXT,  -- JSON array
+  read_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_to_agent ON agent_messages(to_agent);
+CREATE INDEX IF NOT EXISTS idx_messages_from_agent ON agent_messages(from_agent);
+CREATE INDEX IF NOT EXISTS idx_messages_read ON agent_messages(read_at);
+
+-- Run Context Cache
+CREATE TABLE IF NOT EXISTS run_context_cache (
+  id TEXT PRIMARY KEY,
+  agent_name TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  context_summary TEXT NOT NULL,
+  kg_entities TEXT,  -- JSON array
+  manifold_thoughts TEXT,  -- JSON array
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_name) REFERENCES agent_configs(name),
+  FOREIGN KEY (run_id) REFERENCES runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_context_cache_agent ON run_context_cache(agent_name);
+CREATE INDEX IF NOT EXISTS idx_context_cache_run_id ON run_context_cache(run_id);

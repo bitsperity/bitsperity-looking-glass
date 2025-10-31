@@ -34,3 +34,11 @@ mcps:
     env:
       TESSERACT_API_URL: http://localhost:8081
     description: Semantic search and text analysis
+    
+  coalescence:
+    command: node
+    args:
+      - ../../../mcps/coalescence/dist/index-stdio.js
+    env:
+      COALESCENCE_API_URL: http://localhost:8084
+    description: Agent management, context, insights, messages

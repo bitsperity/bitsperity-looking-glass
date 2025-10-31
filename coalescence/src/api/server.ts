@@ -10,6 +10,7 @@ import { z } from 'zod';
 export interface ApiConfig {
   db: OrchestrationDB;
   configDir: string;
+  toolExecutor?: any; // ToolExecutor instance
   onAgentReload?: () => Promise<void>;
   onRunAgent?: (agentName: string) => Promise<void>;
 }
@@ -182,28 +183,6 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     } catch (error) {
       logger.error({ error }, 'Failed to fetch token stats');
       res.status(500).json({ error: 'Failed to fetch token stats' });
-    }
-  });
-
-  // GET /api/logs/agents - Get all agent stats
-  app.get('/api/logs/agents', (req: Request, res: Response) => {
-    try {
-      const stats = db.getAllAgentStats();
-      res.json({ agents: stats, timestamp: new Date().toISOString() });
-    } catch (error) {
-      logger.error({ error }, 'Failed to fetch agent logs');
-      res.status(500).json({ error: 'Failed to fetch agent logs' });
-    }
-  });
-
-  // GET /api/logs/runs/:agent - Get runs for specific agent
-  app.get('/api/logs/runs/:agent', (req: Request, res: Response) => {
-    try {
-      const runs = db.getAgentRuns(req.params.agent, 50);
-      res.json({ runs, count: runs.length, timestamp: new Date().toISOString() });
-    } catch (error) {
-      logger.error({ error }, 'Failed to fetch agent runs');
-      res.status(500).json({ error: 'Failed to fetch agent runs' });
     }
   });
 
@@ -592,6 +571,105 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
     } catch (error) {
       logger.error({ error }, 'Failed to delete rule');
       res.status(500).json({ error: 'Failed to delete rule' });
+    }
+  });
+
+  // GET /api/tools - List all available tools with MCP info
+  app.get('/api/tools', (req: Request, res: Response) => {
+    try {
+      if (!config?.toolExecutor) {
+        return res.status(503).json({ error: 'ToolExecutor not available' });
+      }
+
+      const toolExecutor = config.toolExecutor;
+      const allTools = toolExecutor.getClaudeTools();
+      
+      // Get tools with MCP info - need to access internal tools map
+      const toolsByMcp: Record<string, any[]> = {};
+      const allToolsWithMcp: any[] = [];
+
+      // Access internal tools map if available (hacky but works)
+      if ((toolExecutor as any).tools) {
+        const toolsMap = (toolExecutor as any).tools;
+        for (const [prefixedName, tool] of toolsMap.entries()) {
+          const mcpName = (tool as any).mcpName || prefixedName.split('_')[0];
+          const toolName = prefixedName.replace(`${mcpName}_`, '');
+          
+          if (!toolsByMcp[mcpName]) {
+            toolsByMcp[mcpName] = [];
+          }
+          
+          toolsByMcp[mcpName].push({
+            prefixedName,
+            toolName,
+            mcpName,
+            name: prefixedName,
+            description: tool.description,
+            inputSchema: tool.inputSchema
+          });
+          
+          allToolsWithMcp.push({
+            prefixedName,
+            toolName,
+            mcpName,
+            name: prefixedName,
+            description: tool.description,
+            inputSchema: tool.inputSchema
+          });
+        }
+      }
+
+      res.json({
+        total: allToolsWithMcp.length,
+        tools: allToolsWithMcp,
+        byMcp: toolsByMcp,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch tools');
+      res.status(500).json({ error: 'Failed to fetch tools' });
+    }
+  });
+
+  // GET /api/tools/:mcpName - Get tools for specific MCP
+  app.get('/api/tools/:mcpName', (req: Request, res: Response) => {
+    try {
+      if (!config?.toolExecutor) {
+        return res.status(503).json({ error: 'ToolExecutor not available' });
+      }
+
+      const mcpName = req.params.mcpName;
+      const toolExecutor = config.toolExecutor;
+      const tools: any[] = [];
+
+      if ((toolExecutor as any).tools) {
+        const toolsMap = (toolExecutor as any).tools;
+        for (const [prefixedName, tool] of toolsMap.entries()) {
+          const toolMcpName = (tool as any).mcpName || prefixedName.split('_')[0];
+          
+          if (toolMcpName === mcpName) {
+            const toolName = prefixedName.replace(`${mcpName}_`, '');
+            tools.push({
+              prefixedName,
+              toolName,
+              mcpName: toolMcpName,
+              name: prefixedName,
+              description: tool.description,
+              inputSchema: tool.inputSchema
+            });
+          }
+        }
+      }
+
+      res.json({
+        mcp: mcpName,
+        count: tools.length,
+        tools,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error({ error }, 'Failed to fetch MCP tools');
+      res.status(500).json({ error: 'Failed to fetch MCP tools' });
     }
   });
 

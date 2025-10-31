@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+  import { coalescenceClient } from '$lib/coalescence-client';
+  import ToolSelector from './ToolSelector.svelte';
   
   export let agent: any = null;
   export let isOpen = false;
   export let availableRules: any[] = [];  // List of available rules
-  
+
   const dispatch = createEventDispatcher();
   
   let activeTab: 'basic' | 'turns' | 'advanced' = 'basic';
   
   // Available MCPs
-  const availableMCPs = ['satbase', 'tesseract', 'manifold', 'ariadne'];
+  const availableMCPs = ['satbase', 'tesseract', 'manifold', 'ariadne', 'coalescence'];
   
   // Schedule options
   let scheduleType: 'manual' | 'interval' | 'scheduled' | 'cron' = 'manual';
@@ -18,6 +20,10 @@
   let intervalUnit: 'minutes' | 'hours' = 'minutes';
   let scheduledTime = '09:00';
   let customCron = '0 * * * *';
+  
+  // Models config
+  let modelsConfig: Record<string, any> = {};
+  let loadingModels = false;
   
   // Form state
   let formData = {
@@ -27,36 +33,96 @@
     schedule: 'manual',
     timeout_minutes: 10,
     budget_daily_tokens: 5000,
+    max_tokens_per_turn: undefined as number | undefined,
+    max_steps: 5,
     system_prompt: '',
     turns: [] as any[]
   };
   
+  // Track tool selection mode per turn: 'mcp' or 'tools'
+  let turnToolModes: Record<number, 'mcp' | 'tools'> = {};
+  
   // Tooltip state
   let hoveredRule: { turnIndex: number; ruleId: string } | null = null;
+
+  async function loadModelsConfig() {
+    if (Object.keys(modelsConfig).length > 0) return; // Already loaded
+    
+    try {
+      loadingModels = true;
+      modelsConfig = await coalescenceClient.getAllModels();
+    } catch (e) {
+      console.warn('Failed to load models config:', e);
+    } finally {
+      loadingModels = false;
+    }
+  }
+
+  function getModelInfo(modelName: string) {
+    const model = modelsConfig[modelName];
+    if (!model) return null;
+    
+    return {
+      pricing: model.pricing,
+      notes: model.notes,
+      provider: model.provider
+    };
+  }
+
+  function formatModelPricing(pricing: any): string {
+    if (!pricing) return '';
+    return `$${pricing.input_mtok.toFixed(2)}/$${pricing.output_mtok.toFixed(2)} per 1M tokens`;
+  }
+
+  // Load models when modal opens
+  $: if (isOpen && !loadingModels) {
+    loadModelsConfig();
+  }
+
+  onMount(() => {
+    loadModelsConfig();
+  });
   
   function initializeFormData() {
     if (!agent || !isOpen) return;
     
-    // Load rules from either 'rules' field or 'rules_file' field
-    let rulesContent = agent.config?.rules || '';
-    if (!rulesContent && agent.config?.rules_file) {
-      rulesContent = `# Rules laden aus: ${agent.config.rules_file}\n\n(Rules werden aus File geladen - hier kannst du sie direkt bearbeiten)`;
-    }
+    // Agent can be either AgentConfig (from API) or {name, config, stats} (from list)
+    // Check if it's AgentConfig (direct fields) or old format (agent.config)
+    const isAgentConfig = 'turns' in agent && Array.isArray(agent.turns);
+    const agentData = isAgentConfig ? agent : agent.config;
     
-    // Rules are now per-turn, configured via database
     formData = {
       name: agent.name || '',
-      enabled: agent.config?.enabled ?? true,
-      model: agent.config?.model || 'haiku-3.5',
-      schedule: agent.config?.schedule || 'manual',
-      timeout_minutes: agent.config?.timeout_minutes || 10,
-      budget_daily_tokens: agent.config?.budget_daily_tokens || 5000,
-      system_prompt: agent.config?.system_prompt || '',
-      turns: (agent.config?.turns || []).map((turn: any) => ({
-        ...turn,
-        mcps: turn.mcps || [],
-        rules: turn.rules || [] // Assuming rules are part of the turn config
-      }))
+      enabled: isAgentConfig ? (agent as any).enabled ?? true : agentData?.enabled ?? true,
+      model: isAgentConfig ? (agent as any).model || 'haiku-3.5' : agentData?.model || 'haiku-3.5',
+      schedule: isAgentConfig ? (agent as any).schedule || 'manual' : agentData?.schedule || 'manual',
+      timeout_minutes: isAgentConfig ? (agent as any).timeout_minutes || 10 : agentData?.timeout_minutes || 10,
+      budget_daily_tokens: isAgentConfig ? (agent as any).budget_daily_tokens || 5000 : agentData?.budget_daily_tokens || 5000,
+      max_tokens_per_turn: isAgentConfig ? (agent as any).max_tokens_per_turn : agentData?.max_tokens_per_turn,
+      max_steps: isAgentConfig ? (agent as any).max_steps || 5 : agentData?.max_steps || 5,
+      system_prompt: isAgentConfig ? (agent as any).system_prompt || '' : agentData?.system_prompt || '',
+      turns: (isAgentConfig ? (agent as any).turns || [] : agentData?.turns || []).map((turn: any, idx: number) => {
+        const hasTools = turn.tools && (Array.isArray(turn.tools) ? turn.tools.length > 0 : (typeof turn.tools === 'string' ? JSON.parse(turn.tools).length > 0 : false));
+        // Initialize tool mode based on whether tools are set
+        if (hasTools) {
+          turnToolModes[idx] = 'tools';
+        } else {
+          turnToolModes[idx] = 'mcp';
+        }
+        
+        return {
+          id: turn.id || turn.turn_id,
+          name: turn.name || turn.turn_name || '',
+          max_tokens: turn.max_tokens || 1500,
+          max_steps: turn.max_steps,
+          model: turn.model,
+          mcps: turn.mcps ? (Array.isArray(turn.mcps) ? turn.mcps : JSON.parse(turn.mcps)) : [],
+          tools: turn.tools ? (Array.isArray(turn.tools) ? turn.tools : (typeof turn.tools === 'string' ? JSON.parse(turn.tools) : [])) : [],
+          prompt: turn.prompt || '',
+          prompt_file: turn.prompt_file,
+          rules: turn.rules ? (Array.isArray(turn.rules) ? turn.rules : JSON.parse(turn.rules)) : []
+        };
+      })
     };
     parseSchedule(formData.schedule);
   }
@@ -72,6 +138,8 @@
       schedule: 'manual',
       timeout_minutes: 10,
       budget_daily_tokens: 5000,
+      max_tokens_per_turn: undefined,
+      max_steps: 5,
       system_prompt: '',
       turns: []
     };
@@ -141,10 +209,13 @@
         model: formData.model,
         max_tokens: 1500,
         mcps: [],
+        tools: [],
         prompt: '',
         rules: [] // Initialize rules for new turns
       }
     ];
+    // Initialize tool mode for new turn
+    turnToolModes[formData.turns.length - 1] = 'mcp';
   }
   
   function removeTurn(index: number) {
@@ -164,7 +235,7 @@
         <div>
           <h2 class="text-2xl font-bold text-white flex items-center gap-3">
             <span class="text-3xl">⚙️</span>
-            {agent ? agent.name : 'Neuer Agent'}
+            {agent?.name || agent?.agent || formData.name || 'Neuer Agent'}
           </h2>
           <p class="text-sm text-neutral-400 mt-1">
             {agent ? 'Agent konfigurieren und bearbeiten' : 'Erstelle einen neuen Orchestrator-Agent'}
@@ -274,30 +345,52 @@
             <!-- Model Selection -->
             <div class="bg-neutral-900/30 border border-neutral-700/50 rounded-xl p-6">
               <label class="block text-sm font-semibold text-neutral-300 mb-3">KI Model</label>
-              <div class="grid grid-cols-2 gap-3">
-                {#each [
-                  { value: 'haiku-3.5', label: 'Haiku 3.5', desc: 'Schnell & günstig', icon: '⚡' },
-                  { value: 'haiku-4.5', label: 'Haiku 4.5', desc: 'Verbessert & schnell', icon: '🚀' },
-                  { value: 'sonnet-4.5', label: 'Sonnet 4.5', desc: 'Balanced Performance', icon: '🎯' },
-                  { value: 'opus-4.1', label: 'Opus 4.1', desc: 'Höchste Qualität', icon: '💎' }
-                ] as model}
-                  <label class="flex items-center gap-3 px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-all {formData.model === model.value ? 'border-blue-500 bg-blue-900/20' : ''}">
-                    <input
-                      type="radio"
-                      bind:group={formData.model}
-                      value={model.value}
-                      class="w-4 h-4"
-                    />
-                    <div class="flex-1">
-                      <div class="font-semibold text-white flex items-center gap-2">
-                        <span>{model.icon}</span>
-                        {model.label}
+              {#if loadingModels}
+                <div class="text-center py-4 text-neutral-400 text-sm">Loading model prices...</div>
+              {:else}
+                <div class="grid grid-cols-2 gap-3">
+                  {#each Object.entries(modelsConfig).filter(([key]) => !key.startsWith('deprecated')) as [modelKey, modelData]}
+                    {@const modelName = modelKey.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    {@const icon = modelKey.includes('haiku') ? '⚡' : modelKey.includes('sonnet') ? '🎯' : modelKey.includes('opus') ? '💎' : '🤖'}
+                    {@const isSelected = formData.model === modelKey}
+                    {@const pricing = modelData.pricing}
+                    {@const costEstimate = pricing ? (
+                      (formData.budget_daily_tokens / 1_000_000) * ((pricing.input_mtok * 0.8) + (pricing.output_mtok * 0.2))
+                    ).toFixed(4) : null}
+                    <label class="flex flex-col gap-2 px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-all {isSelected ? 'border-blue-500 bg-blue-900/20' : ''}">
+                      <div class="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          bind:group={formData.model}
+                          value={modelKey}
+                          class="w-4 h-4"
+                        />
+                        <div class="flex-1">
+                          <div class="font-semibold text-white flex items-center gap-2">
+                            <span>{icon}</span>
+                            {modelName}
+                          </div>
+                          {#if modelData.notes}
+                            <div class="text-xs text-neutral-400 mt-1">{modelData.notes}</div>
+                          {/if}
+                        </div>
                       </div>
-                      <div class="text-xs text-neutral-400">{model.desc}</div>
-                    </div>
-                  </label>
-                {/each}
-              </div>
+                      {#if pricing}
+                        <div class="ml-7 text-xs">
+                          <div class="text-neutral-300 font-mono">
+                            💵 {formatModelPricing(pricing)}
+                          </div>
+                          {#if costEstimate && formData.budget_daily_tokens > 0}
+                            <div class="text-neutral-400 mt-1">
+                              Est. ~${costEstimate}/day bei {formData.budget_daily_tokens.toLocaleString()} tokens
+                            </div>
+                          {/if}
+                        </div>
+                      {/if}
+                    </label>
+                  {/each}
+                </div>
+              {/if}
             </div>
 
             <!-- Schedule -->
@@ -472,35 +565,82 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       <p class="text-xs text-neutral-500 mt-1">Überschreibt das Agent-Standard-Model für diesen Turn</p>
                     </div>
 
-                    <!-- MCP Selection -->
+                    <!-- Tool Selection Mode Toggle -->
                     <div class="mb-4">
-                      <label class="block text-xs font-semibold text-neutral-400 mb-2">MCPs (Multi-Channel Protocols)</label>
-                      <div class="flex flex-wrap gap-2">
-                        {#each availableMCPs as mcp}
-                          <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all {(formData.turns[i]?.mcps || []).includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-neutral-700'}">
-                            <input
-                              type="checkbox"
-                              checked={(formData.turns[i]?.mcps || []).includes(mcp)}
-                              on:change={(e) => {
-                                const isChecked = e.currentTarget.checked;
-                                const mcps = formData.turns[i].mcps || [];
-                                if (isChecked && !mcps.includes(mcp)) {
-                                  formData.turns[i].mcps = [...mcps, mcp];
-                                } else if (!isChecked && mcps.includes(mcp)) {
-                                  formData.turns[i].mcps = mcps.filter(m => m !== mcp);
-                                }
-                                formData.turns = [...formData.turns];
-                              }}
-                              class="w-4 h-4 cursor-pointer"
-                            />
-                            <span class="text-sm font-medium">{mcp}</span>
-                          </label>
-                        {/each}
-                      </div>
-                      {#if formData.turns[i]?.mcps?.length > 0}
-                        <div class="mt-2 text-xs text-neutral-500">
-                          Aktiv: {formData.turns[i].mcps.join(', ')}
+                      <div class="flex items-center justify-between mb-2">
+                        <label class="block text-xs font-semibold text-neutral-400">Tool-Auswahl</label>
+                        <div class="flex gap-2">
+                          <button
+                            type="button"
+                            on:click={() => {
+                              // Switch to MCP mode: clear tools, keep mcps
+                              turnToolModes[i] = 'mcp';
+                              if (!formData.turns[i].tools) formData.turns[i].tools = [];
+                              formData.turns[i].tools = [];
+                              formData.turns = [...formData.turns];
+                            }}
+                            class="px-2 py-1 text-xs {(turnToolModes[i] || 'mcp') === 'mcp' ? 'bg-blue-600/20 text-blue-400 border border-blue-600/50' : 'bg-neutral-800 text-neutral-400 border border-neutral-700'} rounded transition-colors hover:bg-neutral-700"
+                          >
+                            MCP (alt)
+                          </button>
+                          <button
+                            type="button"
+                            on:click={() => {
+                              // Switch to Tool mode: clear mcps, initialize tools array if needed
+                              turnToolModes[i] = 'tools';
+                              if (!formData.turns[i].tools) formData.turns[i].tools = [];
+                              formData.turns[i].mcps = [];
+                              formData.turns = [...formData.turns];
+                            }}
+                            class="px-2 py-1 text-xs {(turnToolModes[i] || 'mcp') === 'tools' ? 'bg-blue-600/20 text-blue-400 border border-blue-600/50' : 'bg-neutral-800 text-neutral-400 border border-neutral-700'} rounded transition-colors hover:bg-neutral-700"
+                          >
+                            Tools (neu)
+                          </button>
                         </div>
+                      </div>
+
+                      {#if (turnToolModes[i] || 'mcp') === 'tools'}
+                        <!-- Tool Selector (New Way) -->
+                        <div class="mb-2">
+                          <ToolSelector
+                            selectedTools={formData.turns[i]?.tools || []}
+                            onToolsChange={(tools) => {
+                              formData.turns[i].tools = tools;
+                              formData.turns = [...formData.turns];
+                            }}
+                          />
+                        </div>
+                      {:else}
+                        <!-- MCP Selection (Old Way - Fallback) -->
+                        <div class="flex flex-wrap gap-2">
+                          {#each availableMCPs as mcp}
+                            <label class="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all {(formData.turns[i]?.mcps || []).includes(mcp) ? 'bg-blue-600 text-white' : 'bg-neutral-900 text-neutral-400 hover:bg-neutral-800 border border-neutral-700'}">
+                              <input
+                                type="checkbox"
+                                checked={(formData.turns[i]?.mcps || []).includes(mcp)}
+                                on:change={(e) => {
+                                  const isChecked = e.currentTarget.checked;
+                                  const mcps = formData.turns[i].mcps || [];
+                                  if (isChecked && !mcps.includes(mcp)) {
+                                    formData.turns[i].mcps = [...mcps, mcp];
+                                  } else if (!isChecked && mcps.includes(mcp)) {
+                                    formData.turns[i].mcps = mcps.filter(m => m !== mcp);
+                                  }
+                                  formData.turns = [...formData.turns];
+                                }}
+                                class="w-4 h-4 cursor-pointer"
+                              />
+                              <span class="text-sm font-medium">{mcp}</span>
+                            </label>
+                          {/each}
+                        </div>
+                        {#if formData.turns[i]?.mcps?.length > 0}
+                          <div class="mt-2 text-xs text-neutral-500">
+                            Aktiv: {formData.turns[i].mcps.join(', ')}
+                            <br />
+                            <span class="text-neutral-600">💡 Tipp: Wechsle zu "Tools (neu)" für präzise Tool-Auswahl</span>
+                          </div>
+                        {/if}
                       {/if}
                     </div>
 
@@ -614,6 +754,42 @@ Lade die Watchlist und prüfe welche Tickers heute relevant sind..."
                     <span class="text-neutral-400">Tokens</span>
                   </div>
                   <p class="text-xs text-neutral-500 mt-2">Budget-Limit pro Tag</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-neutral-900/30 border border-neutral-700/50 rounded-xl p-6">
+              <div class="grid grid-cols-2 gap-6">
+                <div>
+                  <label class="block text-sm font-semibold text-neutral-300 mb-3">Max Tokens pro Turn</label>
+                  <div class="flex items-center gap-3">
+                    <input
+                      type="number"
+                      bind:value={formData.max_tokens_per_turn}
+                      min="500"
+                      max="8000"
+                      step="100"
+                      placeholder="Optional"
+                      class="flex-1 px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <span class="text-neutral-400">Tokens</span>
+                  </div>
+                  <p class="text-xs text-neutral-500 mt-2">Optional: Max Tokens pro Turn (überschreibt Turn-Level)</p>
+                </div>
+                
+                <div>
+                  <label class="block text-sm font-semibold text-neutral-300 mb-3">Max Steps</label>
+                  <div class="flex items-center gap-3">
+                    <input
+                      type="number"
+                      bind:value={formData.max_steps}
+                      min="1"
+                      max="20"
+                      class="flex-1 px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                    />
+                    <span class="text-neutral-400">Steps</span>
+                  </div>
+                  <p class="text-xs text-neutral-500 mt-2">Maximale Anzahl Tool-Calls pro Turn</p>
                 </div>
               </div>
             </div>
