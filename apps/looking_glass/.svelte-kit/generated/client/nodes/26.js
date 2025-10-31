@@ -1,1 +1,0 @@
-export { default as component } from "../../../../src/routes/ariadne/manage/learning/history/+page.svelte";

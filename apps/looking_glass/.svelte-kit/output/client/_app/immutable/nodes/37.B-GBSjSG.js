@@ -1,1 +1,0 @@
-import{R as o}from"../chunks/D0iwhpLH.js";function r(e,t){throw new o(e,t.toString())}function n(){throw r(302,"/satbase/overview")}const a=Object.freeze(Object.defineProperty({__proto__:null,load:n},Symbol.toStringTag,{value:"Module"}));export{a as universal};

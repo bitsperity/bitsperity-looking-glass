@@ -17,6 +17,13 @@ build/
 *.tsbuildinfo
 .svelte-kit/
 
+# SQLite WAL files
+*.db-shm
+*.db-wal
+
+# MCP directories
+telegram-mcp/
+
 # Test results
 test-results/
 playwright-report/
