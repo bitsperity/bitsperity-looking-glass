@@ -19,6 +19,7 @@
   import StatusIndicator from '$lib/components/tesseract/StatusIndicator.svelte';
   import AdminSidebar from '$lib/components/tesseract/AdminSidebar.svelte';
   import KnowledgeGraph from '$lib/components/tesseract/KnowledgeGraph.svelte';
+  import SearchHistory from '$lib/components/tesseract/SearchHistory.svelte';
 
   // Tab State
   let activeTab: 'search' | 'graph' = 'search';
@@ -50,6 +51,7 @@
   let activeAlias: string = 'news_embeddings';
   let statusPollInterval: any = null;
   let currentJobId: string | null = null;
+
 
   // Similar Modal
   let showSimilar = false;
@@ -186,11 +188,18 @@
     }
   }
 
+  // Listen for history query clicks
   onMount(async () => {
     await refreshStatus();
     if (embedStatus && 'status' in embedStatus && embedStatus.status === 'running') {
       startStatusPolling();
     }
+
+    // Listen for history query selection
+    window.addEventListener('tesseract-history-query', (e: any) => {
+      query = e.detail.query;
+      performSearch();
+    });
   });
 
   onDestroy(() => {
@@ -340,13 +349,16 @@
             </div>
           </div>
         {/if}
+
+        <!-- Search History Bar (Always Visible) -->
+        <SearchHistory />
       </div>
     </div>
   </div>
 
   <!-- Results Area -->
   <div class="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-neutral-900 scrollbar-thumb-neutral-700">
-    <div class="max-w-6xl w-full mx-auto px-6 py-6">
+      <div class="max-w-6xl w-full mx-auto px-6 py-6">
       {#if error}
         <div class="bg-gradient-to-r from-red-500/20 to-red-600/10 border border-red-500/30 rounded-xl p-4 text-sm text-red-300 mb-4 backdrop-blur-sm shadow-lg shadow-red-950/20">
           {error}

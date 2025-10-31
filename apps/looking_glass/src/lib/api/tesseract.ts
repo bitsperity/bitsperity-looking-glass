@@ -190,6 +190,66 @@ export async function switchCollection(
   return await response.json();
 }
 
+export type SearchHistoryEntry = {
+  id: number;
+  query: string;
+  filters?: Record<string, unknown> | null;
+  result_count: number;
+  created_at: number;
+};
+
+export type SearchHistoryResponse = {
+  history: SearchHistoryEntry[];
+  count: number;
+  filters: {
+    limit?: number;
+    query_filter?: string | null;
+    days?: number | null;
+  };
+};
+
+export type SearchStatsResponse = {
+  total_searches: number;
+  unique_queries: number;
+  avg_result_count: number;
+  top_queries: Array<{ query: string; count: number }>;
+  days: number;
+};
+
+export async function getSearchHistory(
+  limit: number = 50,
+  queryFilter?: string,
+  days?: number
+): Promise<SearchHistoryResponse> {
+  const params = new URLSearchParams();
+  if (limit) params.append('limit', limit.toString());
+  if (queryFilter) params.append('query_filter', queryFilter);
+  if (days) params.append('days', days.toString());
+
+  const response = await fetch(
+    `${TESSERACT_BASE}/v1/admin/search-history?${params.toString()}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Get search history failed: ${response.status} ${response.statusText}`);
+  }
+  return await response.json();
+}
+
+export async function getSearchStats(days: number = 30): Promise<SearchStatsResponse> {
+  const params = new URLSearchParams();
+  if (days) params.append('days', days.toString());
+
+  const response = await fetch(
+    `${TESSERACT_BASE}/v1/admin/search-stats?${params.toString()}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Get search stats failed: ${response.status} ${response.statusText}`);
+  }
+  return await response.json();
+}
+
 export async function health(): Promise<{ status: string; service: string }> {
   const response = await fetch(`${TESSERACT_BASE}/health`);
 
