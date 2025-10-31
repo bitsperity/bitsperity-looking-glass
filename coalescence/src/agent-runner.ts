@@ -83,9 +83,11 @@ async function processTurn(
   db: OrchestrationDB,
   model: string,
   maxSteps: number,
-  turnRules: string = ''
-): Promise<{ inputTokens: number; outputTokens: number; responseText: string; toolCalls: number }> {
-  const messages: Anthropic.MessageParam[] = [];
+  turnRules: string = '',
+  previousMessages: Anthropic.MessageParam[] = []  // Context from previous turns
+): Promise<{ inputTokens: number; outputTokens: number; responseText: string; toolCalls: number; finalMessages: Anthropic.MessageParam[] }> {
+  // Start with context from previous turns (deep copy to avoid mutations)
+  const messages: Anthropic.MessageParam[] = JSON.parse(JSON.stringify(previousMessages));
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalToolCalls = 0;
@@ -310,7 +312,8 @@ async function processTurn(
     inputTokens: totalInputTokens,
     outputTokens: totalOutputTokens,
     responseText,
-    toolCalls: totalToolCalls
+    toolCalls: totalToolCalls,
+    finalMessages: messages  // Return messages for next turn
   };
 }
 
@@ -350,6 +353,10 @@ export async function runAgent(
       apiKey: process.env.ANTHROPIC_API_KEY
     });
 
+    // Initialize shared message context that persists across all turns
+    // This allows the agent to remember what happened in previous turns
+    let sharedMessages: Anthropic.MessageParam[] = [];
+
     // Run turns sequentially
     for (let turnIdx = 0; turnIdx < config.turns.length; turnIdx++) {
       const turnNumber = turnIdx + 1;
@@ -382,7 +389,20 @@ export async function runAgent(
         // Log user prompt BEFORE processing (turn prompt)
         db.insertMessage(turnId, runId, 'user', turn.prompt || '', 0, 0, 'user');
 
+        // Add turn summary from previous turn if available (for context continuity)
+        if (turnIdx > 0 && sharedMessages.length > 0) {
+          // Add a system message summarizing previous turn's context
+          const previousTurnSummary = `[Turn ${turnNumber - 1} Context] You are continuing from Turn ${turnNumber - 1}. Here's what happened in previous turns:\n\n` +
+            `Previous turns context is preserved in the conversation history below. Review it to understand what data was gathered, what insights were discovered, and what actions were taken.`;
+          
+          logger.info(
+            { turnNumber, previousMessagesCount: sharedMessages.length },
+            'Including context from previous turns'
+          );
+        }
+
         // Process turn with agentic loop and tool calling
+        // Pass sharedMessages to maintain context across turns
         const result = await processTurn(
           client,
           runId,
@@ -394,13 +414,23 @@ export async function runAgent(
           db,
           model,
           maxSteps,
-          turnRules  // Pass rules to be integrated into system prompt
+          turnRules,  // Pass rules to be integrated into system prompt
+          sharedMessages  // Pass previous turn's context
         );
 
         turnInputTokens = result.inputTokens;
         turnOutputTokens = result.outputTokens;
         turnResponse = result.responseText;
         turnToolCalls = result.toolCalls;
+        
+        // Update shared messages with this turn's context for next turn
+        // This preserves the full conversation history across turns
+        sharedMessages = result.finalMessages;
+        
+        logger.info(
+          { turnNumber, messagesCount: sharedMessages.length },
+          'Context updated for next turn'
+        );
         
         // Log final response
         db.insertMessage(turnId, runId, 'assistant', turnResponse, turnOutputTokens, turnInputTokens, 'assistant');

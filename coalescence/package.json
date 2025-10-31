@@ -1,7 +1,7 @@
 {
-  "name": "alpaca-bot-orchestrator",
+  "name": "coalescence",
   "version": "1.0.0",
-  "description": "Multi-Agent Orchestration Pipeline for World-Modeling & Trading",
+  "description": "Coalescence: Multi-Agent Orchestration Pipeline for World-Modeling & Trading",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {

@@ -1,6 +1,6 @@
-# Orchestrator: Multi-Agent Pipeline
+# Coalescence: Multi-Agent Pipeline
 
-Central orchestration engine for the Alpaca Bot multi-agent trading system.
+Coalescence is the central orchestration engine for the Alpaca Bot multi-agent trading system. It coordinates multiple specialized agents to build knowledge, analyze markets, and make trading decisions.
 
 ## Setup (Docker)
 
