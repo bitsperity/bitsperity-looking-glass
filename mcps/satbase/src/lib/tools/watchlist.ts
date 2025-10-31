@@ -12,17 +12,29 @@ import logger from '../../logger.js';
 export const getWatchlistTool = {
   name: 'get-watchlist',
   config: {
-    title: 'Get Watchlist',
-    description: 'Get current watchlist of ticker symbols.',
-    inputSchema: z.object({}).shape,
+    title: 'Get Watchlist Items',
+    description: 'Get current watchlist items (stocks, topics, macro indicators).',
+    inputSchema: z.object({
+      type: z.enum(['stock', 'topic', 'macro']).optional().describe('Filter by type'),
+      enabled: z.boolean().optional().describe('Filter by enabled status'),
+      active_now: z.boolean().default(false).describe('Only return currently active items')
+    }).shape,
   },
-  handler: async () => {
-    logger.info({ tool: 'get-watchlist' }, 'Tool invoked');
+  handler: async (input: { type?: string; enabled?: boolean; active_now?: boolean }) => {
+    logger.info({ tool: 'get-watchlist', input }, 'Tool invoked');
     const start = performance.now();
 
     try {
+      const params = new URLSearchParams();
+      if (input.type) params.append('type', input.type);
+      if (input.enabled !== undefined) params.append('enabled', input.enabled.toString());
+      if (input.active_now) params.append('active_now', input.active_now.toString());
+
+      const queryString = params.toString();
+      const url = queryString ? `/v1/watchlist/items?${queryString}` : '/v1/watchlist/items';
+
       const result = await callSatbase<z.infer<typeof GetWatchlistResponseSchema>>(
-        '/v1/watchlist',
+        url,
         {},
         10000
       );
@@ -46,8 +58,8 @@ export const getWatchlistTool = {
 export const addWatchlistTool = {
   name: 'add-watchlist',
   config: {
-    title: 'Add to Watchlist',
-    description: 'Add ticker symbols to watchlist, optionally trigger price ingestion.',
+    title: 'Add Items to Watchlist',
+    description: 'Add watchlist items (stocks, topics, macro indicators).',
     inputSchema: AddWatchlistRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof AddWatchlistRequestSchema>) => {
@@ -56,7 +68,7 @@ export const addWatchlistTool = {
 
     try {
       const result = await callSatbase<z.infer<typeof AddWatchlistResponseSchema>>(
-        '/v1/watchlist',
+        '/v1/watchlist/items',
         {
           method: 'POST',
           body: JSON.stringify(input)
@@ -83,8 +95,8 @@ export const addWatchlistTool = {
 export const removeWatchlistTool = {
   name: 'remove-watchlist',
   config: {
-    title: 'Remove from Watchlist',
-    description: 'Remove a ticker symbol from watchlist.',
+    title: 'Remove Item from Watchlist',
+    description: 'Remove a watchlist item by its ID.',
     inputSchema: RemoveWatchlistRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof RemoveWatchlistRequestSchema>) => {
@@ -93,13 +105,13 @@ export const removeWatchlistTool = {
 
     try {
       const result = await callSatbase<z.infer<typeof RemoveWatchlistResponseSchema>>(
-        `/v1/watchlist/${input.symbol}`,
+        `/v1/watchlist/items/${input.item_id}`,
         { method: 'DELETE' },
         10000
       );
 
       const duration = performance.now() - start;
-      logger.info({ tool: 'remove-watchlist', duration, removed: result.removed }, 'Tool completed');
+      logger.info({ tool: 'remove-watchlist', duration, status: result.status }, 'Tool completed');
 
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
@@ -156,8 +168,8 @@ export const refreshWatchlistTool = {
 export const watchlistStatusTool = {
   name: 'watchlist-status',
   config: {
-    title: 'Watchlist Status',
-    description: 'Get watchlist with freshness metrics (latest price date, news count 24h).',
+    title: 'Watchlist Active Items',
+    description: 'Get all currently active watchlist items (for scheduler/monitoring).',
     inputSchema: z.object({}).shape
   },
   handler: async () => {
@@ -165,7 +177,7 @@ export const watchlistStatusTool = {
     const start = performance.now();
 
     try {
-      const result = await callSatbase<any>('/v1/watchlist/status', {}, 20000);
+      const result = await callSatbase<any>('/v1/watchlist/active', {}, 20000);
 
       const duration = performance.now() - start;
       logger.info({ tool: 'watchlist-status', duration, count: result.count }, 'Tool completed');
@@ -174,6 +186,53 @@ export const watchlistStatusTool = {
     } catch (error: any) {
       logger.error({ tool: 'watchlist-status', error }, 'Tool failed');
       return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+};
+
+export const updateWatchlistTool = {
+  name: 'update-watchlist',
+  config: {
+    title: 'Update Watchlist Item',
+    description: 'Update a watchlist item (partial update - enable/disable, label, expires_at, etc.).',
+    inputSchema: z.object({
+      item_id: z.number().int().describe('Watchlist item ID to update'),
+      enabled: z.boolean().optional().describe('Enable/disable this item'),
+      label: z.string().optional().describe('Display label'),
+      expires_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Expiration date (YYYY-MM-DD)')
+    }).shape
+  },
+  handler: async (input: { item_id: number; enabled?: boolean; label?: string; expires_at?: string }) => {
+    logger.info({ tool: 'update-watchlist', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const body: any = {};
+      if (input.enabled !== undefined) body.enabled = input.enabled;
+      if (input.label !== undefined) body.label = input.label;
+      if (input.expires_at !== undefined) body.expires_at = input.expires_at;
+
+      const result = await callSatbase<any>(
+        `/v1/watchlist/items/${input.item_id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(body)
+        },
+        10000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'update-watchlist', duration, status: result.status }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'update-watchlist', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
     }
   }
 };

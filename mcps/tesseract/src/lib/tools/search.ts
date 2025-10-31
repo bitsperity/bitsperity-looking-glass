@@ -20,15 +20,20 @@ export const searchTool = {
     const start = performance.now();
 
     try {
+      const filters: Record<string, unknown> = {};
+      if (input.tickers) filters.tickers = input.tickers;
+      if (input.from_date) filters.from = input.from_date;
+      if (input.to_date) filters.to = input.to_date;
+      if (input.topics) filters.topics = input.topics;
+      if (input.language) filters.language = input.language;
+      if (typeof input.body_available === 'boolean') filters.body_available = input.body_available;
+      if (input.vector_type) filters.vector_type = input.vector_type;
+
       const result = await callTesseract<SearchOutput>('/v1/tesseract/search', {
         method: 'POST',
         body: JSON.stringify({
           query: input.query,
-          filters: {
-            tickers: input.tickers,
-            from: input.from_date,
-            to: input.to_date,
-          },
+          filters,
           limit: input.limit,
         }),
       });
@@ -41,7 +46,7 @@ export const searchTool = {
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
-        structuredContent: result,
+        structuredContent: result as any,
       };
     } catch (error) {
       logger.error({ tool: 'semantic-search', error }, 'Tool failed');

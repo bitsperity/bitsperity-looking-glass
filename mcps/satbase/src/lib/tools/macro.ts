@@ -65,8 +65,8 @@ export const fredObservationsTool = {
 
       const queryString = params.toString();
       const url = queryString 
-        ? `/v1/macro/fred/series/${input.series_id}?${queryString}`
-        : `/v1/macro/fred/series/${input.series_id}`;
+        ? `/v1/macro/series/${input.series_id}?${queryString}`
+        : `/v1/macro/series/${input.series_id}`;
 
       const result = await callSatbase<z.infer<typeof FredObservationsResponseSchema>>(url);
 
@@ -103,8 +103,8 @@ export const fredCategoriesTool = {
 
       const queryString = params.toString();
       const url = queryString
-        ? `/v1/macro/fred/categories?${queryString}`
-        : `/v1/macro/fred/categories`;
+        ? `/v1/macro/categories?${queryString}`
+        : `/v1/macro/categories`;
 
       const result = await callSatbase<z.infer<typeof FredCategoriesResponseSchema>>(url);
 
@@ -138,7 +138,7 @@ export const fredRefreshCoreTool = {
 
     try {
       const result = await callSatbase<any>(
-        '/v1/macro/fred/refresh-core',
+        '/v1/macro/refresh-core',
         { method: 'POST' },
         30000
       );
@@ -150,6 +150,42 @@ export const fredRefreshCoreTool = {
     } catch (error: any) {
       logger.error({ tool: 'fred-refresh-core', error }, 'Tool failed');
       return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+};
+
+export const macroStatusTool = {
+  name: 'macro-status',
+  config: {
+    title: 'Get FRED Series Status',
+    description: 'Get status for a FRED series (observation count, latest value, etc.).',
+    inputSchema: z.object({
+      series_id: z.string().describe('FRED series ID')
+    }).shape
+  },
+  handler: async (input: { series_id: string }) => {
+    logger.info({ tool: 'macro-status', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        `/v1/macro/status/${input.series_id}`,
+        {},
+        10000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'macro-status', duration, observations: result.observation_count }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'macro-status', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
     }
   }
 };

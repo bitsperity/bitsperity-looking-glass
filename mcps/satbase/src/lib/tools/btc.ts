@@ -31,7 +31,7 @@ export const btcOracleTool = {
       );
 
       const duration = performance.now() - start;
-      logger.info({ tool: 'btc-oracle', duration, count: result.count }, 'Tool completed');
+      logger.info({ tool: 'btc-oracle', duration, count: result.points?.length || 0 }, 'Tool completed');
 
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],

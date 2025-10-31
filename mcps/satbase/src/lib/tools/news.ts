@@ -171,3 +171,192 @@ export const trendingTickersTool = {
     }
   }
 };
+
+export const newsAnalyticsTool = {
+  name: 'news-analytics',
+  config: {
+    title: 'News Analytics & Trends',
+    description: 'Simple trend analysis: article counts over time with trend direction and moving averages.',
+    inputSchema: z.object({
+      days: z.number().int().min(1).max(365).default(30).describe('Number of days to analyze'),
+      topics: z.string().optional().describe('Comma-separated topic names to filter')
+    }).shape
+  },
+  handler: async (input: { days?: number; topics?: string }) => {
+    logger.info({ tool: 'news-analytics', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const params = new URLSearchParams({
+        days: (input.days || 30).toString()
+      });
+      if (input.topics) params.append('topics', input.topics);
+
+      const result = await callSatbase<any>(
+        `/v1/news/analytics?${params.toString()}`,
+        {},
+        30000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'news-analytics', duration, trend: result.trend }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'news-analytics', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const getNewsByIdTool = {
+  name: 'get-news-by-id',
+  config: {
+    title: 'Get News Article by ID',
+    description: 'Get a single news article by its ID.',
+    inputSchema: z.object({
+      article_id: z.string().describe('Article ID to retrieve')
+    }).shape
+  },
+  handler: async (input: { article_id: string }) => {
+    logger.info({ tool: 'get-news-by-id', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        `/v1/news/${input.article_id}`,
+        {},
+        10000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'get-news-by-id', duration }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'get-news-by-id', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const bulkNewsTool = {
+  name: 'bulk-news',
+  config: {
+    title: 'Bulk Fetch News Articles',
+    description: 'Fetch multiple news articles by their IDs in one request (token-efficient).',
+    inputSchema: z.object({
+      ids: z.array(z.string()).describe('Array of article IDs to fetch'),
+      include_body: z.boolean().default(false).describe('Include full article content')
+    }).shape
+  },
+  handler: async (input: { ids: string[]; include_body?: boolean }) => {
+    logger.info({ tool: 'bulk-news', input: { ...input, ids_count: input.ids.length } }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        '/v1/news/bulk',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            ids: input.ids,
+            include_body: input.include_body || false
+          })
+        },
+        30000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'bulk-news', duration, found: result.found, missing: result.missing }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'bulk-news', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const newsHealthTool = {
+  name: 'news-health',
+  config: {
+    title: 'News Pipeline Health Check',
+    description: 'Health check for news ingestion pipeline. Returns status, last ingestion, articles today, crawl success rate, staleness.',
+    inputSchema: z.object({}).shape
+  },
+  handler: async () => {
+    logger.info({ tool: 'news-health' }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        '/v1/news/health',
+        {},
+        10000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'news-health', duration, status: result.status }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'news-health', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const integrityCheckTool = {
+  name: 'news-integrity-check',
+  config: {
+    title: 'News Data Integrity Check',
+    description: 'Verify data integrity of SQLite database.',
+    inputSchema: z.object({}).shape
+  },
+  handler: async () => {
+    logger.info({ tool: 'news-integrity-check' }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        '/v1/news/integrity-check',
+        {},
+        20000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'news-integrity-check', duration, status: result.status }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'news-integrity-check', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};

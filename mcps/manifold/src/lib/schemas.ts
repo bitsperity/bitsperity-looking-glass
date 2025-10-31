@@ -21,9 +21,10 @@ export const PatchThoughtSchema = z.object({}).passthrough();
 // Search
 export const SearchRequestSchema = z.object({
   query: z.string().optional(),
+  vector_type: z.enum(['text','title','summary']).optional(),
+  include_content: z.boolean().optional(),
   filters: z.any().optional(),
   boosts: z.any().optional(),
-  facets: z.array(z.string()).optional(),
   diversity: z.any().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0)
@@ -59,5 +60,25 @@ export const ReindexRequestSchema = z.object({
 });
 
 export const BulkIdsSchema = z.object({ ids: z.array(z.string()) });
+
+// Check Duplicate
+export const CheckDuplicateRequestSchema = z.object({
+  title: z.string().optional(),
+  summary: z.string().optional(),
+  content: z.string().optional(),
+  threshold: z.number().min(0).max(1).default(0.90)
+});
+
+// Quarantine
+export const QuarantineRequestSchema = z.object({
+  reason: z.string().optional()
+});
+
+// Explain Search
+export const ExplainSearchRequestSchema = z.object({
+  query: z.string(),
+  filters: z.any().optional(),
+  limit: z.number().int().min(1).max(200).optional()
+});
 
 

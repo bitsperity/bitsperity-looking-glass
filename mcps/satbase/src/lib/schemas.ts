@@ -177,23 +177,24 @@ export const ListPricesRequestSchema = z.object({
   to: DateStringSchema.describe('End date (YYYY-MM-DD)')
 });
 
-export const PriceDataSchema = z.object({
+export const PriceBarSchema = z.object({
   date: z.string(),
   open: z.number(),
   high: z.number(),
   low: z.number(),
   close: z.number(),
   volume: z.number(),
-  vwap: z.number().optional(),
-  transactions: z.number().optional()
+  source: z.string().optional()
 });
 
 export const ListPricesResponseSchema = z.object({
   ticker: z.string(),
-  from: z.string(),
-  to: z.string(),
-  data: z.array(PriceDataSchema),
-  count: z.number()
+  bars: z.array(PriceBarSchema),
+  last_date: z.string().nullable(),
+  source: z.string().optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  btc_view: z.boolean().optional()
 });
 
 // --- BTC Schemas ---
@@ -203,16 +204,20 @@ export const BtcOracleRequestSchema = z.object({
   to: DateStringSchema.describe('End date (YYYY-MM-DD)')
 });
 
-export const BtcPriceSchema = z.object({
-  date: z.string(),
-  price_usd: z.number()
-});
+export const BtcPricePointSchema = z.object({
+  ts: z.string(),
+  price: z.number().optional(),
+  open: z.number().optional(),
+  high: z.number().optional(),
+  low: z.number().optional(),
+  close: z.number().optional(),
+  volume: z.number().optional()
+}).passthrough();
 
 export const BtcOracleResponseSchema = z.object({
   from: z.string(),
   to: z.string(),
-  data: z.array(BtcPriceSchema),
-  count: z.number()
+  points: z.array(BtcPricePointSchema)
 });
 
 export const UsdToBtcRequestSchema = z.object({
@@ -226,10 +231,11 @@ export const BtcToUsdRequestSchema = z.object({
 });
 
 export const ConversionResponseSchema = z.object({
-  input_value: z.number(),
-  output_value: z.number(),
-  rate: z.number(),
-  date: z.string()
+  value_usd: z.number().optional(),
+  value_btc: z.number().optional(),
+  date: z.string(),
+  btc: z.number().nullable().optional(),
+  usd: z.number().nullable().optional()
 });
 
 // --- Ingest Schemas ---
@@ -289,10 +295,15 @@ export const GetJobResponseSchema = JobSchema;
 // --- Watchlist Schemas ---
 
 export const WatchlistItemSchema = z.object({
-  symbol: z.string(),
+  id: z.number(),
+  type: z.enum(['stock', 'topic', 'macro']),
+  key: z.string(),
+  label: z.string().optional().nullable(),
+  enabled: z.boolean(),
   added_at: z.string(),
-  expires_at: z.string().optional()
-});
+  expires_at: z.string().optional().nullable(),
+  last_refreshed: z.string().optional().nullable()
+}).passthrough();
 
 export const GetWatchlistResponseSchema = z.object({
   items: z.array(WatchlistItemSchema),
@@ -300,50 +311,52 @@ export const GetWatchlistResponseSchema = z.object({
 });
 
 export const AddWatchlistRequestSchema = z.object({
-  symbols: z.array(z.string()).describe('Ticker symbols to add'),
-  ingest: z.boolean().default(false).describe('Trigger price ingestion immediately'),
-  ttl_days: z.number().int().min(1).optional().describe('Days until expiration')
+  items: z.array(z.object({
+    type: z.enum(['stock', 'topic', 'macro']).describe('Item type'),
+    key: z.string().describe('Stock ticker, topic name, or FRED series ID'),
+    label: z.string().optional().describe('Optional display label'),
+    enabled: z.boolean().default(true).describe('Enable/disable this item'),
+    expires_at: z.string().optional().describe('Expiration date (YYYY-MM-DD)')
+  })).describe('Watchlist items to add')
 });
 
 export const AddWatchlistResponseSchema = z.object({
-  added: z.array(z.string()),
-  count: z.number(),
-  ingestion_triggered: z.boolean()
+  added: z.array(WatchlistItemSchema),
+  count: z.number()
 });
 
 export const RemoveWatchlistRequestSchema = z.object({
-  symbol: z.string().describe('Ticker symbol to remove')
+  item_id: z.number().describe('Watchlist item ID to remove')
 });
 
 export const RemoveWatchlistResponseSchema = z.object({
-  removed: z.boolean(),
-  symbol: z.string()
+  status: z.string(),
+  item_id: z.number()
 });
 
 // --- Topics Schemas ---
 
 export const TopicItemSchema = z.object({
-  query: z.string(),
+  symbol: z.string(),
   added_at: z.string(),
   expires_at: z.string().optional()
 });
 
 export const GetTopicsResponseSchema = z.object({
   topics: z.array(TopicItemSchema),
-  count: z.number()
+  total: z.number(),
+  source: z.string().optional()
 });
 
 export const AddTopicsRequestSchema = z.object({
-  queries: z.array(z.string()).describe('Search queries to add'),
-  ingest: z.boolean().default(false).describe('Trigger news ingestion immediately'),
-  hours: z.number().int().min(1).max(720).optional().describe('Hours to look back for news'),
-  ttl_days: z.number().int().min(1).optional().describe('Days until expiration')
+  symbol: z.string().describe('Topic name/symbol'),
+  expires_at: z.string().optional().describe('Expiration date (YYYY-MM-DD)')
 });
 
 export const AddTopicsResponseSchema = z.object({
-  added: z.array(z.string()),
-  count: z.number(),
-  ingestion_triggered: z.boolean()
+  success: z.boolean(),
+  topic: TopicItemSchema,
+  total_topics: z.number()
 });
 
 // --- Health Schemas ---

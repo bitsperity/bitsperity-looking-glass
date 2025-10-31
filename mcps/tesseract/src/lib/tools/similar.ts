@@ -39,7 +39,7 @@ export const similarTool = {
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
-        structuredContent: result,
+        structuredContent: result as any,
       };
     } catch (error) {
       logger.error({ tool: 'find-similar-articles', error }, 'Tool failed');

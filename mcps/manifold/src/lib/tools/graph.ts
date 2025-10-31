@@ -10,7 +10,9 @@ export const getBirdviewGraphTool = {
       limit: z.number().int().min(10).max(5000).default(500),
       type: z.string().optional(),
       status: z.string().optional(),
-      tickers: z.string().optional()
+      tickers: z.string().optional(),
+      session_id: z.string().optional(),
+      workspace_id: z.string().optional()
     }).shape
   },
   handler: async (input: any) => {
@@ -19,6 +21,8 @@ export const getBirdviewGraphTool = {
     if (input.type) params.append('type', input.type);
     if (input.status) params.append('status', input.status);
     if (input.tickers) params.append('tickers', input.tickers);
+    if (input.session_id) params.append('session_id', input.session_id);
+    if (input.workspace_id) params.append('workspace_id', input.workspace_id);
     const res = await callManifold(`/v1/memory/graph?${params.toString()}`, {}, 20000);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
   }

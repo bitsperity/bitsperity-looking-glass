@@ -2,10 +2,19 @@ import pino from 'pino';
 import { config } from './config.js';
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
+const isStdio = process.argv[1]?.includes('index-stdio') || process.env.MCP_STDIO === 'true';
+
+// For stdio mode: redirect logs to stderr to avoid interfering with JSON-RPC on stdout
+// Use pino.destination() to explicitly write to stderr
+const destination = isStdio ? pino.destination({ dest: process.stderr.fd, sync: false }) : undefined;
 
 export const logger = pino({
   level: config.LOG_LEVEL,
-  transport: isDevelopment
+  // For stdio mode: no colors, plain JSON to stderr
+  // For HTTP mode: pretty colors in development
+  transport: isStdio
+    ? undefined // No pretty printing for stdio - just JSON to stderr
+    : isDevelopment
     ? {
         target: 'pino-pretty',
         options: {
@@ -18,5 +27,5 @@ export const logger = pino({
   formatters: {
     level: (label) => ({ level: label }),
   },
-});
+}, destination);
 

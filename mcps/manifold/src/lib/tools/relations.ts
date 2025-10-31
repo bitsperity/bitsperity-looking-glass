@@ -71,4 +71,26 @@ export const getRelatedGraphTool = {
   }
 };
 
+export const getThoughtTreeTool = {
+  name: 'mf-get-thought-tree',
+  config: {
+    title: 'Get Thought Tree',
+    description: 'Get hierarchical tree: parent → thought → children, plus related thoughts.',
+    inputSchema: z.object({ 
+      thought_id: z.string(),
+      depth: z.number().int().min(1).max(3).default(2).optional()
+    }).shape
+  },
+  handler: async (input: { thought_id: string; depth?: number }) => {
+    try {
+      const params = new URLSearchParams();
+      if (input.depth) params.append('depth', String(input.depth));
+      const res = await callManifold(`/v1/memory/thought/${input.thought_id}/tree?${params.toString()}`, {}, 15000);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+};
+
 

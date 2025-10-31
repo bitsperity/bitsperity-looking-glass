@@ -73,4 +73,21 @@ export const deleteThoughtTool = {
   }
 };
 
+export const getThoughtChildrenTool = {
+  name: 'mf-get-thought-children',
+  config: {
+    title: 'Get Thought Children',
+    description: 'Get all child thoughts (parent_id == thought_id), sorted by ordinal.',
+    inputSchema: z.object({ id: z.string() }).shape
+  },
+  handler: async (input: { id: string }) => {
+    try {
+      const res = await callManifold(`/v1/memory/thought/${input.id}/children`, {}, 10000);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+};
+
 

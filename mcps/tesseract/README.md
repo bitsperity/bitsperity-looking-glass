@@ -177,9 +177,48 @@ Find similar news articles to a given article using vector similarity.
 }
 ```
 
+#### 3. get-article-similarity
+
+Calculate cosine similarity between title/summary/body vectors of an article. Essential for content quality assessment, detecting clickbait, and validating extraction quality.
+
+**Use Cases:**
+- Content consistency assessment: High similarity (>0.8) indicates consistent, well-structured content
+- Clickbait detection: Low similarity (<0.5) may indicate clickbait or misleading titles
+- Quality validation: Identify articles with potential extraction problems
+- Semantic analysis: Understand how well title/summary represent the body
+
+**Input:**
+```json
+{
+  "news_id": "abc123"
+}
+```
+
+**Output:**
+```json
+{
+  "news_id": "abc123",
+  "available": {
+    "title": true,
+    "summary": true,
+    "body": true
+  },
+  "similarity": {
+    "title_body": 0.87,
+    "summary_body": 0.92
+  }
+}
+```
+
+**Interpretation:**
+- `title_body`: Cosine similarity between title and body vectors (0-1, higher = more consistent)
+- `summary_body`: Cosine similarity between summary and body vectors (0-1, higher = more consistent)
+- Values >0.8: Well-structured, consistent content
+- Values <0.5: Potentially problematic (clickbait, poor extraction, misleading title)
+
 ### Admin Tools
 
-#### 3. init-collection
+#### 4. init-collection
 
 Create a new versioned Qdrant collection and set up alias for zero-downtime updates.
 
@@ -194,7 +233,7 @@ Create a new versioned Qdrant collection and set up alias for zero-downtime upda
 }
 ```
 
-#### 4. start-batch-embedding
+#### 5. start-batch-embedding
 
 Start background batch embedding of news articles from Satbase into Qdrant.
 
@@ -217,7 +256,7 @@ Start background batch embedding of news articles from Satbase into Qdrant.
 
 **Note:** This can take several minutes. Use `get-embedding-status` to monitor progress.
 
-#### 5. get-embedding-status
+#### 6. get-embedding-status
 
 Get current batch embedding status, progress, and collection metadata.
 
@@ -240,7 +279,7 @@ Get current batch embedding status, progress, and collection metadata.
 }
 ```
 
-#### 6. list-collections
+#### 7. list-collections
 
 List all Qdrant collections with metadata.
 
@@ -262,7 +301,7 @@ List all Qdrant collections with metadata.
 }
 ```
 
-#### 7. switch-collection
+#### 8. switch-collection
 
 Switch the active collection alias to a different collection (zero-downtime).
 
@@ -282,7 +321,7 @@ Switch the active collection alias to a different collection (zero-downtime).
 }
 ```
 
-#### 8. delete-collection
+#### 9. delete-collection
 
 Delete a Qdrant collection (with safety checks - cannot delete active collection).
 

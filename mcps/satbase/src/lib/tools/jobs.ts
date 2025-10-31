@@ -26,7 +26,7 @@ export const listJobsTool = {
       if (input.status) params.append('status', input.status);
 
       const result = await callSatbase<z.infer<typeof ListJobsResponseSchema>>(
-        `/v1/jobs?${params.toString()}`,
+        `/v1/ingest/jobs?${params.toString()}`,
         {},
         10000 // Fast query, 10 seconds timeout
       );
@@ -62,7 +62,7 @@ export const getJobTool = {
 
     try {
       const result = await callSatbase<z.infer<typeof GetJobResponseSchema>>(
-        `/v1/jobs/${input.job_id}`,
+        `/v1/ingest/jobs/${input.job_id}`,
         {},
         10000
       );
@@ -137,6 +137,120 @@ export const cancelJobTool = {
     } catch (error: any) {
       logger.error({ tool: 'jobs-cancel', error }, 'Tool failed');
       return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
+    }
+  }
+};
+
+export const retryJobTool = {
+  name: 'job-retry',
+  config: {
+    title: 'Retry Failed Job',
+    description: 'Retry a failed job by creating a new job with the same payload.',
+    inputSchema: z.object({
+      job_id: z.string().describe('Job ID to retry')
+    }).shape
+  },
+  handler: async (input: { job_id: string }) => {
+    logger.info({ tool: 'job-retry', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        `/v1/admin/jobs/${input.job_id}/retry`,
+        { method: 'POST' },
+        15000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'job-retry', duration, new_job: result.new_job }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'job-retry', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const adminJobsTool = {
+  name: 'admin-jobs',
+  config: {
+    title: 'List Admin Jobs',
+    description: 'List all jobs with optional filters (status, job_type). Perfect for frontend monitoring.',
+    inputSchema: z.object({
+      status: z.enum(['queued', 'running', 'done', 'error']).optional().describe('Filter by status'),
+      job_type: z.string().optional().describe('Filter by job type'),
+      limit: z.number().int().min(1).max(1000).default(100).describe('Maximum number of jobs')
+    }).shape
+  },
+  handler: async (input: { status?: string; job_type?: string; limit?: number }) => {
+    logger.info({ tool: 'admin-jobs', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const params = new URLSearchParams({
+        limit: (input.limit || 100).toString()
+      });
+      if (input.status) params.append('status', input.status);
+      if (input.job_type) params.append('job_type', input.job_type);
+
+      const result = await callSatbase<any>(
+        `/v1/admin/jobs?${params.toString()}`,
+        {},
+        15000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'admin-jobs', duration, total: result.total }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'admin-jobs', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const adminJobsStatsTool = {
+  name: 'admin-jobs-stats',
+  config: {
+    title: 'Get Job Statistics',
+    description: 'Get overall job statistics (success rate, avg duration, etc.).',
+    inputSchema: z.object({}).shape
+  },
+  handler: async () => {
+    logger.info({ tool: 'admin-jobs-stats' }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<any>(
+        '/v1/admin/jobs/stats',
+        {},
+        15000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'admin-jobs-stats', duration }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'admin-jobs-stats', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
     }
   }
 };

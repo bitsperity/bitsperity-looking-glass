@@ -24,10 +24,20 @@ export const startBatchEmbeddingTool = {
 
     try {
       const result = await callTesseract<EmbedBatchOutput>(
-        `/v1/admin/embed-batch?from_date=${input.from_date}&to_date=${input.to_date}`,
+        `/v1/admin/embed-batch`,
         {
           method: 'POST',
           timeout: 300000, // 5 minutes timeout for batch operations
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from_date: input.from_date,
+            to_date: input.to_date,
+            topics: input.topics,
+            tickers: input.tickers,
+            language: input.language,
+            body_only: input.body_only,
+            incremental: input.incremental,
+          }),
         }
       );
 
@@ -59,7 +69,9 @@ export const getEmbeddingStatusTool = {
     title: 'Get Embedding Status',
     description: 'Get current batch embedding status, progress, and collection metadata',
     inputSchema: {},
-    outputSchema: embedStatusOutputSchema.shape,
+    // Union-Schema (JobStatus | OverallStatus) ist schwer als JSON Schema abzubilden
+    // Für Tool-Registrierung genügt ein leeres Schema
+    outputSchema: {},
   },
   handler: async () => {
     logger.info({ tool: 'get-embedding-status' }, 'Tool invoked');
@@ -75,8 +87,8 @@ export const getEmbeddingStatusTool = {
         {
           tool: 'get-embedding-status',
           duration,
-          status: result.status,
-          percent: result.percent,
+          status: 'status' in result ? result.status : 'overall',
+          percent: 'percent' in result ? result.percent : 0,
         },
         'Tool completed'
       );

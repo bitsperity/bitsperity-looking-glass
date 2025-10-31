@@ -4,12 +4,14 @@ import { logger } from '../logger.js';
 
 // Tools
 import { getHealthTool, getConfigTool, getDeviceTool } from './tools/health.js';
-import { createThoughtTool, getThoughtTool, patchThoughtTool, deleteThoughtTool } from './tools/thoughts.js';
+import { createThoughtTool, getThoughtTool, patchThoughtTool, deleteThoughtTool, getThoughtChildrenTool } from './tools/thoughts.js';
 import { searchThoughtsTool, getTimelineTool, getStatsTool } from './tools/search.js';
-import { linkRelatedTool, unlinkRelatedTool, getRelatedTool, getRelatedFacetsTool, getRelatedGraphTool } from './tools/relations.js';
+import { linkRelatedTool, unlinkRelatedTool, getRelatedTool, getRelatedFacetsTool, getRelatedGraphTool, getThoughtTreeTool } from './tools/relations.js';
 import { getBirdviewGraphTool } from './tools/graph.js';
 import { promoteThoughtTool, syncAriadneTool } from './tools/promote.js';
-import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool } from './tools/admin.js';
+import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool, checkDuplicateTool, getDuplicateWarningsTool, getStatisticsTool, getGraphMetricsTool, getOverviewTool, getRelationTimelineTool, quarantineThoughtTool, unquarantineThoughtTool, explainSearchTool } from './tools/admin.js';
+import { listSessionsTool, getSessionThoughtsTool, getSessionGraphTool, getSessionSummaryTool, upsertSessionSummaryTool } from './tools/sessions.js';
+import { listWorkspacesTool, getWorkspaceThoughtsTool, getWorkspaceGraphTool, getWorkspaceSummaryTool, upsertWorkspaceSummaryTool } from './tools/workspaces.js';
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: config.SERVER_NAME, version: '1.0.0' });
@@ -26,6 +28,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(getThoughtTool.name, getThoughtTool.config, getThoughtTool.handler);
   server.registerTool(patchThoughtTool.name, patchThoughtTool.config, patchThoughtTool.handler);
   server.registerTool(deleteThoughtTool.name, deleteThoughtTool.config, deleteThoughtTool.handler);
+  server.registerTool(getThoughtChildrenTool.name, getThoughtChildrenTool.config, getThoughtChildrenTool.handler);
 
   // Search & Analytics
   server.registerTool(searchThoughtsTool.name, searchThoughtsTool.config, searchThoughtsTool.handler);
@@ -38,11 +41,26 @@ export function createMcpServer(): McpServer {
   server.registerTool(getRelatedTool.name, getRelatedTool.config, getRelatedTool.handler);
   server.registerTool(getRelatedFacetsTool.name, getRelatedFacetsTool.config, getRelatedFacetsTool.handler);
   server.registerTool(getRelatedGraphTool.name, getRelatedGraphTool.config, getRelatedGraphTool.handler);
+  server.registerTool(getThoughtTreeTool.name, getThoughtTreeTool.config, getThoughtTreeTool.handler);
   server.registerTool(getBirdviewGraphTool.name, getBirdviewGraphTool.config, getBirdviewGraphTool.handler);
 
   // Promote & Sync
   server.registerTool(promoteThoughtTool.name, promoteThoughtTool.config, promoteThoughtTool.handler);
   server.registerTool(syncAriadneTool.name, syncAriadneTool.config, syncAriadneTool.handler);
+
+  // Sessions
+  server.registerTool(listSessionsTool.name, listSessionsTool.config, listSessionsTool.handler);
+  server.registerTool(getSessionThoughtsTool.name, getSessionThoughtsTool.config, getSessionThoughtsTool.handler);
+  server.registerTool(getSessionGraphTool.name, getSessionGraphTool.config, getSessionGraphTool.handler);
+  server.registerTool(getSessionSummaryTool.name, getSessionSummaryTool.config, getSessionSummaryTool.handler);
+  server.registerTool(upsertSessionSummaryTool.name, upsertSessionSummaryTool.config, upsertSessionSummaryTool.handler);
+
+  // Workspaces (Primary Organization)
+  server.registerTool(listWorkspacesTool.name, listWorkspacesTool.config, listWorkspacesTool.handler);
+  server.registerTool(getWorkspaceThoughtsTool.name, getWorkspaceThoughtsTool.config, getWorkspaceThoughtsTool.handler);
+  server.registerTool(getWorkspaceGraphTool.name, getWorkspaceGraphTool.config, getWorkspaceGraphTool.handler);
+  server.registerTool(getWorkspaceSummaryTool.name, getWorkspaceSummaryTool.config, getWorkspaceSummaryTool.handler);
+  server.registerTool(upsertWorkspaceSummaryTool.name, upsertWorkspaceSummaryTool.config, upsertWorkspaceSummaryTool.handler);
 
   // Admin
   server.registerTool(getHistoryTool.name, getHistoryTool.config, getHistoryTool.handler);
@@ -56,7 +74,16 @@ export function createMcpServer(): McpServer {
   server.registerTool(getTrashTool.name, getTrashTool.config, getTrashTool.handler);
   server.registerTool(restoreFromTrashTool.name, restoreFromTrashTool.config, restoreFromTrashTool.handler);
   server.registerTool(getSimilarTool.name, getSimilarTool.config, getSimilarTool.handler);
+  server.registerTool(checkDuplicateTool.name, checkDuplicateTool.config, checkDuplicateTool.handler);
+  server.registerTool(getDuplicateWarningsTool.name, getDuplicateWarningsTool.config, getDuplicateWarningsTool.handler);
+  server.registerTool(getStatisticsTool.name, getStatisticsTool.config, getStatisticsTool.handler);
+  server.registerTool(getGraphMetricsTool.name, getGraphMetricsTool.config, getGraphMetricsTool.handler);
+  server.registerTool(getOverviewTool.name, getOverviewTool.config, getOverviewTool.handler);
+  server.registerTool(getRelationTimelineTool.name, getRelationTimelineTool.config, getRelationTimelineTool.handler);
+  server.registerTool(quarantineThoughtTool.name, quarantineThoughtTool.config, quarantineThoughtTool.handler);
+  server.registerTool(unquarantineThoughtTool.name, unquarantineThoughtTool.config, unquarantineThoughtTool.handler);
+  server.registerTool(explainSearchTool.name, explainSearchTool.config, explainSearchTool.handler);
 
-  logger.info('18 Manifold tools registered successfully');
+  logger.info('Manifold tools registered successfully');
   return server;
 }

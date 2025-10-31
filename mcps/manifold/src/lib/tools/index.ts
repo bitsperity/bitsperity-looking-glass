@@ -5,5 +5,7 @@ export * from './relations.js';
 export * from './graph.js';
 export * from './promote.js';
 export * from './admin.js';
+export * from './sessions.js';
+export * from './workspaces.js';
 
 
