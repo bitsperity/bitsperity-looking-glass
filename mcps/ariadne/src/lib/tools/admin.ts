@@ -2,20 +2,8 @@ import { z } from 'zod';
 import { callAriadne } from '../api-client.js';
 import { UpdateNodeRequestSchema, UpdateEdgeRequestSchema, DeleteEdgeRequestSchema, CleanupOrphansRequestSchema } from '../schemas.js';
 
-export const adminResetTool = {
-  name: 'ar-admin-reset',
-  config: {
-    title: 'Reset graph (DANGER)',
-    description: 'Delete ALL graph data (requires confirm=true)',
-    inputSchema: z.object({ confirm: z.boolean().default(false) }).shape
-  },
-  handler: async (input: { confirm?: boolean }) => {
-    const params = new URLSearchParams();
-    if (input.confirm) params.set('confirm', 'true');
-    const res = await callAriadne(`/v1/kg/admin/reset?${params.toString()}`, { method: 'POST' }, 20000);
-    return { content: [{ type: 'text', text: JSON.stringify(res) }] };
-  }
-};
+// NOTE: adminResetTool removed - too dangerous for agent use
+// Reset should only be done manually via direct API access
 
 export const adminStatsTool = {
   name: 'ar-admin-stats',
@@ -73,7 +61,7 @@ export const adminDeleteNodeTool = {
   name: 'ar-admin-delete-node',
   config: {
     title: 'Delete node',
-    description: 'DELETE node (optionally force) by elementId',
+    description: '⚠️ Graph-Pflege: DELETE node (optionally force) by elementId. Use with caution - may break graph integrity if force=true',
     inputSchema: z.object({ node_id: z.string(), force: z.boolean().default(false) }).shape
   },
   handler: async (input: { node_id: string; force?: boolean }) => {
@@ -88,7 +76,7 @@ export const adminDeleteEdgeTool = {
   name: 'ar-admin-delete-edge',
   config: {
     title: 'Delete edge',
-    description: 'DELETE edge by endpoints + type, optional version',
+    description: '⚠️ Graph-Pflege: DELETE edge by endpoints + type, optional version. Use with caution - removes relations permanently',
     inputSchema: DeleteEdgeRequestSchema.shape
   },
   handler: async (input: z.infer<typeof DeleteEdgeRequestSchema>) => {

@@ -7,7 +7,10 @@ export {
   patternsSearchTool,
   patternOccurrencesTool,
   regimesCurrentTool,
-  regimesSimilarTool
+  regimesSimilarTool,
+  searchTool,
+  pathTool,
+  timeSliceTool
 } from './read.js';
 export { addFactTool, addObservationTool, addHypothesisTool } from './write.js';
 export {
@@ -17,8 +20,8 @@ export {
   getHypothesisTool
 } from './validate.js';
 export { ingestPricesTool } from './ingest.js';
+// NOTE: adminResetTool removed - too dangerous for agent use
 export {
-  adminResetTool,
   adminStatsTool,
   adminStatsDetailedTool,
   adminUpdateNodeTool,
@@ -40,5 +43,37 @@ export {
   suggestPatternCategoriesTool,
   suggestRegimeNamesTool
 } from './suggestions.js';
+export {
+  centralityTool,
+  communitiesTool,
+  similarityTool,
+  linkPredictionTool,
+  confidencePropagateTool
+} from './analytics.js';
+export {
+  riskTool,
+  lineageTool,
+  impactSimulationTool,
+  opportunitiesTool
+} from './decision.js';
+export {
+  contradictionsTool,
+  gapsTool,
+  anomaliesTool,
+  duplicatesTool
+} from './quality.js';
+export {
+  dedupPlanTool,
+  dedupExecuteTool
+} from './dedup.js';
+export {
+  learningApplyFeedbackTool,
+  learningHistoryTool
+} from './learning.js';
+export { snapshotDegreesTool } from './snapshot.js';
+export {
+  correlationTool,
+  communityTool
+} from './learn.js';
 
 

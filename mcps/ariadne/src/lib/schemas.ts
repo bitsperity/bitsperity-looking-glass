@@ -46,12 +46,42 @@ export const RegimesSimilarRequestSchema = z.object({
   limit: z.number().int().min(1).max(50).optional()
 });
 
+export const SearchRequestSchema = z.object({
+  text: z.string().min(1),
+  labels: z.string().optional(),
+  limit: z.number().int().min(1).max(100).default(10)
+});
+
+export const PathRequestSchema = z.object({
+  from_id: z.string(),
+  to_id: z.string(),
+  max_hops: z.number().int().min(1).max(20).default(5),
+  algo: z.enum(['shortest', 'ksp']).default('shortest')
+});
+
+export const TimeSliceRequestSchema = z.object({
+  as_of: z.string(),
+  topic: z.string().optional(),
+  tickers: z.string().optional(),
+  limit: z.number().int().min(1).max(1000).default(100)
+});
+
+export const CorrelationRequestSchema = z.object({
+  symbols: z.array(z.string()).min(2),
+  window: z.number().int().min(1).default(30),
+  from_date: z.string().optional(),
+  to_date: z.string().optional(),
+  method: z.enum(['pearson', 'spearman']).default('spearman')
+});
+
+export const CommunityRequestSchema = z.object({});
+
 // Write
 export const FactRequestSchema = z.object({
   source_label: z.string(),
-  source_id: z.union([z.string(), z.number()]),
+  source_id: z.string(),
   target_label: z.string(),
-  target_id: z.union([z.string(), z.number()]),
+  target_id: z.string(),
   rel_type: z.string(),
   source: z.string().optional(),
   confidence: z.number().min(0).max(1).default(0.7),
@@ -67,7 +97,7 @@ export const ObservationRequestSchema = z.object({
   tags: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1).default(0.7),
   related_tickers: z.array(z.string()).default([]),
-  related_events: z.array(z.union([z.string(), z.number()])).default([])
+  related_events: z.array(z.string()).default([])
 });
 
 export const HypothesisRequestSchema = z.object({
@@ -119,6 +149,122 @@ export const DeleteEdgeRequestSchema = z.object({
 
 export const CleanupOrphansRequestSchema = z.object({
   dry_run: z.boolean().default(true)
+});
+
+// Analytics
+export const CentralityRequestSchema = z.object({
+  algo: z.enum(['pagerank', 'betweenness', 'closeness']).default('pagerank'),
+  label: z.string().optional(),
+  topk: z.number().int().min(1).max(100).default(10)
+});
+
+export const CommunitiesRequestSchema = z.object({
+  algo: z.enum(['louvain', 'leiden']).default('louvain'),
+  label: z.string().optional()
+});
+
+export const SimilarityRequestSchema = z.object({
+  node_id: z.string(),
+  method: z.enum(['gds', 'weighted']).default('gds'),
+  topk: z.number().int().min(1).max(50).default(10)
+});
+
+export const LinkPredictionRequestSchema = z.object({
+  node_id: z.string(),
+  topk: z.number().int().min(1).max(50).default(10)
+});
+
+export const ConfidencePropagateRequestSchema = z.object({
+  from_ticker: z.string().optional(),
+  from_id: z.string().optional(),
+  to_label: z.string().default('Company'),
+  max_depth: z.number().int().min(1).max(10).default(5),
+  mode: z.enum(['product', 'min', 'avg']).default('product'),
+  min_confidence: z.number().min(0).max(1).default(0),
+  limit: z.number().int().min(1).max(100).default(20)
+});
+
+// Decision
+export const RiskRequestSchema = z.object({
+  ticker: z.string(),
+  include_centrality: z.boolean().default(false)
+});
+
+export const LineageRequestSchema = z.object({
+  ticker: z.string(),
+  max_depth: z.number().int().min(1).max(10).default(5),
+  limit: z.number().int().min(1).max(100).default(20)
+});
+
+export const ImpactSimulationRequestSchema = z.object({
+  ticker: z.string().optional(),
+  node_id: z.string().optional(),
+  max_depth: z.number().int().min(1).max(5).default(3),
+  rel_filter: z.string().optional(),
+  decay: z.enum(['linear', 'exponential']).default('exponential'),
+  min_confidence: z.number().min(0).max(1).default(0),
+  limit: z.number().int().min(1).max(100).default(20)
+});
+
+export const OpportunitiesRequestSchema = z.object({
+  label: z.string().default('Company'),
+  w_gap: z.number().min(0).max(1).default(0.3),
+  w_centrality: z.number().min(0).max(1).default(0.4),
+  w_anomaly: z.number().min(0).max(1).default(0.3),
+  limit: z.number().int().min(1).max(50).default(15)
+});
+
+// Quality
+export const GapsRequestSchema = z.object({
+  label: z.string().default('Company'),
+  min_relations: z.number().int().min(1).default(10),
+  low_confidence_threshold: z.number().min(0).max(1).default(0.5),
+  gap_threshold: z.number().min(0).max(1).default(0.5)
+});
+
+export const AnomaliesRequestSchema = z.object({
+  label: z.string().default('Company'),
+  z_threshold: z.number().min(1).default(2.5),
+  growth_threshold: z.number().min(0).max(1).default(0.3)
+});
+
+export const DuplicatesRequestSchema = z.object({
+  label: z.string().default('Company'),
+  similarity_threshold: z.number().min(0).max(1).default(0.85),
+  limit: z.number().int().min(1).max(100).default(20)
+});
+
+// Dedup Admin
+export const DedupPlanRequestSchema = z.object({
+  label: z.string().default('Company'),
+  threshold: z.number().min(0).max(1).default(0.85),
+  limit: z.number().int().min(1).max(100).default(20)
+});
+
+export const DedupExecuteRequestSchema = z.object({
+  source_id: z.string(),
+  target_id: z.string(),
+  strategy: z.enum(['prefer_target', 'prefer_source', 'merge_all_properties']).default('prefer_target'),
+  dry_run: z.boolean().default(true)
+});
+
+// Learning Admin
+export const LearningFeedbackRequestSchema = z.object({
+  label: z.string().default('Company'),
+  window_days: z.number().int().min(1).max(365).default(30),
+  max_adjust: z.number().default(0.2),
+  step: z.number().default(0.05),
+  dry_run: z.boolean().default(true)
+});
+
+export const LearningHistoryRequestSchema = z.object({
+  relation_id: z.string(),
+  limit: z.number().int().min(1).max(50).default(10)
+});
+
+// Admin Snapshot
+export const SnapshotDegreesRequestSchema = z.object({
+  label: z.string().default('Company')
 });
 
 

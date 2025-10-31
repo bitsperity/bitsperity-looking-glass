@@ -8,7 +8,10 @@ import {
   SimilarEntitiesRequestSchema,
   PatternsSearchRequestSchema,
   PatternOccurrencesRequestSchema,
-  RegimesSimilarRequestSchema
+  RegimesSimilarRequestSchema,
+  SearchRequestSchema,
+  PathRequestSchema,
+  TimeSliceRequestSchema
 } from '../schemas.js';
 
 export const contextTool = {
@@ -141,6 +144,59 @@ export const regimesSimilarTool = {
     input.characteristics.forEach(c => params.append('characteristics', c));
     if (input.limit) params.set('limit', String(input.limit));
     const res = await callAriadne(`/v1/kg/regimes/similar?${params.toString()}`);
+    return { content: [{ type: 'text', text: JSON.stringify(res) }] };
+  }
+};
+
+export const searchTool = {
+  name: 'ar-search',
+  config: {
+    title: 'Fulltext search',
+    description: 'Search nodes via fulltext index across all node properties',
+    inputSchema: SearchRequestSchema.shape
+  },
+  handler: async (input: z.infer<typeof SearchRequestSchema>) => {
+    const params = new URLSearchParams();
+    params.set('text', input.text);
+    if (input.labels) params.set('labels', input.labels);
+    if (input.limit) params.set('limit', String(input.limit));
+    const res = await callAriadne(`/v1/kg/search?${params.toString()}`);
+    return { content: [{ type: 'text', text: JSON.stringify(res) }] };
+  }
+};
+
+export const pathTool = {
+  name: 'ar-path',
+  config: {
+    title: 'Find path between nodes',
+    description: 'Find paths between two nodes using APOC path expansion',
+    inputSchema: PathRequestSchema.shape
+  },
+  handler: async (input: z.infer<typeof PathRequestSchema>) => {
+    const params = new URLSearchParams();
+    params.set('from_id', input.from_id);
+    params.set('to_id', input.to_id);
+    if (input.max_hops) params.set('max_hops', String(input.max_hops));
+    if (input.algo) params.set('algo', input.algo);
+    const res = await callAriadne(`/v1/kg/path?${params.toString()}`);
+    return { content: [{ type: 'text', text: JSON.stringify(res) }] };
+  }
+};
+
+export const timeSliceTool = {
+  name: 'ar-time-slice',
+  config: {
+    title: 'Graph time slice',
+    description: 'Get graph snapshot at a specific point in time via valid_from/valid_to',
+    inputSchema: TimeSliceRequestSchema.shape
+  },
+  handler: async (input: z.infer<typeof TimeSliceRequestSchema>) => {
+    const params = new URLSearchParams();
+    params.set('as_of', input.as_of);
+    if (input.topic) params.set('topic', input.topic);
+    if (input.tickers) params.set('tickers', input.tickers);
+    if (input.limit) params.set('limit', String(input.limit));
+    const res = await callAriadne(`/v1/kg/time-slice?${params.toString()}`);
     return { content: [{ type: 'text', text: JSON.stringify(res) }] };
   }
 };
