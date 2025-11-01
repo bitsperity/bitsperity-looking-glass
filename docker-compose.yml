@@ -157,6 +157,7 @@ services:
       - COALESCENCE_DB_PATH=/app/data/logs/orchestration.db
     volumes:
       - ./data:/app/data
+      - ./apps/coalescence_api:/app/apps/coalescence_api
       - ./coalescence/src/db/schema.sql:/app/coalescence/src/db/schema.sql:ro
     command: ["uvicorn", "apps.coalescence_api.main:app", "--host", "0.0.0.0", "--port", "8084", "--reload"]
     restart: unless-stopped
@@ -182,6 +183,7 @@ services:
       - ./coalescence/agent-rules:/app/agent-rules
       - ./mcps/satbase:/mcps/satbase:ro
       - ./mcps/tesseract:/mcps/tesseract:ro
+      - ./telegram-mcp-bot-api:/telegram-mcp-bot-api:ro
       - ./mcps/manifold:/mcps/manifold:ro
       - ./mcps/ariadne:/mcps/ariadne:ro
       - ./mcps/coalescence:/mcps/coalescence:ro

@@ -42,3 +42,12 @@ mcps:
     env:
       COALESCENCE_API_URL: http://localhost:8084
     description: Agent management, context, insights, messages
+    
+  telegram:
+    command: node
+    args:
+      - /telegram-mcp-bot-api/build/index.js
+    env:
+      TELEGRAM_BOT_TOKEN: "8455077673:AAGb_ifKaWXAt2Wj2RsnEkG3iCQFx-iqvtI"
+      TELEGRAM_DEFAULT_CHAT_ID: "-5049991716"
+    description: Telegram Bot API - Send messages, photos, documents, videos (auto-uses default chat)

@@ -56,9 +56,17 @@
       error = null;
       successMessage = '';
       
+      // Validate name is not empty
+      if (!formData.name || formData.name.trim() === '') {
+        error = 'Agent-Name darf nicht leer sein';
+        return;
+      }
+      
+      const trimmedName = formData.name.trim();
+      
       // Prepare agent config
       const agentConfig: Omit<AgentConfig, 'created_at' | 'updated_at'> = {
-        name: formData.name,
+        name: trimmedName,
         enabled: formData.enabled,
         model: formData.model,
         schedule: formData.schedule,
@@ -73,6 +81,7 @@
           max_tokens: turn.max_tokens || 1500,
           max_steps: turn.max_steps,
           mcps: turn.mcps || [],
+          tools: turn.tools || [],  // Include tools array
           prompt: turn.prompt || undefined,
           prompt_file: turn.prompt_file || undefined,
           model: turn.model && turn.model !== formData.model ? turn.model : undefined,
@@ -80,28 +89,89 @@
         }))
       };
       
-      // Check if agent exists
-      const existingAgent = agents.find(a => a.name === formData.name);
+      // Get original name if editing
+      // Handle both 'name' and 'agent' properties (API might return 'agent' for backwards compatibility)
+      const selectedAgentAny = selectedAgent as any;
+      const originalName = selectedAgent?.name || selectedAgentAny?.agent || '';
+      const isEditing = selectedAgent !== null && selectedAgent !== undefined;
       
-      if (existingAgent && selectedAgent && selectedAgent.name === formData.name) {
-        // Update existing agent
-        await coalescenceClient.updateAgent(formData.name, agentConfig);
-        successMessage = `✅ Agent "${formData.name}" aktualisiert`;
-        // Reload agents after update
+      // Debug logging
+      console.log('[saveAgent] Debug:', {
+        originalName,
+        trimmedName,
+        isEditing,
+        selectedAgent: selectedAgent ? { 
+          name: selectedAgent.name, 
+          agent: selectedAgentAny?.agent,
+          keys: Object.keys(selectedAgent),
+          hasTurns: !!selectedAgent.turns 
+        } : null,
+        agentsList: agents.map(a => a.name)
+      });
+      
+      // If editing existing agent with same name - just update it
+      // Check this FIRST before any existence checks
+      if (isEditing && originalName && originalName === trimmedName) {
+        console.log('[saveAgent] Updating existing agent with same name');
+        console.log('[saveAgent] AgentConfig being sent:', JSON.stringify(agentConfig, null, 2));
+        // Update existing agent (same name) - no need to check for conflicts
+        await coalescenceClient.updateAgent(trimmedName, agentConfig);
+        successMessage = `✅ Agent "${trimmedName}" aktualisiert`;
         await coalescenceClient.reloadAgents();
       } else {
-        // Create new agent
-        await coalescenceClient.createAgent(agentConfig);
-        successMessage = `✅ Agent "${formData.name}" erstellt`;
-        // Reload agents after create
-        await coalescenceClient.reloadAgents();
+        console.log('[saveAgent] Not updating same name - checking for conflicts');
+        // Either renaming or creating new agent - check if name already exists
+        // When renaming, exclude the agent we're editing from the check
+        const existingAgent = agents.find(a => {
+          // If we're editing and this is the agent we're editing, exclude it
+          if (isEditing && originalName && a.name === originalName) {
+            console.log('[saveAgent] Excluding agent we\'re editing:', a.name);
+            return false;
+          }
+          // Otherwise, check if name matches
+          const matches = a.name === trimmedName;
+          if (matches) {
+            console.log('[saveAgent] Found conflicting agent:', a.name);
+          }
+          return matches;
+        });
+        
+        if (existingAgent) {
+          console.log('[saveAgent] Conflict detected:', existingAgent);
+          // Agent with this name already exists (and we're not editing it)
+          error = `Agent "${trimmedName}" existiert bereits`;
+          return;
+        }
+        
+        // No conflict - proceed with create or rename
+        if (isEditing && originalName && originalName !== trimmedName) {
+          // Renaming agent - delete old and create new one with new name
+          try {
+            if (originalName.trim() !== '') {
+              await coalescenceClient.deleteAgent(originalName);
+            }
+          } catch (e) {
+            // Ignore delete errors (might already be deleted or have empty name)
+            console.warn('Could not delete old agent:', e);
+          }
+          await coalescenceClient.createAgent(agentConfig);
+          successMessage = `✅ Agent "${trimmedName}" erstellt (umbenannt von "${originalName || '(ohne Namen)'}")`;
+          await coalescenceClient.reloadAgents();
+        } else {
+          // Create new agent
+          await coalescenceClient.createAgent(agentConfig);
+          successMessage = `✅ Agent "${trimmedName}" erstellt`;
+          await coalescenceClient.reloadAgents();
+        }
       }
       
       setTimeout(() => {
         successMessage = '';
       }, 3000);
       
+      // Don't reset selectedAgent here - keep it for potential retry
       showModal = false;
+      selectedAgent = null; // Reset after successful save
       await loadData();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to save agent';
@@ -109,11 +179,16 @@
   }
 
   async function deleteAgent(agentName: string) {
+    if (!agentName || agentName.trim() === '') {
+      error = 'Agent-Name ist leer - kann nicht gelöscht werden';
+      return;
+    }
+    
     if (!confirm(`Agent "${agentName}" wirklich löschen?`)) return;
     
     try {
       error = null;
-      await coalescenceClient.deleteAgent(agentName);
+      await coalescenceClient.deleteAgent(agentName.trim());
       successMessage = `✅ Agent "${agentName}" gelöscht`;
       setTimeout(() => { successMessage = ''; }, 3000);
       await loadData();
@@ -125,9 +200,25 @@
   async function editAgent(agent: AgentConfig) {
     try {
       error = null;
+      // Check if agent has a name
+      const agentAny = agent as any;
+      const agentName = agent.name || agentAny?.agent || '';
+      if (!agentName || agentName.trim() === '') {
+        error = 'Agent hat keinen Namen - bitte geben Sie einen Namen ein';
+        // Still open modal so user can fix it
+        selectedAgent = agent;
+        showModal = true;
+        return;
+      }
+      
       // Load full agent config from API
-      const fullAgent = await coalescenceClient.getAgent(agent.name);
-      selectedAgent = fullAgent;
+      const fullAgent = await coalescenceClient.getAgent(agentName.trim()) as any;
+      // Ensure name is set (API might return 'agent' instead of 'name')
+      if (!fullAgent.name && fullAgent.agent) {
+        fullAgent.name = fullAgent.agent;
+      }
+      selectedAgent = fullAgent as AgentConfig;
+      console.log('[editAgent] Loaded agent:', { name: fullAgent.name, agent: fullAgent.agent, keys: Object.keys(fullAgent) });
       showModal = true;
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load agent details';
@@ -242,7 +333,7 @@
           <div class="absolute top-4 right-4 w-3 h-3 rounded-full {agent.enabled ? 'bg-green-500 shadow-lg shadow-green-500/50 animate-pulse' : 'bg-neutral-500'}" />
           
           <div class="mb-5">
-            <h3 class="font-bold text-2xl mb-2 text-white group-hover:text-blue-400 transition-colors">{agent.name}</h3>
+            <h3 class="font-bold text-2xl mb-2 text-white group-hover:text-blue-400 transition-colors">{agent.name || '(ohne Namen)'}</h3>
             <div class="inline-flex items-center gap-2 text-xs font-medium px-2.5 py-1 rounded-full {agent.enabled ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-neutral-700 text-neutral-400 border border-neutral-600'}">
               <span class="w-1.5 h-1.5 rounded-full {agent.enabled ? 'bg-green-400' : 'bg-neutral-400'}" />
               {agent.enabled ? 'Aktiv' : 'Inaktiv'}
@@ -284,8 +375,9 @@
             </button>
             <button
               on:click={() => editAgent(agent)}
-              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
-              title="Bearbeiten"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={agent.name && agent.name.trim() ? "Bearbeiten" : "Agent hat keinen Namen - bitte geben Sie einen Namen ein"}
+              disabled={!agent.name || agent.name.trim() === ''}
             >
               <span>✏️</span>
             </button>
@@ -297,9 +389,10 @@
               {agent.enabled ? '⏸️' : '▶️'}
             </button>
             <button
-              on:click={() => deleteAgent(agent.name)}
+              on:click={() => deleteAgent(agent.name || '')}
               class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors"
               title="Löschen"
+              disabled={!agent.name || agent.name.trim() === ''}
             >
               🗑️
             </button>

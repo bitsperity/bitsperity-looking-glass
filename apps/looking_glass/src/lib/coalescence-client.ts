@@ -276,7 +276,11 @@ export class CoalescenceClient {
   }
 
   async deleteAgent(name: string): Promise<{ status: string; agent: string }> {
-    const res = await fetch(`${this.apiUrl}/v1/agents/${name}`, {
+    // Handle empty name case - use _empty as placeholder that gets handled specially
+    const agentName = (!name || name.trim() === '') ? '_empty' : name;
+    const url = `${this.apiUrl}/v1/agents/${encodeURIComponent(agentName)}`;
+    
+    const res = await fetch(url, {
       method: 'DELETE'
     });
     if (!res.ok) {

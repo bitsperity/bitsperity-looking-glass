@@ -9,7 +9,16 @@
   let error: string | null = null;
   let searchQuery = '';
 
-  const mcps = ['satbase', 'tesseract', 'manifold', 'ariadne', 'coalescence'];
+  const mcps = ['satbase', 'tesseract', 'manifold', 'ariadne', 'coalescence', 'telegram'];
+  
+  const mcpLabels: Record<string, string> = {
+    'satbase': '📊 Satbase',
+    'tesseract': '🔍 Tesseract',
+    'manifold': '🧠 Manifold',
+    'ariadne': '🕸️ Ariadne',
+    'coalescence': '⚙️ Coalescence',
+    'telegram': '📱 Telegram'
+  };
 
   async function loadTools() {
     try {
@@ -47,24 +56,30 @@
   }
 
   function getFilteredTools() {
+    let tools: any[] = [];
+    
     if (!selectedMcp) {
       // Show all tools
-      const all = Object.entries(toolsByMcp).flatMap(([mcp, tools]) =>
-        tools.map((tool: any) => ({ ...tool, mcp }))
+      tools = Object.entries(toolsByMcp).flatMap(([mcp, toolList]) =>
+        toolList.map((tool: any) => ({ ...tool, mcp }))
       );
-      if (!searchQuery) return all;
-      return all.filter((tool: any) =>
-        tool.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tool.description?.toLowerCase().includes(searchQuery.toLowerCase())
+    } else {
+      // Show tools for selected MCP
+      tools = (toolsByMcp[selectedMcp] || []).map((tool: any) => ({ ...tool, mcp: selectedMcp }));
+    }
+    
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      tools = tools.filter((tool: any) =>
+        tool.name?.toLowerCase().includes(query) ||
+        tool.toolName?.toLowerCase().includes(query) ||
+        tool.description?.toLowerCase().includes(query) ||
+        tool.mcp?.toLowerCase().includes(query)
       );
     }
-
-    const tools = toolsByMcp[selectedMcp] || [];
-    if (!searchQuery) return tools;
-    return tools.filter((tool: any) =>
-      tool.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tool.description?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    
+    return tools;
   }
 
   onMount(() => {
@@ -96,7 +111,7 @@
     </div>
   {:else if allTools}
     <!-- Stats Cards -->
-    <div class="grid grid-cols-5 gap-6 mb-8">
+    <div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-6 mb-8">
       <div class="bg-gradient-to-br from-blue-900/40 to-neutral-800 border border-blue-700/30 rounded-xl p-6">
         <div class="text-sm font-medium text-blue-400 mb-2 uppercase">Total Tools</div>
         <div class="text-3xl font-bold text-white">{allTools.total}</div>
@@ -104,7 +119,7 @@
       {#each mcps as mcp}
         {@const count = toolsByMcp[mcp]?.length || 0}
         <div class="bg-gradient-to-br from-neutral-800 to-neutral-900 border border-neutral-700 rounded-xl p-6">
-          <div class="text-sm font-medium text-neutral-400 mb-2 uppercase">{mcp}</div>
+          <div class="text-sm font-medium text-neutral-400 mb-2 uppercase">{mcpLabels[mcp] || mcp}</div>
           <div class="text-3xl font-bold text-white">{count}</div>
         </div>
       {/each}
@@ -141,7 +156,7 @@
                   : 'bg-neutral-700 text-neutral-400 hover:bg-neutral-600'
               }"
             >
-              {mcp}
+              {mcpLabels[mcp] || mcp}
               {#if toolsByMcp[mcp]}
                 <span class="ml-2 opacity-70">({toolsByMcp[mcp].length})</span>
               {/if}

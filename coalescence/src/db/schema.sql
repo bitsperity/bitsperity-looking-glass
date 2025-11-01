@@ -216,6 +216,7 @@ CREATE TABLE IF NOT EXISTS agent_turns (
   max_tokens INTEGER,
   max_steps INTEGER,
   mcps TEXT,  -- JSON array of MCP names
+  tools TEXT,  -- JSON array of specific tool names (prefixed, e.g. "satbase_list-news")
   prompt TEXT,
   prompt_file TEXT,
   rules TEXT,  -- JSON array of rule IDs

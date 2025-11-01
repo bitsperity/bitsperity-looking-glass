@@ -12,7 +12,16 @@
   let activeTab: 'basic' | 'turns' | 'advanced' = 'basic';
   
   // Available MCPs
-  const availableMCPs = ['satbase', 'tesseract', 'manifold', 'ariadne', 'coalescence'];
+  const availableMCPs = ['satbase', 'tesseract', 'manifold', 'ariadne', 'coalescence', 'telegram'];
+  
+  const mcpLabels: Record<string, string> = {
+    'satbase': '📊 Satbase',
+    'tesseract': '🔍 Tesseract',
+    'manifold': '🧠 Manifold',
+    'ariadne': '🕸️ Ariadne',
+    'coalescence': '⚙️ Coalescence',
+    'telegram': '📱 Telegram'
+  };
   
   // Schedule options
   let scheduleType: 'manual' | 'interval' | 'scheduled' | 'cron' = 'manual';
@@ -91,8 +100,11 @@
     const isAgentConfig = 'turns' in agent && Array.isArray(agent.turns);
     const agentData = isAgentConfig ? agent : agent.config;
     
+    // Extract name: could be agent.name, agentData.name, or agent.agent (for backwards compatibility)
+    const agentName = agent.name || agentData?.name || agent.agent || '';
+    
     formData = {
-      name: agent.name || '',
+      name: agentName,
       enabled: isAgentConfig ? (agent as any).enabled ?? true : agentData?.enabled ?? true,
       model: isAgentConfig ? (agent as any).model || 'haiku-3.5' : agentData?.model || 'haiku-3.5',
       schedule: isAgentConfig ? (agent as any).schedule || 'manual' : agentData?.schedule || 'manual',
@@ -196,6 +208,12 @@
   }
   
   function save() {
+    // Validate name before saving
+    if (!formData.name || formData.name.trim() === '') {
+      alert('Bitte geben Sie einen Namen für den Agent ein');
+      return;
+    }
+    
     formData.schedule = buildSchedule();
     dispatch('save', formData);
   }
@@ -630,7 +648,7 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                                 }}
                                 class="w-4 h-4 cursor-pointer"
                               />
-                              <span class="text-sm font-medium">{mcp}</span>
+                              <span class="text-sm font-medium">{mcpLabels[mcp] || mcp}</span>
                             </label>
                           {/each}
                         </div>

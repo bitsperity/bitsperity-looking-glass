@@ -60,11 +60,16 @@ def list_agents():
     # Format response
     result = []
     for agent in agents:
+        # Get turns count for this agent
+        agent_config = db.get_agent_config(agent["name"])
+        turns_count = len(agent_config.get("turns", [])) if agent_config else 0
+        
         result.append({
             "name": agent["name"],
             "enabled": bool(agent["enabled"]),
             "model": agent["model"],
             "schedule": agent["schedule"],
+            "turns": agent_config.get("turns", []) if agent_config else [],  # Include turns array
             "last_run_at": agent.get("last_run_at"),
             "total_runs": agent.get("total_runs", 0),
             "total_tokens": agent.get("total_tokens", 0),
@@ -132,7 +137,18 @@ def update_agent(name: str, updates: AgentConfigUpdate):
     
     # Update turns if provided - convert Pydantic models to dicts
     if turns is not None:
-        turns_dicts = [turn.model_dump() if hasattr(turn, 'model_dump') else dict(turn) for turn in turns]
+        turns_dicts = []
+        for turn in turns:
+            if hasattr(turn, 'model_dump'):
+                turn_dict = turn.model_dump(exclude_unset=False)
+            else:
+                turn_dict = dict(turn)
+            # Ensure mcps and tools are lists (not None)
+            if turn_dict.get("mcps") is None:
+                turn_dict["mcps"] = []
+            if turn_dict.get("tools") is None:
+                turn_dict["tools"] = []
+            turns_dicts.append(turn_dict)
         db.save_agent_turns(name, turns_dicts)
     
     # Reload and return updated config
@@ -144,6 +160,31 @@ def update_agent(name: str, updates: AgentConfigUpdate):
 def delete_agent(name: str):
     """Delete agent config."""
     db = get_db()
+    
+    # Handle empty name case (workaround for agents created with empty names)
+    # FastAPI redirects /agents/ to /agents, so we need to handle empty names specially
+    # Use _empty as a special marker from frontend
+    if name == '_empty':
+        # Check if empty agent exists by listing all agents (get_agent_config('') might not work reliably)
+        all_agents = db.list_agent_configs()
+        empty_agent = next((a for a in all_agents if not a.get('name') or a.get('name', '').strip() == ''), None)
+        
+        if not empty_agent:
+            raise HTTPException(status_code=404, detail="Agent with empty name not found")
+        
+        db.delete_agent_config('')
+        return {"status": "deleted", "agent": ""}
+    
+    # Handle actual empty string (shouldn't happen via normal routes, but handle it)
+    if not name or name.strip() == '':
+        all_agents = db.list_agent_configs()
+        empty_agent = next((a for a in all_agents if not a.get('name') or a.get('name', '').strip() == ''), None)
+        
+        if not empty_agent:
+            raise HTTPException(status_code=404, detail="Agent with empty name not found")
+        
+        db.delete_agent_config('')
+        return {"status": "deleted", "agent": ""}
     
     # Check if agent exists
     existing = db.get_agent_config(name)

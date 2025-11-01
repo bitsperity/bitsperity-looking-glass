@@ -92,9 +92,10 @@ class CoalesenceDB:
             if not row:
                 return None
             
-            # Load turns
+            # Load turns - explicitly select tools column to ensure it's included
             cursor.execute("""
-                SELECT * FROM agent_turns 
+                SELECT turn_id, turn_name, model, max_tokens, max_steps, mcps, tools, prompt, prompt_file, rules
+                FROM agent_turns 
                 WHERE agent_name = ? 
                 ORDER BY order_index ASC
             """, (agent_name,))
@@ -103,25 +104,31 @@ class CoalesenceDB:
             turns = []
             for t in turns_rows:
                 # Handle missing 'tools' column gracefully
-                tools_value = None
+                tools_value = []
                 try:
-                    if "tools" in t.keys() and t["tools"]:
-                        tools_value = json.loads(t["tools"])
-                except (KeyError, json.JSONDecodeError):
-                    tools_value = None
+                    # Direct access - sqlite3.Row supports dict-style access
+                    # Check if column exists first
+                    if "tools" in t.keys():
+                        tools_str = t["tools"]
+                        if tools_str is not None and tools_str != "":
+                            tools_value = json.loads(tools_str)
+                except (KeyError, json.JSONDecodeError, TypeError) as e:
+                    # Default to empty array on any error
+                    tools_value = []
                 
-                turns.append({
+                turn_dict = {
                     "id": t["turn_id"],
                     "name": t["turn_name"],
                     "model": t["model"],
                     "max_tokens": t["max_tokens"],
                     "max_steps": t["max_steps"],
                     "mcps": json.loads(t["mcps"]) if t["mcps"] else [],
-                    "tools": tools_value,  # New: specific tool selection
+                    "tools": tools_value,  # Always return array, never None
                     "prompt": t["prompt"],
                     "prompt_file": t["prompt_file"],
                     "rules": json.loads(t["rules"]) if t["rules"] else []
-                })
+                }
+                turns.append(turn_dict)
             
             return {
                 "name": agent_name,  # Use 'name' for consistency with frontend
@@ -203,6 +210,19 @@ class CoalesenceDB:
             cursor.execute("DELETE FROM agent_turns WHERE agent_name = ?", (agent_name,))
             
             for index, turn in enumerate(turns):
+                # Convert Pydantic model to dict if needed
+                if hasattr(turn, 'model_dump'):
+                    turn = turn.model_dump()
+                elif not isinstance(turn, dict):
+                    turn = dict(turn)
+                
+                # Ensure tools is always a list
+                tools_value = turn.get("tools")
+                if tools_value is None:
+                    tools_value = []
+                elif not isinstance(tools_value, list):
+                    tools_value = []
+                
                 cursor.execute("""
                     INSERT INTO agent_turns (
                         agent_name, turn_id, turn_name, model, max_tokens, max_steps,
@@ -215,8 +235,8 @@ class CoalesenceDB:
                     turn.get("model"),
                     turn.get("max_tokens"),
                     turn.get("max_steps"),
-                    json.dumps(turn.get("mcps", [])),
-                    json.dumps(turn.get("tools", [])) if turn.get("tools") else None,
+                    json.dumps(turn.get("mcps", []) or []),
+                    json.dumps(tools_value),  # Always JSON encode, never None
                     turn.get("prompt"),
                     turn.get("prompt_file"),
                     json.dumps(turn.get("rules", [])),

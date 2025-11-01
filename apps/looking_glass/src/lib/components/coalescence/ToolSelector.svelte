@@ -16,7 +16,8 @@
     'tesseract': '🔍 Tesseract',
     'manifold': '🧠 Manifold',
     'ariadne': '🕸️ Ariadne',
-    'coalescence': '⚙️ Coalescence'
+    'coalescence': '⚙️ Coalescence',
+    'telegram': '📱 Telegram'
   };
 
   async function loadTools() {
