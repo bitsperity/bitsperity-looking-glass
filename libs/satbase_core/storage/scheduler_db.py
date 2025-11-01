@@ -48,6 +48,7 @@ class SchedulerDB:
                     enabled BOOLEAN DEFAULT 1,
                     trigger_type TEXT NOT NULL,  -- 'cron', 'interval', 'date'
                     trigger_config TEXT NOT NULL,  -- JSON config
+                    job_config TEXT,  -- JSON config for job-specific parameters
                     job_func TEXT NOT NULL,  -- Module path to function
                     max_instances INTEGER DEFAULT 1,
                     next_run_time TIMESTAMP,
@@ -107,6 +108,14 @@ class SchedulerDB:
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            
+            # Migration: Add job_config column if it doesn't exist (after table creation)
+            try:
+                conn.execute("ALTER TABLE scheduler_jobs ADD COLUMN job_config TEXT")
+            except Exception:
+                # Column already exists or other error, ignore
+                pass
+            
             log("schedulerdb_schema_initialized")
     
     # Job Management
@@ -118,27 +127,53 @@ class SchedulerDB:
         trigger_config: Dict[str, Any],
         job_func: str,
         enabled: bool = True,
-        max_instances: int = 1
+        max_instances: int = 1,
+        job_config: Optional[Dict[str, Any]] = None
     ) -> None:
         """Upsert a job configuration."""
         with self.conn() as conn:
-            conn.execute("""
-                INSERT INTO scheduler_jobs (
-                    job_id, name, enabled, trigger_type, trigger_config,
-                    job_func, max_instances, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    name = excluded.name,
-                    enabled = excluded.enabled,
-                    trigger_type = excluded.trigger_type,
-                    trigger_config = excluded.trigger_config,
-                    job_func = excluded.job_func,
-                    max_instances = excluded.max_instances,
-                    updated_at = CURRENT_TIMESTAMP
-            """, (
-                job_id, name, enabled, trigger_type,
-                json.dumps(trigger_config), job_func, max_instances
-            ))
+            # Check if job_config column exists (migration support)
+            try:
+                # Use COALESCE to preserve existing job_config if new value is None
+                conn.execute("""
+                    INSERT INTO scheduler_jobs (
+                        job_id, name, enabled, trigger_type, trigger_config, job_config,
+                        job_func, max_instances, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                        name = excluded.name,
+                        enabled = excluded.enabled,
+                        trigger_type = excluded.trigger_type,
+                        trigger_config = excluded.trigger_config,
+                        job_config = COALESCE(excluded.job_config, scheduler_jobs.job_config),
+                        job_func = excluded.job_func,
+                        max_instances = excluded.max_instances,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (
+                    job_id, name, enabled, trigger_type,
+                    json.dumps(trigger_config),
+                    json.dumps(job_config) if job_config else None,
+                    job_func, max_instances
+                ))
+            except Exception:
+                # Fallback for old schema without job_config column
+                conn.execute("""
+                    INSERT INTO scheduler_jobs (
+                        job_id, name, enabled, trigger_type, trigger_config,
+                        job_func, max_instances, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                        name = excluded.name,
+                        enabled = excluded.enabled,
+                        trigger_type = excluded.trigger_type,
+                        trigger_config = excluded.trigger_config,
+                        job_func = excluded.job_func,
+                        max_instances = excluded.max_instances,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (
+                    job_id, name, enabled, trigger_type,
+                    json.dumps(trigger_config), job_func, max_instances
+                ))
     
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Get a job configuration."""
@@ -151,6 +186,10 @@ class SchedulerDB:
                 return None
             job = dict(row)
             job['trigger_config'] = json.loads(job['trigger_config'])
+            if job.get('job_config'):
+                job['job_config'] = json.loads(job['job_config'])
+            else:
+                job['job_config'] = None  # Use None instead of empty dict to distinguish from "has value"
             return job
     
     def list_jobs(self, enabled_only: bool = False) -> List[Dict[str, Any]]:
@@ -167,6 +206,10 @@ class SchedulerDB:
             for row in rows:
                 job = dict(row)
                 job['trigger_config'] = json.loads(job['trigger_config'])
+                if job.get('job_config'):
+                    job['job_config'] = json.loads(job['job_config'])
+                else:
+                    job['job_config'] = None  # Use None instead of empty dict for consistency
                 jobs.append(job)
             return jobs
     

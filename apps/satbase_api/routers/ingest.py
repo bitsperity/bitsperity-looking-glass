@@ -374,15 +374,22 @@ async def ingest_news_backfill(body: dict[str, Any], background_tasks: Backgroun
 
 
 @router.get("/ingest/jobs")
-def list_all_jobs(limit: int = 100, status_filter: str | None = None):
-    """List all jobs with optional status filter"""
+def list_all_jobs(limit: int = 100, offset: int = 0, status_filter: str | None = None):
+    """List all jobs with optional status filter and pagination"""
     s = load_settings()
     db = NewsDB(s.stage_dir.parent / "news.db")
     
-    jobs_data = db.get_jobs(limit=limit, status_filter=status_filter)
+    jobs_data = db.get_jobs(limit=limit, status_filter=status_filter, offset=offset)
+    
+    # Get total count for pagination
+    total_count = db.get_job_stats()["total_jobs"]
     
     return {
         "count": len(jobs_data),
+        "total": total_count,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total_count,
         "jobs": jobs_data
     }
 

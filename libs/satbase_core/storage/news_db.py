@@ -920,9 +920,10 @@ class NewsDB:
         self,
         status: str | None = None,
         job_type: str | None = None,
-        limit: int = 100
+        limit: int = 100,
+        offset: int = 0
     ) -> list[dict]:
-        """List jobs with optional filters."""
+        """List jobs with optional filters and pagination."""
         import json
         where_parts = ["1=1"]
         params: list[Any] = []
@@ -942,8 +943,8 @@ class NewsDB:
                 SELECT * FROM job_tracking
                 WHERE {where_clause}
                 ORDER BY created_at DESC
-                LIMIT ?
-            """, params + [limit]).fetchall()
+                LIMIT ? OFFSET ?
+            """, params + [limit, offset]).fetchall()
             
             jobs = []
             for row in rows:
@@ -986,9 +987,9 @@ class NewsDB:
                 )
             }
     
-    def get_jobs(self, limit: int = 100, status_filter: str | None = None) -> list[dict]:
+    def get_jobs(self, limit: int = 100, status_filter: str | None = None, offset: int = 0) -> list[dict]:
         """Get jobs from database - maps status_filter to status parameter."""
-        return self.list_jobs(status=status_filter, limit=limit)
+        return self.list_jobs(status=status_filter, limit=limit, offset=offset)
     
     def get_job_by_id(self, job_id: str) -> dict | None:
         """Get job by ID - alias for get_job."""

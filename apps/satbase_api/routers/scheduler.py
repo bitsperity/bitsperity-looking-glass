@@ -19,15 +19,25 @@ def _get_db() -> SchedulerDB:
     return SchedulerDB(s.stage_dir.parent / "scheduler.db")
 
 
+def _normalize_job_config(job: dict) -> dict:
+    """Normalize job_config to always be a dict (not None) for API responses."""
+    if job.get('job_config') is None:
+        job['job_config'] = {}
+    return job
+
+
 @router.get("/scheduler/jobs")
 def list_jobs(enabled_only: bool = Query(False, description="Only return enabled jobs")):
     """List all scheduler jobs with their configuration and status."""
     db = _get_db()
     jobs = db.list_jobs(enabled_only=enabled_only)
     
+    # Normalize job_config for all jobs
+    normalized_jobs = [_normalize_job_config(job) for job in jobs]
+    
     return {
-        "count": len(jobs),
-        "jobs": jobs
+        "count": len(normalized_jobs),
+        "jobs": normalized_jobs
     }
 
 
@@ -43,7 +53,7 @@ def get_job(job_id: str):
             status_code=status.HTTP_404_NOT_FOUND
         )
     
-    return job
+    return _normalize_job_config(job)
 
 
 @router.post("/scheduler/jobs/{job_id}/enable")
@@ -198,6 +208,9 @@ async def trigger_job(job_id: str):
             elif job_id == "tesseract_embed_new":
                 from jobs.tesseract import embed_new_articles
                 result = await embed_new_articles()
+            elif job_id == "topics_backfill":
+                from jobs.topics_backfill import backfill_topics_historical
+                result = await backfill_topics_historical()
             else:
                 return JSONResponse(
                     {"error": f"Manual trigger not yet implemented for job '{job_id}'"},
@@ -257,7 +270,22 @@ def update_job_config(
     if 'trigger_config' in config:
         updated_trigger_config.update(config['trigger_config'])
     
-    # Update job using upsert_job
+    # Handle job_config updates
+    # If job_config is in the request, merge with existing (if exists), otherwise use request directly
+    if 'job_config' in config:
+        existing_job_config = job.get('job_config')
+        if existing_job_config is not None and isinstance(existing_job_config, dict):
+            # Merge: existing config exists, merge request into it
+            updated_job_config = existing_job_config.copy()
+            updated_job_config.update(config['job_config'])
+            job_config_to_save = updated_job_config
+        else:
+            # No existing config (None or not a dict): use request directly
+            job_config_to_save = config['job_config'] if isinstance(config['job_config'], dict) else {}
+    else:
+        # No job_config in request - preserve existing value by passing None (COALESCE will keep old value)
+        job_config_to_save = None
+    
     db.upsert_job(
         job_id=job_id,
         name=config.get('name', job['name']),
@@ -265,14 +293,18 @@ def update_job_config(
         trigger_config=updated_trigger_config,
         job_func=job['job_func'],  # Don't allow changing function
         enabled=config.get('enabled', job['enabled']),
-        max_instances=config.get('max_instances', job.get('max_instances', 1))
+        max_instances=config.get('max_instances', job.get('max_instances', 1)),
+        job_config=job_config_to_save
     )
+    
+    # Get updated job and normalize job_config for API response
+    updated_job = db.get_job(job_id)
     
     return {
         "status": "ok",
         "job_id": job_id,
         "message": "Job configuration updated. Note: Scheduler restart required for changes to take effect.",
-        "job": db.get_job(job_id)
+        "job": _normalize_job_config(updated_job) if updated_job else None
     }
 
 

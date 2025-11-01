@@ -15,7 +15,7 @@ from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.scheduler_db import SchedulerDB
 from scheduler_logging import log_scheduler_event
 
-from jobs import watchlist, topics, fred, prices, gaps, tesseract
+from jobs import watchlist, topics, topics_backfill, fred, prices, gaps, tesseract
 
 
 def setup_scheduler() -> AsyncIOScheduler:
@@ -124,59 +124,134 @@ def setup_scheduler() -> AsyncIOScheduler:
             "max_instances": 1,
             "enabled": True
         },
+        
+        # Topics Historical Backfill - Fill gaps chronologically backwards
+        {
+            "job_id": "topics_backfill",
+            "name": "Backfill Historical News by Topic",
+            "func": topics_backfill.backfill_topics_historical,
+            "trigger": CronTrigger(hour=2, minute=0),  # Daily at 2 AM UTC
+            "trigger_config": {"hour": 2, "minute": 0, "timezone": "UTC", "type": "cron"},
+            "job_config": {
+                "max_days_per_run": 30,
+                "min_articles_per_day": 5,
+                "lookback_days": 365,
+                "max_articles_per_day": 100
+            },
+            "max_instances": 1,
+            "enabled": True
+        },
     ]
     
     # Register jobs in scheduler and database
     for job_config in jobs_config:
         job_id = job_config["job_id"]
         
-        # Check if job is enabled in DB (override config if exists)
+        # Check if job config exists in DB (override with DB values if present)
         db_job = db.get_job(job_id)
-        enabled = db_job['enabled'] if db_job else job_config.get("enabled", True)
+        
+        # Use DB config if available, otherwise use code config
+        job_config_to_store = None  # Will be set based on DB or code config
+        if db_job:
+            enabled = db_job['enabled']
+            # Load trigger from DB if trigger_config exists
+            trigger_to_use = job_config["trigger"]  # Default: use code config
+            
+            if db_job.get('trigger_config') and db_job.get('trigger_type'):
+                trigger_config = db_job['trigger_config']
+                trigger_type = db_job['trigger_type']
+                
+                # Reconstruct trigger from DB config
+                if trigger_type == 'cron':
+                    cron_kwargs = {
+                        'timezone': trigger_config.get('timezone', 'UTC')
+                    }
+                    if trigger_config.get('hour') is not None:
+                        cron_kwargs['hour'] = trigger_config.get('hour')
+                    if trigger_config.get('minute') is not None:
+                        cron_kwargs['minute'] = trigger_config.get('minute')
+                    if trigger_config.get('day_of_week'):
+                        cron_kwargs['day_of_week'] = trigger_config.get('day_of_week')
+                    trigger_to_use = CronTrigger(**cron_kwargs)
+                elif trigger_type == 'interval':
+                    # Support both hours and minutes
+                    hours = trigger_config.get('hours', 0)
+                    minutes = trigger_config.get('minutes', 0)
+                    if minutes > 0:
+                        from datetime import timedelta
+                        trigger_to_use = IntervalTrigger(minutes=minutes)
+                    elif hours > 0:
+                        trigger_to_use = IntervalTrigger(hours=hours)
+                    else:
+                        # Fallback to code config
+                        trigger_to_use = job_config["trigger"]
+            
+            # Use job_config from DB if it exists (not None), otherwise use code config
+            db_job_config = db_job.get('job_config')
+            if db_job_config is not None:  # Explicitly check for None (not just falsy)
+                job_config_to_store = db_job_config
+            else:
+                job_config_to_store = job_config.get("job_config")
+        else:
+            enabled = job_config.get("enabled", True)
+            trigger_to_use = job_config["trigger"]
+            job_config_to_store = job_config.get("job_config")
         
         if not enabled:
             log_scheduler_event("job_skipped", job_id=job_id, reason="disabled")
             continue
         
-        # Add job to scheduler
+        # Add job to scheduler with trigger (from DB if available, otherwise from code)
         job = scheduler.add_job(
             job_config["func"],
-            trigger=job_config["trigger"],
+            trigger=trigger_to_use,
             id=job_id,
             name=job_config["name"],
             max_instances=job_config.get("max_instances", 1),
             replace_existing=True
         )
         
-        # Store job config in DB (use original config from jobs_config if available)
-        trigger_type = "cron" if isinstance(job_config["trigger"], CronTrigger) else "interval"
-        
-        # Use trigger_config from job_config if provided, otherwise extract from trigger
-        if "trigger_config" in job_config:
-            trigger_config = job_config["trigger_config"]
-        elif isinstance(job_config["trigger"], CronTrigger):
-            # Fallback: try to extract from trigger fields (if trigger_config not provided)
-            trigger_config = {
-                "timezone": str(job_config["trigger"].timezone),
-                "type": "cron"
-            }
-            # Try to extract hour, minute, day_of_week from trigger fields
-            if hasattr(job_config["trigger"], 'fields'):
-                fields = job_config["trigger"].fields
-                if len(fields) > 2 and hasattr(fields[2], 'values') and fields[2].values:
-                    trigger_config["hour"] = fields[2].values[0]
-                if len(fields) > 1 and hasattr(fields[1], 'values') and fields[1].values:
-                    trigger_config["minute"] = fields[1].values[0]
-                if len(fields) > 5 and hasattr(fields[5], 'values') and fields[5].values:
-                    trigger_config["day_of_week"] = fields[5].values[0]
-        elif isinstance(job_config["trigger"], IntervalTrigger):
-            trigger_config = {
-                "hours": job_config["trigger"].interval.total_seconds() / 3600,
-                "timezone": "UTC",
-                "type": "interval"
-            }
+        # Store job config in DB (use DB values if available, otherwise extract from code)
+        if db_job and db_job.get('trigger_type') and db_job.get('trigger_config'):
+            # Use trigger_config and trigger_type from DB (preserve user changes)
+            trigger_type = db_job['trigger_type']
+            trigger_config = db_job['trigger_config']
         else:
-            trigger_config = {"type": "unknown"}
+            # Extract trigger_config and trigger_type from code config (new job or missing DB values)
+            trigger_type = "cron" if isinstance(trigger_to_use, CronTrigger) else "interval"
+            
+            # Extract trigger_config from trigger_to_use (which may be from DB or code)
+            if isinstance(trigger_to_use, CronTrigger):
+                trigger_config = {
+                    "timezone": str(trigger_to_use.timezone),
+                    "type": "cron"
+                }
+                # Try to extract hour, minute, day_of_week from trigger fields
+                if hasattr(trigger_to_use, 'fields'):
+                    fields = trigger_to_use.fields
+                    if len(fields) > 2 and hasattr(fields[2], 'values') and fields[2].values:
+                        trigger_config["hour"] = fields[2].values[0]
+                    if len(fields) > 1 and hasattr(fields[1], 'values') and fields[1].values:
+                        trigger_config["minute"] = fields[1].values[0]
+                    if len(fields) > 5 and hasattr(fields[5], 'values') and fields[5].values:
+                        trigger_config["day_of_week"] = fields[5].values[0]
+            elif isinstance(trigger_to_use, IntervalTrigger):
+                # Extract minutes or hours from interval
+                total_seconds = trigger_to_use.interval.total_seconds()
+                if total_seconds % 3600 == 0:
+                    trigger_config = {
+                        "hours": int(total_seconds / 3600),
+                        "timezone": "UTC",
+                        "type": "interval"
+                    }
+                else:
+                    trigger_config = {
+                        "minutes": int(total_seconds / 60),
+                        "timezone": "UTC",
+                        "type": "interval"
+                    }
+            else:
+                trigger_config = {"type": "unknown"}
         
         db.upsert_job(
             job_id=job_id,
@@ -185,7 +260,8 @@ def setup_scheduler() -> AsyncIOScheduler:
             trigger_config=trigger_config,
             job_func=f"{job_config['func'].__module__}.{job_config['func'].__name__}",
             enabled=enabled,
-            max_instances=job_config.get("max_instances", 1)
+            max_instances=job_config.get("max_instances", 1),
+            job_config=job_config_to_store  # Use DB config if available, otherwise code config
         )
         
         # Log job registration

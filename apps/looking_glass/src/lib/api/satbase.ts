@@ -595,6 +595,7 @@ export async function updateSchedulerJobConfig(
     name?: string;
     trigger_type?: string;
     max_instances?: number;
+    job_config?: Record<string, any>; // Add job_config support
   }
 ): Promise<any> {
   return apiPost(`/v1/scheduler/jobs/${jobId}/config`, config);

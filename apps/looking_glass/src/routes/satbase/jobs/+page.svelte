@@ -30,6 +30,12 @@
   let loading: boolean = false;
   let error: string | null = null;
   
+  // Pagination
+  let currentPage: number = 1;
+  let pageSize: number = 50;
+  let totalJobs: number = 0;
+  let hasMore: boolean = false;
+  
   // Quick actions
   let newPricesTickers: string = '';
   let newMacroSeries: string = '';
@@ -49,8 +55,11 @@
     error = null;
     
     try {
-      const res = await apiGet<{ count: number; jobs: Job[] }>(`/v1/ingest/jobs?limit=200`);
+      const offset = (currentPage - 1) * pageSize;
+      const res = await apiGet<{ count: number; total: number; limit: number; offset: number; has_more: boolean; jobs: Job[] }>(`/v1/ingest/jobs?limit=${pageSize}&offset=${offset}`);
       jobs = res.jobs || [];
+      totalJobs = res.total || 0;
+      hasMore = res.has_more || false;
       categorizeJobs();
     } catch (e: any) {
       error = e?.message || String(e);
@@ -58,6 +67,18 @@
       loading = false;
     }
   }
+  
+  function goToPage(page: number) {
+    const totalPages = Math.ceil(totalJobs / pageSize);
+    if (page >= 1 && page <= totalPages) {
+      currentPage = page;
+      loadJobs();
+    }
+  }
+  
+  $: totalPages = Math.ceil(totalJobs / pageSize);
+  $: startItem = totalJobs > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+  $: endItem = Math.min(currentPage * pageSize, totalJobs);
   
   function categorizeJobs() {
     // Jobs are considered complete if status is done OR if progress is 100%
@@ -91,18 +112,43 @@
     if (!job.payload) return job.kind;
     
     // Extract meaningful info from payload based on job kind
-    if (job.kind === 'news') {
+    if (job.kind === 'news' || job.kind === 'news_backfill') {
       const query = job.payload.query || '';
       const topic = job.payload.topic || '';
       const from = job.payload.from || '';
       const to = job.payload.to || '';
       
-      let desc = query ? `"${query}"` : 'News';
-      if (topic && topic !== query) desc += ` (${topic})`;
-      if (from || to) {
-        const dateRange = from && to ? `${from} to ${to}` : from || to || '';
-        if (dateRange) desc += ` • ${dateRange}`;
+      // Format date range more compactly
+      let dateRange = '';
+      if (from && to) {
+        if (from === to) {
+          dateRange = from;
+        } else {
+          dateRange = `${from} → ${to}`;
+        }
+      } else if (from) {
+        dateRange = `from ${from}`;
+      } else if (to) {
+        dateRange = `to ${to}`;
       }
+      
+      // Build description
+      let desc = '';
+      if (topic) {
+        desc = topic;
+        if (query && query !== topic) {
+          desc += ` ("${query}")`;
+        }
+      } else if (query) {
+        desc = `"${query}"`;
+      } else {
+        desc = job.kind === 'news_backfill' ? 'Backfill' : 'News';
+      }
+      
+      if (dateRange) {
+        desc += ` • ${dateRange}`;
+      }
+      
       return desc;
     } else if (job.kind === 'prices') {
       const tickers = job.payload.tickers || [];
@@ -121,15 +167,29 @@
   function getJobSummary(job: Job): string {
     if (!job.result) return '';
     
-    if (job.kind === 'news') {
+    if (job.kind === 'news' || job.kind === 'news_backfill') {
       const result = job.result;
       if (typeof result === 'object') {
         // Try to extract article counts
         const totalDays = result.total_days || 0;
         const stored = result.articles_stored || 0;
         const discarded = result.articles_discarded || 0;
-        if (totalDays > 0 || stored > 0) {
-          return `${stored} articles stored${discarded > 0 ? `, ${discarded} discarded` : ''}${totalDays > 1 ? ` (${totalDays} days)` : ''}`;
+        const errors = result.errors || [];
+        
+        if (stored > 0 || totalDays > 0) {
+          let summary = `${stored} article${stored !== 1 ? 's' : ''}`;
+          if (discarded > 0) {
+            summary += `, ${discarded} discarded`;
+          }
+          if (totalDays > 1) {
+            summary += ` (${totalDays} days)`;
+          }
+          if (errors.length > 0) {
+            summary += `, ${errors.length} error${errors.length !== 1 ? 's' : ''}`;
+          }
+          return summary;
+        } else if (totalDays > 0) {
+          return `No articles found (${totalDays} day${totalDays !== 1 ? 's' : ''})`;
         }
       }
     } else if (job.kind === 'prices') {
@@ -326,8 +386,7 @@
     }
   }
   
-  // Stats calculations
-  $: totalJobs = jobs.length;
+  // Stats calculations (based on current page jobs)
   $: successRate = jobs.length > 0 ? Math.round(completedJobs.length / jobs.length * 100) : 0;
   $: avgDuration = completedJobs.length > 0
     ? completedJobs.reduce((sum, j) => {
@@ -349,7 +408,7 @@
   $: autoRefresh, startAutoRefresh();
 </script>
 
-<div class="max-w-7xl mx-auto space-y-4 h-full overflow-y-auto p-6">
+<div class="max-w-7xl mx-auto space-y-4 p-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
     <div>
@@ -555,9 +614,9 @@
   <!-- Completed Jobs Section -->
   {#if completedJobs.length > 0}
     <Card>
-      <h2 class="text-lg font-semibold text-neutral-100 mb-3">✓ Completed Today ({completedJobs.length})</h2>
-      <div class="space-y-2">
-        {#each completedJobs.slice(0, 10) as job}
+      <h2 class="text-lg font-semibold text-neutral-100 mb-3">✓ Completed ({completedJobs.length} of {totalJobs})</h2>
+      <div class="space-y-2 max-h-[600px] overflow-y-auto">
+        {#each completedJobs as job}
           <button 
             on:click={() => expandedJobId = expandedJobId === job.job_id ? null : job.job_id}
             class="w-full text-left bg-neutral-800/30 border border-neutral-700/30 rounded-lg p-3 hover:bg-neutral-800/50 transition-colors"
@@ -704,6 +763,67 @@
       <div class="text-center">
         <div class="text-4xl mb-3">📭</div>
         <p class="text-neutral-400">No jobs yet. Trigger an ingest above to get started.</p>
+      </div>
+    </Card>
+  {/if}
+  
+  <!-- Pagination -->
+  {#if totalJobs > pageSize}
+    <Card>
+      <div class="flex items-center justify-between flex-wrap gap-4">
+        <div class="text-sm text-neutral-400">
+          Showing <span class="font-semibold text-neutral-300">{startItem}</span> to <span class="font-semibold text-neutral-300">{endItem}</span> of <span class="font-semibold text-neutral-300">{totalJobs}</span> jobs
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            on:click={() => goToPage(1)}
+            disabled={currentPage === 1 || loading}
+            class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            ««
+          </button>
+          <button
+            on:click={() => goToPage(currentPage - 1)}
+            disabled={currentPage === 1 || loading}
+            class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            « Prev
+          </button>
+          
+          {#each Array(Math.min(5, totalPages)) as _, i}
+            {@const pageNum = currentPage <= 3 
+              ? i + 1 
+              : currentPage >= totalPages - 2 
+                ? totalPages - 4 + i 
+                : currentPage - 2 + i}
+            {#if pageNum >= 1 && pageNum <= totalPages}
+              <button
+                on:click={() => goToPage(pageNum)}
+                disabled={loading}
+                class="px-3 py-1.5 text-sm rounded-lg transition-colors {currentPage === pageNum 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'} disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {pageNum}
+              </button>
+            {/if}
+          {/each}
+          
+          <button
+            on:click={() => goToPage(currentPage + 1)}
+            disabled={currentPage >= totalPages || loading}
+            class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Next »
+          </button>
+          <button
+            on:click={() => goToPage(totalPages)}
+            disabled={currentPage >= totalPages || loading}
+            class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-neutral-300 hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            »»
+          </button>
+        </div>
       </div>
     </Card>
   {/if}

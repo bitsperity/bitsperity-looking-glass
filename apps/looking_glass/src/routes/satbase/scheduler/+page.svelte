@@ -7,6 +7,8 @@
 	import Input from '$lib/components/shared/Input.svelte';
 	import type { SchedulerJob, SchedulerExecution, SchedulerGap, SchedulerStatus } from '$lib/api/satbase';
 
+	export let params: Record<string, string> = {};
+
 	// State
 	let status: SchedulerStatus | null = null;
 	let jobs: SchedulerJob[] = [];
@@ -24,9 +26,19 @@
 	let actionLoading: Record<string, boolean> = {};
 	
 	// Edit job form state
+	let editTriggerType: 'interval' | 'cron' = 'interval'; // Allow switching trigger types
 	let editMinutes: number = 30;
 	let editHours: number = 0;
 	let editEnabled: boolean = true;
+	// Cron trigger fields
+	let editCronHour: number = 2;
+	let editCronMinute: number = 0;
+	let editCronDayOfWeek: string = '';
+	// Job config fields (for topics_backfill)
+	let editMaxDaysPerRun: number = 30;
+	let editMinArticlesPerDay: number = 5;
+	let editLookbackDays: number = 365;
+	let editMaxArticlesPerDay: number = 100;
 
 	// Load data
 	async function loadData() {
@@ -81,6 +93,107 @@
 			error = `Failed to trigger job: ${e?.message || String(e)}`;
 		} finally {
 			actionLoading[`trigger_${jobId}`] = false;
+		}
+	}
+
+	// Edit job
+	function openEditJob(job: SchedulerJob) {
+		editingJob = job;
+		editEnabled = job.enabled;
+		
+		// Set trigger type (allow switching)
+		editTriggerType = (job.trigger_type === 'cron' ? 'cron' : 'interval') as 'interval' | 'cron';
+		
+		// Extract trigger values based on type
+		const config = job.trigger_config || {};
+		if (job.trigger_type === 'interval') {
+			editHours = config.hours || 0;
+			editMinutes = config.minutes || 0;
+			// Initialize cron fields with defaults
+			editCronHour = 2;
+			editCronMinute = 0;
+			editCronDayOfWeek = '';
+		} else if (job.trigger_type === 'cron') {
+			editCronHour = config.hour ?? 2;
+			editCronMinute = config.minute ?? 0;
+			editCronDayOfWeek = config.day_of_week || '';
+			// Initialize interval fields with defaults
+			editHours = 0;
+			editMinutes = 30;
+		} else {
+			// Unknown type - default to interval
+			editTriggerType = 'interval';
+			editHours = 0;
+			editMinutes = 30;
+			editCronHour = 2;
+			editCronMinute = 0;
+			editCronDayOfWeek = '';
+		}
+		
+		// Load job_config for topics_backfill
+		const jobConfig = job.job_config || {};
+		if (job.job_id === 'topics_backfill') {
+			editMaxDaysPerRun = jobConfig.max_days_per_run ?? 30;
+			editMinArticlesPerDay = jobConfig.min_articles_per_day ?? 5;
+			editLookbackDays = jobConfig.lookback_days ?? 365;
+			editMaxArticlesPerDay = jobConfig.max_articles_per_day ?? 100;
+		}
+	}
+
+	function closeEditJob() {
+		editingJob = null;
+	}
+
+	async function saveJobConfig() {
+		if (!editingJob) return;
+		
+		// Save job_id before closeEditJob() sets editingJob to null
+		const jobId = editingJob.job_id;
+		actionLoading[`edit_${jobId}`] = true;
+		try {
+			const updates: any = {
+				enabled: editEnabled,
+				trigger_type: editTriggerType // Allow changing trigger type
+			};
+			
+			// Update trigger_config based on selected trigger type (not current type!)
+			if (editTriggerType === 'interval') {
+				updates.trigger_config = {
+					minutes: editMinutes,
+					hours: editHours,
+					timezone: 'UTC',
+					type: 'interval'
+				};
+			} else if (editTriggerType === 'cron') {
+				updates.trigger_config = {
+					hour: editCronHour,
+					minute: editCronMinute,
+					day_of_week: editCronDayOfWeek || undefined,
+					timezone: 'UTC',
+					type: 'cron'
+				};
+			}
+			
+			// Update job_config for topics_backfill
+			if (editingJob.job_id === 'topics_backfill') {
+				updates.job_config = {
+					...editingJob.job_config,
+					max_days_per_run: editMaxDaysPerRun,
+					min_articles_per_day: editMinArticlesPerDay,
+					lookback_days: editLookbackDays,
+					max_articles_per_day: editMaxArticlesPerDay
+				};
+			}
+			
+			await satbaseApi.updateSchedulerJobConfig(jobId, updates);
+			error = 'Job configuration updated. Scheduler will use new schedule after restart.';
+			setTimeout(() => (error = null), 5000);
+			closeEditJob();
+			await loadData();
+		} catch (e: any) {
+			error = `Failed to update job: ${e?.message || String(e)}`;
+		} finally {
+			actionLoading[`edit_${jobId}`] = false;
 		}
 	}
 
@@ -668,7 +781,35 @@
 			</div>
 			
 			<div class="modal-body">
-				{#if editingJob.trigger_type === 'interval'}
+				<!-- Trigger Type Selection -->
+				<div class="form-group">
+					<label class="form-label">Schedule Type</label>
+					<div class="trigger-type-selector">
+						<button
+							type="button"
+							class="trigger-type-btn"
+							class:active={editTriggerType === 'interval'}
+							on:click={() => editTriggerType = 'interval'}
+						>
+							<span class="trigger-icon">⏱️</span>
+							<span class="trigger-label">Interval</span>
+							<span class="trigger-desc">Run every X minutes/hours</span>
+						</button>
+						<button
+							type="button"
+							class="trigger-type-btn"
+							class:active={editTriggerType === 'cron'}
+							on:click={() => editTriggerType = 'cron'}
+						>
+							<span class="trigger-icon">📅</span>
+							<span class="trigger-label">Cron</span>
+							<span class="trigger-desc">Run at specific time</span>
+						</button>
+					</div>
+				</div>
+
+				<!-- Interval Schedule Configuration -->
+				{#if editTriggerType === 'interval'}
 					<div class="form-group">
 						<label class="form-label">Schedule Interval</label>
 						<div class="form-row">
@@ -692,14 +833,106 @@
 								/>
 							</div>
 						</div>
-						<p class="form-help">Will run every {editHours > 0 ? `${editHours} hour(s) ` : ''}{editMinutes > 0 ? `${editMinutes} minute(s)` : editHours === 0 ? '0 minutes' : ''}</p>
-					</div>
-				{:else}
-					<div class="form-group">
-						<label class="form-label">Schedule</label>
-						<p class="text-neutral-400 text-sm">
-							Cron-based schedules cannot be edited via UI. Please edit the scheduler configuration directly.
+						<p class="form-help">
+							Will run every {editHours > 0 ? `${editHours} hour(s) ` : ''}{editMinutes > 0 ? `${editMinutes} minute(s)` : editHours === 0 ? '0 minutes' : ''}
 						</p>
+					</div>
+				<!-- Cron Schedule Configuration -->
+				{:else if editTriggerType === 'cron'}
+					<div class="form-group">
+						<label class="form-label">Cron Schedule</label>
+						<div class="form-row">
+							<div class="form-field">
+								<label class="field-label">Hour (UTC)</label>
+								<Input
+									type="number"
+									bind:value={editCronHour}
+									min="0"
+									max="23"
+									placeholder="2"
+								/>
+							</div>
+							<div class="form-field">
+								<label class="field-label">Minute</label>
+								<Input
+									type="number"
+									bind:value={editCronMinute}
+									min="0"
+									max="59"
+									placeholder="0"
+								/>
+							</div>
+							<div class="form-field">
+								<label class="field-label">Day of Week (optional)</label>
+								<select bind:value={editCronDayOfWeek} class="form-select">
+									<option value="">Every day</option>
+									<option value="mon">Monday</option>
+									<option value="tue">Tuesday</option>
+									<option value="wed">Wednesday</option>
+									<option value="thu">Thursday</option>
+									<option value="fri">Friday</option>
+									<option value="sat">Saturday</option>
+									<option value="sun">Sunday</option>
+								</select>
+							</div>
+						</div>
+						<p class="form-help">
+							Will run {editCronDayOfWeek ? `every ${editCronDayOfWeek}` : 'daily'} at {String(editCronHour).padStart(2, '0')}:{String(editCronMinute).padStart(2, '0')} UTC
+						</p>
+					</div>
+				{/if}
+				
+				{#if editingJob.job_id === 'topics_backfill'}
+					<div class="form-group">
+						<label class="form-label">Job Parameters</label>
+						<div class="form-row">
+							<div class="form-field">
+								<label class="field-label">Max Days Per Run</label>
+								<Input
+									type="number"
+									bind:value={editMaxDaysPerRun}
+									min="1"
+									max="365"
+									placeholder="30"
+								/>
+								<p class="form-help text-xs">Maximum days to backfill per topic per run</p>
+							</div>
+							<div class="form-field">
+								<label class="field-label">Min Articles Per Day</label>
+								<Input
+									type="number"
+									bind:value={editMinArticlesPerDay}
+									min="1"
+									max="1000"
+									placeholder="5"
+								/>
+								<p class="form-help text-xs">Minimum articles per day to not be considered a gap</p>
+							</div>
+						</div>
+						<div class="form-row">
+							<div class="form-field">
+								<label class="field-label">Lookback Days</label>
+								<Input
+									type="number"
+									bind:value={editLookbackDays}
+									min="1"
+									max="3650"
+									placeholder="365"
+								/>
+								<p class="form-help text-xs">How many days to look back for gaps</p>
+							</div>
+							<div class="form-field">
+								<label class="field-label">Max Articles Per Day</label>
+								<Input
+									type="number"
+									bind:value={editMaxArticlesPerDay}
+									min="1"
+									max="1000"
+									placeholder="100"
+								/>
+								<p class="form-help text-xs">Maximum articles to fetch per day</p>
+							</div>
+						</div>
 					</div>
 				{/if}
 				
@@ -1359,6 +1592,60 @@
 		margin-left: 0.5rem;
 		font-size: 0.875rem;
 		color: rgb(248, 250, 252);
+	}
+
+	.trigger-type-selector {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.trigger-type-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		background: rgb(51, 65, 85);
+		border: 2px solid rgb(71, 85, 105);
+		border-radius: 0.5rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		text-align: center;
+	}
+
+	.trigger-type-btn:hover {
+		background: rgb(71, 85, 105);
+		border-color: rgb(99, 102, 241);
+	}
+
+	.trigger-type-btn.active {
+		background: rgba(99, 102, 241, 0.2);
+		border-color: rgb(99, 102, 241);
+	}
+
+	.trigger-icon {
+		font-size: 1.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.trigger-label {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: rgb(248, 250, 252);
+		margin-bottom: 0.25rem;
+	}
+
+	.trigger-desc {
+		font-size: 0.75rem;
+		color: rgb(148, 163, 184);
+	}
+
+	@media (max-width: 768px) {
+		.trigger-type-selector {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	@media (max-width: 768px) {
