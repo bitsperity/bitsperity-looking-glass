@@ -17,6 +17,7 @@
   let error: string | null = null;
   let activeTab: 'overview' | 'stats' | 'context' | 'insights' | 'messages' = 'overview';
   let daysBack = 7;
+  let expandedPrompts = new Set<number>();
 
   const agentName = $page.params.name;
 
@@ -63,6 +64,51 @@
   function formatDate(isoString: string) {
     const date = new Date(isoString);
     return date.toLocaleString();
+  }
+
+  function formatPrompt(prompt: string): string {
+    if (!prompt) return '';
+    
+    // Escape HTML first
+    let formatted = prompt
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    
+    // Format **bold** text
+    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white font-semibold">$1</strong>');
+    
+    // Format *italic* text
+    formatted = formatted.replace(/\*(.*?)\*/g, '<em class="text-neutral-300">$1</em>');
+    
+    // Format ## Headers
+    formatted = formatted.replace(/^## (.*?)$/gm, '<h3 class="text-white font-bold text-sm mt-4 mb-2">$1</h3>');
+    
+    // Format ### Sub-headers
+    formatted = formatted.replace(/^### (.*?)$/gm, '<h4 class="text-neutral-200 font-semibold text-xs mt-3 mb-1.5">$1</h4>');
+    
+    // Format numbered lists (1. item)
+    formatted = formatted.replace(/^(\d+)\.\s+(.*?)$/gm, '<div class="flex gap-2 my-1.5"><span class="text-blue-400 font-mono text-xs min-w-[1.5rem]">$1.</span><span class="text-neutral-300 text-xs">$2</span></div>');
+    
+    // Format bullet points (- item)
+    formatted = formatted.replace(/^[-•]\s+(.*?)$/gm, '<div class="flex gap-2 my-1.5"><span class="text-neutral-500 text-xs">•</span><span class="text-neutral-300 text-xs">$1</span></div>');
+    
+    // Format code blocks (```code```)
+    formatted = formatted.replace(/```([\s\S]*?)```/g, '<pre class="bg-neutral-900/50 border border-neutral-700/50 rounded p-3 my-2 overflow-x-auto"><code class="text-emerald-400 text-xs font-mono">$1</code></pre>');
+    
+    // Format inline code (`code`)
+    formatted = formatted.replace(/`([^`]+)`/g, '<code class="bg-neutral-900/50 text-emerald-400 text-xs font-mono px-1.5 py-0.5 rounded border border-neutral-700/50">$1</code>');
+    
+    // Format lines starting with → as notes
+    formatted = formatted.replace(/^→\s+(.*?)$/gm, '<div class="text-blue-400 text-xs italic my-1 flex items-start gap-2"><span>→</span><span>$1</span></div>');
+    
+    // Format lines starting with // as comments
+    formatted = formatted.replace(/\/\/\s+(.*?)$/gm, '<span class="text-neutral-500 text-xs italic">// $1</span>');
+    
+    // Preserve line breaks
+    formatted = formatted.replace(/\n/g, '<br>');
+    
+    return formatted;
   }
 
   async function markMessageAsRead(messageId: string) {
@@ -227,17 +273,69 @@
                       <div class="text-xs text-neutral-500 font-mono">{turn.model}</div>
                     {/if}
                   </div>
-                  {#if turn.mcps && turn.mcps.length > 0}
-                    <div class="flex flex-wrap gap-2 mt-2">
+                  
+                  <!-- Tools -->
+                  {#if turn.tools && turn.tools.length > 0}
+                    <div class="mt-3">
+                      <div class="text-xs font-medium text-emerald-400 mb-1.5 uppercase">Tools ({turn.tools.length})</div>
+                      <div class="flex flex-wrap gap-2">
+                        {#each turn.tools as tool}
+                          <span class="px-2 py-1 bg-emerald-900/30 text-emerald-400 text-xs rounded border border-emerald-700/30 font-mono">
+                            {tool}
+                          </span>
+                        {/each}
+                      </div>
+                    </div>
+                  {:else if turn.mcps && turn.mcps.length > 0}
+                    <!-- Legacy: MCPS -->
+                    <div class="mt-3">
+                      <div class="text-xs font-medium text-blue-400 mb-1.5 uppercase">MCPs ({turn.mcps.length})</div>
+                      <div class="flex flex-wrap gap-2">
                       {#each turn.mcps as mcp}
                         <span class="px-2 py-1 bg-blue-900/30 text-blue-400 text-xs rounded border border-blue-700/30">
                           {mcp}
                         </span>
                       {/each}
+                      </div>
                     </div>
                   {/if}
+                  
+                  <!-- Rules -->
+                  {#if turn.rules && turn.rules.length > 0}
+                    <div class="mt-3">
+                      <div class="text-xs font-medium text-purple-400 mb-1.5 uppercase">Rules ({turn.rules.length})</div>
+                      <div class="flex flex-wrap gap-2">
+                        {#each turn.rules as ruleId}
+                          <span class="px-2 py-1 bg-purple-900/30 text-purple-400 text-xs rounded border border-purple-700/30">
+                            {ruleId}
+                          </span>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                  
+                  <!-- Prompt -->
                   {#if turn.prompt}
-                    <div class="mt-2 text-xs text-neutral-400 italic line-clamp-2">{turn.prompt}</div>
+                    <div class="mt-3 pt-3 border-t border-neutral-700/50">
+                      <div class="flex items-center justify-between mb-2">
+                        <div class="text-xs font-medium text-neutral-400 uppercase">Prompt</div>
+                        <button
+                          class="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                          on:click={() => {
+                            const idx = agent.turns.findIndex(t => t.id === turn.id);
+                            expandedPrompts = new Set(expandedPrompts.has(idx) 
+                              ? [...expandedPrompts].filter(i => i !== idx)
+                              : [...expandedPrompts, idx]
+                            );
+                          }}
+                        >
+                          {expandedPrompts.has(agent.turns.findIndex(t => t.id === turn.id)) ? '▼ Collapse' : '▶ Expand'}
+                        </button>
+                      </div>
+                      <div class="prompt-content {expandedPrompts.has(agent.turns.findIndex(t => t.id === turn.id)) ? '' : 'line-clamp-5'}">
+                        {@html formatPrompt(turn.prompt)}
+                      </div>
+                    </div>
                   {/if}
                 </div>
               {/each}
@@ -501,6 +599,30 @@
     font-size: 0.7rem;
     font-weight: 700;
     color: #93c5fd;
+  }
+
+  .prompt-content {
+    font-size: 0.75rem;
+    line-height: 1.6;
+    color: #d1d5db;
+  }
+
+  .prompt-content h3 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .prompt-content h4 {
+    margin-top: 0.75rem;
+    margin-bottom: 0.375rem;
+  }
+
+  .prompt-content code {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  }
+
+  .prompt-content pre {
+    font-size: 0.7rem;
   }
 </style>
 

@@ -45,6 +45,57 @@ async def _fetch_ticker_background(ticker: str):
             pass
 
 
+def _fetch_ticker_sync(db: PricesDB, ticker: str, from_date, to_date, timeout_s: int = 5) -> list:
+    """Fetch ticker data synchronously from stooq/yfinance."""
+    import time
+    
+    start_time = time.time()
+    
+    try:
+        reg = registry()
+        
+        # Try stooq first (faster, but limited historical)
+        try:
+            fetch, normalize, sink = reg["stooq"]
+            params = {"tickers": [ticker.upper()]}
+            raw = fetch(params)
+            models = list(normalize(raw))
+            
+            if models:
+                sink(models, date.today())
+                # Query bars after saving
+                bars = db.query_bars(ticker, from_date, to_date)
+                if bars:
+                    return bars
+            
+            # Check timeout
+            if time.time() - start_time > timeout_s:
+                return []
+        except Exception:
+            pass  # Fallback to yfinance
+        
+        # Fallback to yfinance (more reliable, supports historical)
+        try:
+            fetch, normalize, sink = reg["eod_yfinance"]
+            params = {"tickers": [ticker.upper()]}
+            raw = fetch(params)
+            models = list(normalize(raw))
+            
+            if models:
+                sink(models, date.today())
+                # Query bars after saving - filter by requested date range
+                bars = db.query_bars(ticker, from_date, to_date)
+                if bars:
+                    return bars
+        except Exception:
+            pass
+        
+        return []
+    except Exception as e:
+        print(f"Failed to fetch {ticker} synchronously: {e}")
+        return []
+
+
 def _fetch_btcusd_sync(db: PricesDB, from_date, to_date) -> list:
     """Fetch BTCUSD data synchronously using yfinance (most reliable for crypto)."""
     try:
@@ -315,7 +366,12 @@ async def get_prices(
     
     bars = db.query_bars(ticker, from_date, to_date)
     
-    # If no bars: trigger background fetch (fetch_on_miss)
+    # If no bars: try synchronous fetch first (fallback to background if timeout)
+    if not bars:
+        # Try synchronous fetch with timeout
+        bars = _fetch_ticker_sync(db, ticker, from_date, to_date, timeout_s=min(sync_timeout_s, 10))
+        
+        # If still no bars after sync fetch, trigger background fetch
     if not bars:
         if background_tasks:
             background_tasks.add_task(_fetch_ticker_background, ticker)

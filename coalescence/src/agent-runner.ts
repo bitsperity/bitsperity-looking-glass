@@ -167,18 +167,29 @@ async function processTurn(
       }
 
       // Build request with integrated rules into system prompt
-      let systemPrompt = (config as any).system_prompt || '';
+      // OPTIMIZATION: Only send system prompt once at the very beginning of the agent run
+      // (first step of first turn) to save tokens. The conversation history in messages
+      // maintains context, so we don't need to repeat the system prompt.
+      let systemPrompt: string | undefined = undefined;
+      if (step === 0 && turnNumber === 1 && previousMessages.length === 0) {
+        // Only send system prompt at the very start of the agent run
+        systemPrompt = (config as any).system_prompt || '';
       if (turnRules) {
         systemPrompt = systemPrompt + '\n\n---\n\n' + turnRules;
+        }
       }
       
       const requestParams: Anthropic.Messages.MessageCreateParamsNonStreaming = {
         model: model,
         max_tokens: turn.max_tokens || (config as any).max_tokens_per_turn || 4000,
-        system: systemPrompt,
         messages: messages as Anthropic.MessageParam[],
         tools: claudeTools
       };
+      
+      // Only include system parameter if we have a system prompt (first step only)
+      if (systemPrompt) {
+        requestParams.system = systemPrompt;
+      }
 
       // Call Claude with tool definitions
       const response = await client.messages.create(requestParams);
@@ -463,12 +474,8 @@ export async function runAgent(
         // Log user prompt BEFORE processing (turn prompt)
         db.insertMessage(turnId, runId, 'user', turn.prompt || '', 0, 0, 'user');
 
-        // Add turn summary from previous turn if available (for context continuity)
+        // Log context continuity info (full message history is passed to processTurn)
         if (turnIdx > 0 && sharedMessages.length > 0) {
-          // Add a system message summarizing previous turn's context
-          const previousTurnSummary = `[Turn ${turnNumber - 1} Context] You are continuing from Turn ${turnNumber - 1}. Here's what happened in previous turns:\n\n` +
-            `Previous turns context is preserved in the conversation history below. Review it to understand what data was gathered, what insights were discovered, and what actions were taken.`;
-          
           logger.info(
             { turnNumber, previousMessagesCount: sharedMessages.length },
             'Including context from previous turns'

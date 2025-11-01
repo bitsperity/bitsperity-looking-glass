@@ -234,11 +234,19 @@ export class ToolExecutor {
       let buffer = '';
       let stderrOutput = '';
 
+      // Longer timeout for Manifold/Tesseract tools that need to initialize vector stores
+      // Check if tool name contains 'manifold' or 'tesseract' (case-insensitive)
+      const isVectorTool = toolName.toLowerCase().includes('manifold') || 
+                          toolName.toLowerCase().includes('tesseract') ||
+                          toolName.toLowerCase().includes('mf-') ||
+                          toolName.toLowerCase().includes('semantic');
+      const timeoutMs = isVectorTool ? 60000 : 30000; // 60s for vector tools, 30s for others
+
       const timeoutId = setTimeout(() => {
         proc.kill();
         const errorDetail = stderrOutput ? `\nMCP stderr: ${stderrOutput}` : '';
-        reject(new Error(`Tool ${toolName} execution timeout (30s)${errorDetail}`));
-      }, 30000); // 30 second timeout
+        reject(new Error(`Tool ${toolName} execution timeout (${timeoutMs/1000}s)${errorDetail}`));
+      }, timeoutMs);
 
       proc.stdout?.on('data', (data) => {
         buffer += data.toString();

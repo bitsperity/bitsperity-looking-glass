@@ -272,14 +272,24 @@ class NewsDB:
         
         if from_date:
             if isinstance(from_date, str):
-                from_date = datetime.fromisoformat(from_date)
+                # Parse date string - if it's just a date (YYYY-MM-DD), start from beginning of day
+                if len(from_date) == 10 and from_date.count('-') == 2:
+                    from_date = datetime.fromisoformat(from_date + "T00:00:00")
+                else:
+                    from_date = datetime.fromisoformat(from_date)
             where_parts.append("a.published_at >= ?")
             params.append(from_date)
         
         if to_date:
             if isinstance(to_date, str):
-                to_date = datetime.fromisoformat(to_date)
-            where_parts.append("a.published_at < ?")
+                # Parse date string - if it's just a date (YYYY-MM-DD), include until end of day
+                if len(to_date) == 10 and to_date.count('-') == 2:
+                    # Date only: include until end of day (23:59:59.999)
+                    to_date = datetime.fromisoformat(to_date + "T23:59:59.999")
+                else:
+                    to_date = datetime.fromisoformat(to_date)
+            # Use <= to include the entire end date
+            where_parts.append("a.published_at <= ?")
             params.append(to_date)
         
         if has_body:
@@ -392,14 +402,24 @@ class NewsDB:
         
         if from_date:
             if isinstance(from_date, str):
-                from_date = datetime.fromisoformat(from_date)
+                # Parse date string - if it's just a date (YYYY-MM-DD), start from beginning of day
+                if len(from_date) == 10 and from_date.count('-') == 2:
+                    from_date = datetime.fromisoformat(from_date + "T00:00:00")
+                else:
+                    from_date = datetime.fromisoformat(from_date)
             where_parts.append("published_at >= ?")
             params.append(from_date)
         
         if to_date:
             if isinstance(to_date, str):
-                to_date = datetime.fromisoformat(to_date)
-            where_parts.append("published_at < ?")
+                # Parse date string - if it's just a date (YYYY-MM-DD), include until end of day
+                if len(to_date) == 10 and to_date.count('-') == 2:
+                    # Date only: include until end of day (23:59:59.999)
+                    to_date = datetime.fromisoformat(to_date + "T23:59:59.999")
+                else:
+                    to_date = datetime.fromisoformat(to_date)
+            # Use <= to include the entire end date
+            where_parts.append("published_at <= ?")
             params.append(to_date)
         
         if search_query:
