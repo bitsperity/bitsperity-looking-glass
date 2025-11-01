@@ -585,6 +585,22 @@ export async function triggerSchedulerJob(jobId: string): Promise<any> {
 }
 
 /**
+ * Update job configuration (trigger_config, enabled, etc.)
+ */
+export async function updateSchedulerJobConfig(
+  jobId: string,
+  config: {
+    enabled?: boolean;
+    trigger_config?: Record<string, any>;
+    name?: string;
+    trigger_type?: string;
+    max_instances?: number;
+  }
+): Promise<any> {
+  return apiPost(`/v1/scheduler/jobs/${jobId}/config`, config);
+}
+
+/**
  * Get execution history for a job
  */
 export async function getJobExecutions(

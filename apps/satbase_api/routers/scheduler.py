@@ -3,7 +3,7 @@ Scheduler control and monitoring API endpoints.
 """
 from datetime import datetime
 from typing import Any, List, Optional
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Body, Query, status
 from fastapi.responses import JSONResponse
 
 from libs.satbase_core.config.settings import load_settings
@@ -195,6 +195,9 @@ async def trigger_job(job_id: str):
             elif job_id == "gaps_fill":
                 from jobs.gaps import fill_gaps
                 result = await fill_gaps()
+            elif job_id == "tesseract_embed_new":
+                from jobs.tesseract import embed_new_articles
+                result = await embed_new_articles()
             else:
                 return JSONResponse(
                     {"error": f"Manual trigger not yet implemented for job '{job_id}'"},
@@ -229,6 +232,48 @@ async def trigger_job(job_id: str):
             {"error": f"Job execution failed: {str(e)}", "traceback": traceback.format_exc()},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@router.post("/scheduler/jobs/{job_id}/config")
+def update_job_config(
+    job_id: str,
+    config: dict = Body(...)
+):
+    """
+    Update job configuration (trigger_config, enabled, etc.).
+    Note: Changes require scheduler restart to take effect.
+    """
+    db = _get_db()
+    job = db.get_job(job_id)
+    
+    if not job:
+        return JSONResponse(
+            {"error": f"Job '{job_id}' not found"},
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Merge updates with existing config
+    updated_trigger_config = job.get('trigger_config', {}).copy()
+    if 'trigger_config' in config:
+        updated_trigger_config.update(config['trigger_config'])
+    
+    # Update job using upsert_job
+    db.upsert_job(
+        job_id=job_id,
+        name=config.get('name', job['name']),
+        trigger_type=config.get('trigger_type', job['trigger_type']),
+        trigger_config=updated_trigger_config,
+        job_func=job['job_func'],  # Don't allow changing function
+        enabled=config.get('enabled', job['enabled']),
+        max_instances=config.get('max_instances', job.get('max_instances', 1))
+    )
+    
+    return {
+        "status": "ok",
+        "job_id": job_id,
+        "message": "Job configuration updated. Note: Scheduler restart required for changes to take effect.",
+        "job": db.get_job(job_id)
+    }
 
 
 @router.get("/scheduler/jobs/{job_id}/executions")

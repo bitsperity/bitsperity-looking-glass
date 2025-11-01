@@ -90,10 +90,22 @@ async def _fetch_watchlist(client: httpx.AsyncClient, api_url: str) -> list[dict
 
 
 async def _ingest_topic(client: httpx.AsyncClient, topic: str, max_retries: int = 3) -> dict[str, Any]:
+    """
+    Ingest news for a single topic.
+    
+    Strategy: Since Mediastack only supports date-based queries (not hour-based),
+    and this job runs hourly, we fetch only today's news to minimize API call waste.
+    Articles are deduplicated by URL in the database, so duplicates are harmless.
+    """
     s = load_settings()
     api_url = f"{s.api_url}/v1/ingest/news"
-
-    payload = {"query": topic, "topic": topic, "hours": 24}
+    
+    # Fetch only today's news (since job runs hourly, this minimizes overlap)
+    # Mediastack uses date format YYYY-MM-DD, so we can't do hour-based queries
+    from datetime import date
+    today = date.today().isoformat()
+    
+    payload = {"query": topic, "topic": topic, "from": today, "to": today}
     attempt = 0
     last_error = None
 

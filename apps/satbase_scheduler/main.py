@@ -15,7 +15,7 @@ from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.scheduler_db import SchedulerDB
 from scheduler_logging import log_scheduler_event
 
-from jobs import watchlist, topics, fred, prices, gaps
+from jobs import watchlist, topics, fred, prices, gaps, tesseract
 
 
 def setup_scheduler() -> AsyncIOScheduler:
@@ -110,6 +110,17 @@ def setup_scheduler() -> AsyncIOScheduler:
             "func": gaps.fill_gaps,
             "trigger": CronTrigger(hour=3, minute=30, timezone='UTC'),  # Daily 3:30 UTC
             "trigger_config": {"hour": 3, "minute": 30, "timezone": "UTC", "type": "cron"},
+            "max_instances": 1,
+            "enabled": True
+        },
+        
+        # Tesseract Embedding - New Articles
+        {
+            "job_id": "tesseract_embed_new",
+            "name": "Embed New Articles to Tesseract",
+            "func": tesseract.embed_new_articles,
+            "trigger": IntervalTrigger(minutes=30),
+            "trigger_config": {"minutes": 30, "timezone": "UTC", "type": "interval"},
             "max_instances": 1,
             "enabled": True
         },

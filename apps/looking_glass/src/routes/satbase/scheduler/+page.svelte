@@ -4,6 +4,7 @@
 	import Card from '$lib/components/shared/Card.svelte';
 	import Button from '$lib/components/shared/Button.svelte';
 	import Badge from '$lib/components/shared/Badge.svelte';
+	import Input from '$lib/components/shared/Input.svelte';
 	import type { SchedulerJob, SchedulerExecution, SchedulerGap, SchedulerStatus } from '$lib/api/satbase';
 
 	// State
@@ -19,7 +20,13 @@
 	let activeTab: 'overview' | 'jobs' | 'executions' | 'gaps' = 'overview';
 	let expandedJobId: string | null = null;
 	let selectedJob: SchedulerJob | null = null;
+	let editingJob: SchedulerJob | null = null;
 	let actionLoading: Record<string, boolean> = {};
+	
+	// Edit job form state
+	let editMinutes: number = 30;
+	let editHours: number = 0;
+	let editEnabled: boolean = true;
 
 	// Load data
 	async function loadData() {
@@ -138,10 +145,19 @@
 
 	function getTriggerDescription(job: SchedulerJob): string {
 		if (job.trigger_type === 'interval') {
-			const hours = job.trigger_config?.hours || 0;
-			if (hours >= 24) return `Every ${Math.round(hours / 24)} day(s)`;
-			if (hours >= 1) return `Every ${hours} hour(s)`;
-			return `Every ${Math.round((job.trigger_config?.hours || 0) * 60)} minute(s)`;
+			const config = job.trigger_config || {};
+			// Support both hours and minutes in trigger_config
+			const hours = config.hours || 0;
+			const minutes = config.minutes || 0;
+			
+			// Convert minutes to hours if we have both
+			const totalHours = hours + (minutes / 60);
+			const totalMinutes = (hours * 60) + minutes;
+			
+			if (totalHours >= 24) return `Every ${Math.round(totalHours / 24)} day(s)`;
+			if (totalHours >= 1) return `Every ${totalHours} hour(s)`;
+			if (totalMinutes >= 1) return `Every ${totalMinutes} minute(s)`;
+			return `Every ${minutes || 0} minute(s)`;
 		}
 
 		// Cron trigger
@@ -383,6 +399,13 @@
 										}}
 									>
 										📜 History
+									</Button>
+									<Button
+										variant="ghost"
+										size="sm"
+										on:click={() => openEditJob(job)}
+									>
+										⚙️ Edit
 									</Button>
 									<Button
 										variant="ghost"
@@ -634,6 +657,82 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Edit Job Modal -->
+{#if editingJob}
+	<div class="modal-overlay" on:click={closeEditJob}>
+		<div class="modal-content" on:click|stopPropagation>
+			<div class="modal-header">
+				<h2 class="modal-title">Edit Job: {editingJob.name}</h2>
+				<button class="modal-close" on:click={closeEditJob}>×</button>
+			</div>
+			
+			<div class="modal-body">
+				{#if editingJob.trigger_type === 'interval'}
+					<div class="form-group">
+						<label class="form-label">Schedule Interval</label>
+						<div class="form-row">
+							<div class="form-field">
+								<label class="field-label">Hours</label>
+								<Input
+									type="number"
+									bind:value={editHours}
+									min="0"
+									placeholder="0"
+								/>
+							</div>
+							<div class="form-field">
+								<label class="field-label">Minutes</label>
+								<Input
+									type="number"
+									bind:value={editMinutes}
+									min="0"
+									max="59"
+									placeholder="30"
+								/>
+							</div>
+						</div>
+						<p class="form-help">Will run every {editHours > 0 ? `${editHours} hour(s) ` : ''}{editMinutes > 0 ? `${editMinutes} minute(s)` : editHours === 0 ? '0 minutes' : ''}</p>
+					</div>
+				{:else}
+					<div class="form-group">
+						<label class="form-label">Schedule</label>
+						<p class="text-neutral-400 text-sm">
+							Cron-based schedules cannot be edited via UI. Please edit the scheduler configuration directly.
+						</p>
+					</div>
+				{/if}
+				
+				<div class="form-group">
+					<label class="form-label">Status</label>
+					<label class="toggle-switch">
+						<input
+							type="checkbox"
+							bind:checked={editEnabled}
+						/>
+						<span class="toggle-slider"></span>
+						<span class="toggle-label">{editEnabled ? 'Enabled' : 'Disabled'}</span>
+					</label>
+				</div>
+				
+				<div class="form-warning">
+					⚠️ Note: Schedule changes require scheduler restart to take effect.
+				</div>
+			</div>
+			
+			<div class="modal-footer">
+				<Button variant="ghost" on:click={closeEditJob}>Cancel</Button>
+				<Button
+					variant="primary"
+					on:click={saveJobConfig}
+					disabled={actionLoading[`edit_${editingJob.job_id}`]}
+				>
+					{actionLoading[`edit_${editingJob.job_id}`] ? 'Saving...' : 'Save Changes'}
+				</Button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.scheduler-page {
@@ -1135,6 +1234,131 @@
 	.empty-text {
 		font-size: 0.875rem;
 		color: rgb(148, 163, 184);
+	}
+
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.7);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.modal-content {
+		background: rgb(30, 41, 59);
+		border: 1px solid rgb(51, 65, 85);
+		border-radius: 0.5rem;
+		width: 100%;
+		max-width: 500px;
+		max-height: 90vh;
+		overflow-y: auto;
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+	}
+
+	.modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1.5rem;
+		border-bottom: 1px solid rgb(51, 65, 85);
+	}
+
+	.modal-title {
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: rgb(248, 250, 252);
+		margin: 0;
+	}
+
+	.modal-close {
+		background: none;
+		border: none;
+		color: rgb(148, 163, 184);
+		font-size: 1.5rem;
+		cursor: pointer;
+		padding: 0;
+		width: 2rem;
+		height: 2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.25rem;
+		transition: all 0.2s;
+	}
+
+	.modal-close:hover {
+		background: rgb(51, 65, 85);
+		color: rgb(248, 250, 252);
+	}
+
+	.modal-body {
+		padding: 1.5rem;
+	}
+
+	.modal-footer {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.75rem;
+		padding: 1.5rem;
+		border-top: 1px solid rgb(51, 65, 85);
+	}
+
+	.form-group {
+		margin-bottom: 1.5rem;
+	}
+
+	.form-label {
+		display: block;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: rgb(248, 250, 252);
+		margin-bottom: 0.5rem;
+	}
+
+	.form-row {
+		display: flex;
+		gap: 1rem;
+	}
+
+	.form-field {
+		flex: 1;
+	}
+
+	.field-label {
+		display: block;
+		font-size: 0.75rem;
+		color: rgb(148, 163, 184);
+		margin-bottom: 0.25rem;
+	}
+
+	.form-help {
+		font-size: 0.75rem;
+		color: rgb(148, 163, 184);
+		margin-top: 0.5rem;
+	}
+
+	.form-warning {
+		padding: 0.75rem;
+		background: rgba(251, 191, 36, 0.1);
+		border: 1px solid rgba(251, 191, 36, 0.3);
+		border-radius: 0.375rem;
+		font-size: 0.875rem;
+		color: rgb(251, 191, 36);
+		margin-top: 1rem;
+	}
+
+	.toggle-label {
+		margin-left: 0.5rem;
+		font-size: 0.875rem;
+		color: rgb(248, 250, 252);
 	}
 
 	@media (max-width: 768px) {

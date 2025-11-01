@@ -40,6 +40,7 @@ services:
     network_mode: host
     environment:
       - SATBASE_API_URL=http://localhost:8080
+      - TESSERACT_API_URL=http://localhost:8081
       - ENABLE_RELOAD=true
       - SATBASE_STAGE_DIR=/app/data/stage
     volumes:
