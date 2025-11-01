@@ -41,3 +41,45 @@ export async function callCoalesence<T>(
   }
 }
 
+export async function callOrchestrator<T>(
+  endpoint: string,
+  options?: RequestInit,
+  timeout: number = 30000 // Default 30 seconds
+): Promise<T> {
+  // Orchestrator runs on port 3100
+  const orchestratorUrl = process.env.ORCHESTRATOR_API_URL || 'http://localhost:3100';
+  const url = `${orchestratorUrl}${endpoint}`;
+  
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(id);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error({ url, status: response.status, errorText }, 'Orchestrator API call failed');
+      throw new Error(`Orchestrator API error: ${response.status} - ${errorText}`);
+    }
+
+    return response.json() as Promise<T>;
+  } catch (error: any) {
+    clearTimeout(id);
+    if (error.name === 'AbortError') {
+      logger.error({ url, timeout }, 'Orchestrator API call timed out');
+      throw new Error(`Orchestrator API call to ${url} timed out after ${timeout / 1000} seconds.`);
+    }
+    logger.error({ url, error: error.message }, 'Orchestrator API call failed unexpectedly');
+    throw error;
+  }
+}
+

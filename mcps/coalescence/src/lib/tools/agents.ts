@@ -187,3 +187,37 @@ export const deleteAgentTool = {
   }
 };
 
+export const triggerAgentTool = {
+  name: 'trigger-agent',
+  config: {
+    title: 'Trigger Agent',
+    description: 'Manually trigger an agent run. This starts a new execution of the agent immediately.',
+    inputSchema: z.object({
+      name: z.string().describe('Agent name to trigger')
+    }).shape,
+  },
+  handler: async (input: { name: string }) => {
+    logger.info({ tool: 'coalescence_trigger-agent', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callCoalesence<any>(`/v1/agents/${input.name}/trigger`, {
+        method: 'POST',
+      }, 30000); // Longer timeout for agent runs
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'coalescence_trigger-agent', duration }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'coalescence_trigger-agent', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+

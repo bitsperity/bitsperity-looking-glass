@@ -1,0 +1,43 @@
+{
+  "name": "@xingyuchen/telegram-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "files": [
+    "build/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "dev": "tsc --watch",
+    "sse": "npx supergateway --stdio \"node build/index.js\" --port 3100",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["telegram", "mcp", "bot", "api", "model-context-protocol", "claude", "ai"],
+  "author": "Xingyu Chen <guangxiangdebizi@gmail.com>",
+  "license": "Apache-2.0",
+  "description": "A Model Context Protocol (MCP) server for Telegram Bot API integration",
+  "homepage": "https://github.com/guangxiangdebizi/telegram-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/guangxiangdebizi/telegram-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/guangxiangdebizi/telegram-mcp/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.16.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "supergateway": "^3.4.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@types/node-telegram-bot-api": "^0.64.7",
+    "typescript": "^5.3.3"
+  }
+}

@@ -94,3 +94,37 @@ export const getMessagesTool = {
   }
 };
 
+export const markMessageReadTool = {
+  name: 'mark-message-read',
+  config: {
+    title: 'Mark Message Read',
+    description: 'Mark a message as read for an agent.',
+    inputSchema: z.object({
+      message_id: z.string().describe('Message ID to mark as read')
+    }).shape,
+  },
+  handler: async (input: { message_id: string }) => {
+    logger.info({ tool: 'coalescence_mark-message-read', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callCoalesence<any>(`/v1/messages/${input.message_id}/read`, {
+        method: 'PATCH',
+      }, 10000);
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'coalescence_mark-message-read', duration }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'coalescence_mark-message-read', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
