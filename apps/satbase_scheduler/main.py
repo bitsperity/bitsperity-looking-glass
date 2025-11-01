@@ -42,8 +42,8 @@ def setup_scheduler() -> AsyncIOScheduler:
             "job_id": "topics_ingest",
             "name": "Per-Topic News Ingestion",
             "func": topics.ingest_topics_job,
-            "trigger": IntervalTrigger(hours=1),
-            "trigger_config": {"hours": 1, "timezone": "UTC", "type": "interval"},
+            "trigger": IntervalTrigger(hours=6),
+            "trigger_config": {"hours": 6, "timezone": "UTC", "type": "interval"},
             "max_instances": 1,
             "enabled": True
         },
