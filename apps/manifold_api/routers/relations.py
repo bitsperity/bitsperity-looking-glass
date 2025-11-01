@@ -5,8 +5,21 @@ from libs.manifold_core.storage.qdrant_store import QdrantStore
 from apps.manifold_api.dependencies import get_qdrant_store
 from typing import Literal, Dict, Any, List, Set
 from datetime import datetime
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/v1/memory/thought", tags=["relations"])
+
+
+class BatchLinkRelation(BaseModel):
+    """Single relation in batch request."""
+    related_id: str
+    relation_type: Literal["supports", "contradicts", "followup", "duplicate", "related"] = "related"
+    weight: float = 1.0
+
+
+class BatchLinkRequest(BaseModel):
+    """Batch link multiple relations."""
+    relations: List[BatchLinkRelation]
 
 
 @router.post("/{thought_id}/related")
@@ -54,6 +67,104 @@ def link_related(
     store.upsert_point(thought_id, source, vectors={})
     
     return {"status": "linked", "created_at": now}
+
+
+@router.post("/{thought_id}/related/batch")
+def batch_link_related(
+    thought_id: str,
+    body: BatchLinkRequest,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Link multiple relations at once."""
+    # Fetch source
+    source = store.get_by_id(thought_id)
+    if not source:
+        raise HTTPException(404, f"Thought {thought_id} not found")
+    
+    # Initialize links if needed
+    links = source.get("links", {})
+    related = links.get("related_thoughts", [])
+    typed: List[Dict[str, Any]] = links.get("relations", [])
+    
+    now = datetime.utcnow().isoformat() + "Z"
+    results = []
+    linked_count = 0
+    skipped_count = 0
+    
+    # Process each relation
+    for relation in body.relations:
+        related_id = relation.related_id
+        relation_type = relation.relation_type
+        weight = relation.weight
+        
+        # Check if already linked
+        already_in_related = related_id in related
+        already_typed = any(r.get("related_id") == related_id for r in typed)
+        
+        if already_in_related and already_typed:
+            skipped_count += 1
+            results.append({
+                "related_id": related_id,
+                "status": "skipped",
+                "reason": "already_linked"
+            })
+            continue
+        
+        # Add to related_thoughts if not present
+        if not already_in_related:
+            related.append(related_id)
+        
+        # Add to typed relations if not present
+        if not already_typed:
+            typed.append({
+                "related_id": related_id,
+                "type": relation_type,
+                "weight": float(weight),
+                "created_at": now,
+            })
+            linked_count += 1
+            results.append({
+                "related_id": related_id,
+                "status": "linked",
+                "relation_type": relation_type,
+                "weight": weight,
+                "created_at": now
+            })
+        else:
+            # Update existing typed relation
+            for r in typed:
+                if r.get("related_id") == related_id:
+                    r["type"] = relation_type
+                    r["weight"] = float(weight)
+                    r["updated_at"] = now
+                    linked_count += 1
+                    results.append({
+                        "related_id": related_id,
+                        "status": "updated",
+                        "relation_type": relation_type,
+                        "weight": weight,
+                        "updated_at": now
+                    })
+                    break
+    
+    # Update source
+    links["related_thoughts"] = related
+    links["relations"] = typed
+    source["links"] = links
+    source["updated_at"] = now
+    
+    # Update in store
+    store.upsert_point(thought_id, source, vectors={})
+    
+    return {
+        "status": "ok",
+        "thought_id": thought_id,
+        "linked_count": linked_count,
+        "skipped_count": skipped_count,
+        "total_relations": len(body.relations),
+        "results": results,
+        "created_at": now
+    }
 
 
 @router.delete("/{thought_id}/related/{related_id}")

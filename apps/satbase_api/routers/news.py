@@ -292,8 +292,9 @@ def get_news_by_id(article_id: str):
 
 @router.get("/news")
 def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, 
-              tickers: str | None = None, limit: int = 100, offset: int = 0, 
-              include_body: bool = False, has_body: bool = False):
+              tickers: str | None = None, categories: str | None = None, sources: str | None = None,
+              countries: str | None = None, languages: str | None = None, sort: str = "published_desc",
+              limit: int = 100, offset: int = 0, include_body: bool = False, has_body: bool = False):
     s = load_settings()
     if not from_ or not to:
         return {"items": [], "from": from_, "to": to, "limit": limit, "offset": offset, "total": 0}
@@ -334,6 +335,30 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
     if tickers:
         tickers_filter = [t.strip().upper() for t in tickers.split(',') if t.strip()]
     
+    # Parse category filter (support exclude with -)
+    categories_filter = None
+    if categories:
+        categories_filter = [c.strip() for c in categories.split(',') if c.strip()]
+    
+    # Parse source filter (support exclude with -)
+    sources_filter = None
+    if sources:
+        sources_filter = [s.strip() for s in sources.split(',') if s.strip()]
+    
+    # Parse country filter (support exclude with -)
+    countries_filter = None
+    if countries:
+        countries_filter = [c.strip() for c in countries.split(',') if c.strip()]
+    
+    # Parse language filter (support exclude with -)
+    languages_filter = None
+    if languages:
+        languages_filter = [l.strip() for l in languages.split(',') if l.strip()]
+    
+    # Validate sort parameter
+    if sort not in ["published_desc", "published_asc"]:
+        sort = "published_desc"
+    
     # Query articles
     articles = db.query_articles(
         from_date=from_,
@@ -341,6 +366,11 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         search_query=search_query,
         topics=topics_filter,
         tickers=tickers_filter,
+        categories=categories_filter,
+        sources=sources_filter,
+        countries=countries_filter,
+        languages=languages_filter,
+        sort=sort,
         has_body=has_body,
         limit=limit,
         offset=offset
@@ -351,7 +381,16 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
         for item in articles:
             item.pop("body_text", None)
     
-    total = db.count_articles(from_date=from_, to_date=to, topics=topics_filter, search_query=search_query)
+    total = db.count_articles(
+        from_date=from_,
+        to_date=to,
+        topics=topics_filter,
+        search_query=search_query,
+        categories=categories_filter,
+        sources=sources_filter,
+        countries=countries_filter,
+        languages=languages_filter
+    )
     
     return {
         "items": articles,

@@ -15,7 +15,7 @@ export const listNewsTool = {
   name: 'list-news',
   config: {
     title: 'List News Articles',
-    description: 'Fetch news articles with filters (date range, tickers, query). Supports token-efficient content retrieval via content_format parameter.',
+    description: 'Fetch news articles with filters (date range, tickers, query, categories, sources, countries, languages). Supports token-efficient content retrieval via content_format parameter. Supports exclusion filters (e.g., "business,-sports").',
     inputSchema: ListNewsRequestSchema.shape
   },
   handler: async (input: z.infer<typeof ListNewsRequestSchema>) => {
@@ -29,12 +29,17 @@ export const listNewsTool = {
         limit: input.limit.toString(),
         offset: input.offset.toString(),
         include_body: input.include_body.toString(),
-        has_body: input.has_body.toString()
+        has_body: input.has_body.toString(),
+        sort: input.sort || 'published_desc'
       });
 
       if (input.q) params.append('q', input.q);
       if (input.tickers) params.append('tickers', input.tickers);
       if (input.content_format) params.append('content_format', input.content_format);
+      if (input.categories) params.append('categories', input.categories);
+      if (input.sources) params.append('sources', input.sources);
+      if (input.countries) params.append('countries', input.countries);
+      if (input.languages) params.append('languages', input.languages);
 
       const result = await callSatbase<z.infer<typeof ListNewsResponseSchema>>(
         `/v1/news?${params.toString()}`

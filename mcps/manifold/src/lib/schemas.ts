@@ -37,6 +37,16 @@ export const RelationPayloadSchema = z.object({
   weight: z.number().min(0).max(1).default(1.0)
 });
 
+export const BatchLinkRelationSchema = z.object({
+  related_id: z.string(),
+  relation_type: z.enum(['supports','contradicts','followup','duplicate','related']).default('related'),
+  weight: z.number().min(0).max(1).default(1.0)
+});
+
+export const BatchLinkRequestSchema = z.object({
+  relations: z.array(BatchLinkRelationSchema).min(1).max(100).describe('Array of relations to create (max 100)')
+});
+
 // Promote / Sync
 export const PromoteRequestSchema = z.object({
   auto_mark: z.boolean().optional()

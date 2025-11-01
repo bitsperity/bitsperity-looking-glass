@@ -77,6 +77,11 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
     - date_from: YYYY-MM-DD
     - date_to: YYYY-MM-DD
     - limit: max articles per request (default 100, max 100)
+    - categories: comma-separated categories (e.g. "business,technology" or "business,-sports")
+    - sources: comma-separated sources (e.g. "reuters,bloomberg" or "cnn,-bbc")
+    - countries: comma-separated country codes (e.g. "us,gb,de")
+    - languages: comma-separated language codes (e.g. "en,de")
+    - sort: "published_desc" (default) or "published_asc"
     """
     import os
     s = load_settings()
@@ -89,6 +94,11 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
     date_from = params.get("date_from")  # YYYY-MM-DD
     date_to = params.get("date_to")      # YYYY-MM-DD
     limit = int(params.get("limit", 100))
+    categories = params.get("categories")  # Optional
+    sources = params.get("sources")        # Optional
+    countries = params.get("countries")    # Optional
+    languages = params.get("languages")    # Optional
+    sort = params.get("sort", "published_desc")  # Default: published_desc
     
     if not query:
         return []
@@ -107,8 +117,18 @@ def fetch(params: dict[str, Any]) -> Iterable[dict]:
         "keywords": query,
         "date": date_range,
         "limit": min(limit, 100),
-        "sort": "published_desc",
+        "sort": sort,
     }
+    
+    # Add optional filters if provided
+    if categories:
+        params_api["categories"] = categories
+    if sources:
+        params_api["sources"] = sources
+    if countries:
+        params_api["countries"] = countries
+    if languages:
+        params_api["languages"] = languages
     
     try:
         data = get_json(

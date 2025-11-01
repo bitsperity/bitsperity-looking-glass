@@ -6,7 +6,7 @@ import { logger } from '../logger.js';
 import { getHealthTool, getConfigTool, getDeviceTool } from './tools/health.js';
 import { createThoughtTool, getThoughtTool, patchThoughtTool, deleteThoughtTool, getThoughtChildrenTool } from './tools/thoughts.js';
 import { searchThoughtsTool, getTimelineTool, getStatsTool } from './tools/search.js';
-import { linkRelatedTool, unlinkRelatedTool, getRelatedTool, getRelatedFacetsTool, getRelatedGraphTool, getThoughtTreeTool } from './tools/relations.js';
+import { linkRelatedTool, batchLinkRelatedTool, unlinkRelatedTool, getRelatedTool, getRelatedFacetsTool, getRelatedGraphTool, getThoughtTreeTool } from './tools/relations.js';
 import { getBirdviewGraphTool } from './tools/graph.js';
 import { promoteThoughtTool, syncAriadneTool } from './tools/promote.js';
 import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool, checkDuplicateTool, getDuplicateWarningsTool, getStatisticsTool, getGraphMetricsTool, getOverviewTool, getRelationTimelineTool, quarantineThoughtTool, unquarantineThoughtTool, explainSearchTool } from './tools/admin.js';
@@ -37,6 +37,7 @@ export function createMcpServer(): McpServer {
 
   // Relations & Graph
   server.registerTool(linkRelatedTool.name, linkRelatedTool.config, linkRelatedTool.handler);
+  server.registerTool(batchLinkRelatedTool.name, batchLinkRelatedTool.config, batchLinkRelatedTool.handler);
   server.registerTool(unlinkRelatedTool.name, unlinkRelatedTool.config, unlinkRelatedTool.handler);
   server.registerTool(getRelatedTool.name, getRelatedTool.config, getRelatedTool.handler);
   server.registerTool(getRelatedFacetsTool.name, getRelatedFacetsTool.config, getRelatedFacetsTool.handler);

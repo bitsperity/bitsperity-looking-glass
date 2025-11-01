@@ -260,6 +260,11 @@ class NewsDB:
         search_query: str | None = None,
         topics: list[str] | None = None,
         tickers: list[str] | None = None,
+        categories: list[str] | None = None,
+        sources: list[str] | None = None,
+        countries: list[str] | None = None,
+        languages: list[str] | None = None,
+        sort: str = "published_desc",
         has_body: bool = False,
         limit: int = 100,
         offset: int = 0
@@ -300,6 +305,54 @@ class NewsDB:
             search_term = f"%{search_query}%"
             params.extend([search_term, search_term, search_term])
         
+        # Filter by categories (support exclude with -)
+        if categories:
+            include_cats = [c for c in categories if not c.startswith('-')]
+            exclude_cats = [c[1:] for c in categories if c.startswith('-')]
+            
+            if include_cats:
+                where_parts.append("a.category IN ({})".format(",".join("?" * len(include_cats))))
+                params.extend(include_cats)
+            if exclude_cats:
+                where_parts.append("(a.category IS NULL OR a.category NOT IN ({}))".format(",".join("?" * len(exclude_cats))))
+                params.extend(exclude_cats)
+        
+        # Filter by sources (support exclude with -)
+        if sources:
+            include_srcs = [s for s in sources if not s.startswith('-')]
+            exclude_srcs = [s[1:] for s in sources if s.startswith('-')]
+            
+            if include_srcs:
+                where_parts.append("a.source_name IN ({})".format(",".join("?" * len(include_srcs))))
+                params.extend(include_srcs)
+            if exclude_srcs:
+                where_parts.append("(a.source_name IS NULL OR a.source_name NOT IN ({}))".format(",".join("?" * len(exclude_srcs))))
+                params.extend(exclude_srcs)
+        
+        # Filter by countries (support exclude with -)
+        if countries:
+            include_ctrs = [c for c in countries if not c.startswith('-')]
+            exclude_ctrs = [c[1:] for c in countries if c.startswith('-')]
+            
+            if include_ctrs:
+                where_parts.append("a.country IN ({})".format(",".join("?" * len(include_ctrs))))
+                params.extend(include_ctrs)
+            if exclude_ctrs:
+                where_parts.append("(a.country IS NULL OR a.country NOT IN ({}))".format(",".join("?" * len(exclude_ctrs))))
+                params.extend(exclude_ctrs)
+        
+        # Filter by languages (support exclude with -)
+        if languages:
+            include_langs = [l for l in languages if not l.startswith('-')]
+            exclude_langs = [l[1:] for l in languages if l.startswith('-')]
+            
+            if include_langs:
+                where_parts.append("a.language IN ({})".format(",".join("?" * len(include_langs))))
+                params.extend(include_langs)
+            if exclude_langs:
+                where_parts.append("(a.language IS NULL OR a.language NOT IN ({}))".format(",".join("?" * len(exclude_langs))))
+                params.extend(exclude_langs)
+        
         where_clause = " AND ".join(where_parts)
         
         # Build topic/ticker filter
@@ -315,6 +368,11 @@ class NewsDB:
         
         where_clause = " AND ".join(where_parts)
         
+        # Determine sort order
+        order_by = "a.published_at DESC"
+        if sort == "published_asc":
+            order_by = "a.published_at ASC"
+        
         with self.conn() as conn:
             rows = conn.execute(f"""
                 SELECT DISTINCT
@@ -323,7 +381,7 @@ class NewsDB:
                     a.category, a.language, a.country, a.source_name
                 {from_clause}
                 WHERE {where_clause}
-                ORDER BY a.published_at DESC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?
             """, params + [limit, offset]).fetchall()
             
@@ -406,7 +464,11 @@ class NewsDB:
         from_date: str | date | None = None,
         to_date: str | date | None = None,
         topics: list[str] | None = None,
-        search_query: str | None = None
+        search_query: str | None = None,
+        categories: list[str] | None = None,
+        sources: list[str] | None = None,
+        countries: list[str] | None = None,
+        languages: list[str] | None = None
     ) -> int:
         """Count articles matching filters."""
         where_parts = ["1=1"]
@@ -419,7 +481,7 @@ class NewsDB:
                     from_date = datetime.fromisoformat(from_date + "T00:00:00")
                 else:
                     from_date = datetime.fromisoformat(from_date)
-            where_parts.append("published_at >= ?")
+            where_parts.append("a.published_at >= ?")
             params.append(from_date)
         
         if to_date:
@@ -431,13 +493,61 @@ class NewsDB:
                 else:
                     to_date = datetime.fromisoformat(to_date)
             # Use <= to include the entire end date
-            where_parts.append("published_at <= ?")
+            where_parts.append("a.published_at <= ?")
             params.append(to_date)
         
         if search_query:
-            where_parts.append("(LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?) OR LOWER(body_text) LIKE LOWER(?))")
+            where_parts.append("(LOWER(a.title) LIKE LOWER(?) OR LOWER(a.description) LIKE LOWER(?) OR LOWER(a.body_text) LIKE LOWER(?))")
             search_term = f"%{search_query}%"
             params.extend([search_term, search_term, search_term])
+        
+        # Filter by categories (support exclude with -)
+        if categories:
+            include_cats = [c for c in categories if not c.startswith('-')]
+            exclude_cats = [c[1:] for c in categories if c.startswith('-')]
+            
+            if include_cats:
+                where_parts.append("a.category IN ({})".format(",".join("?" * len(include_cats))))
+                params.extend(include_cats)
+            if exclude_cats:
+                where_parts.append("(a.category IS NULL OR a.category NOT IN ({}))".format(",".join("?" * len(exclude_cats))))
+                params.extend(exclude_cats)
+        
+        # Filter by sources (support exclude with -)
+        if sources:
+            include_srcs = [s for s in sources if not s.startswith('-')]
+            exclude_srcs = [s[1:] for s in sources if s.startswith('-')]
+            
+            if include_srcs:
+                where_parts.append("a.source_name IN ({})".format(",".join("?" * len(include_srcs))))
+                params.extend(include_srcs)
+            if exclude_srcs:
+                where_parts.append("(a.source_name IS NULL OR a.source_name NOT IN ({}))".format(",".join("?" * len(exclude_srcs))))
+                params.extend(exclude_srcs)
+        
+        # Filter by countries (support exclude with -)
+        if countries:
+            include_ctrs = [c for c in countries if not c.startswith('-')]
+            exclude_ctrs = [c[1:] for c in countries if c.startswith('-')]
+            
+            if include_ctrs:
+                where_parts.append("a.country IN ({})".format(",".join("?" * len(include_ctrs))))
+                params.extend(include_ctrs)
+            if exclude_ctrs:
+                where_parts.append("(a.country IS NULL OR a.country NOT IN ({}))".format(",".join("?" * len(exclude_ctrs))))
+                params.extend(exclude_ctrs)
+        
+        # Filter by languages (support exclude with -)
+        if languages:
+            include_langs = [l for l in languages if not l.startswith('-')]
+            exclude_langs = [l[1:] for l in languages if l.startswith('-')]
+            
+            if include_langs:
+                where_parts.append("a.language IN ({})".format(",".join("?" * len(include_langs))))
+                params.extend(include_langs)
+            if exclude_langs:
+                where_parts.append("(a.language IS NULL OR a.language NOT IN ({}))".format(",".join("?" * len(exclude_langs))))
+                params.extend(exclude_langs)
         
         where_clause = " AND ".join(where_parts)
         
@@ -451,7 +561,7 @@ class NewsDB:
                 """, params + topics).fetchone()[0]
             else:
                 count = conn.execute(f"""
-                    SELECT COUNT(*) FROM news_articles WHERE {where_clause}
+                    SELECT COUNT(*) FROM news_articles a WHERE {where_clause}
                 """, params).fetchone()[0]
             
             return count

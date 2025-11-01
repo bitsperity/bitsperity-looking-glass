@@ -15,7 +15,12 @@ export const ListNewsRequestSchema = z.object({
   offset: z.number().int().min(0).default(0).describe('Pagination offset'),
   include_body: z.boolean().default(false).describe('Include full article content'),
   has_body: z.boolean().default(false).describe('Filter to only articles with bodies'),
-  content_format: z.enum(['text', 'html', 'both']).optional().describe('Content format: text, html, or both')
+  content_format: z.enum(['text', 'html', 'both']).optional().describe('Content format: text, html, or both'),
+  categories: z.string().optional().describe('Comma-separated categories (e.g., "business,technology" or "business,-sports" for exclude)'),
+  sources: z.string().optional().describe('Comma-separated source names (e.g., "Reuters,CNN" or "cnn,-bbc" for exclude)'),
+  countries: z.string().optional().describe('Comma-separated ISO country codes (e.g., "us,gb,de")'),
+  languages: z.string().optional().describe('Comma-separated ISO language codes (e.g., "en,de")'),
+  sort: z.enum(['published_desc', 'published_asc']).default('published_desc').describe('Sort order: published_desc (newest first) or published_asc (oldest first)')
 });
 
 export const NewsItemSchema = z.object({
