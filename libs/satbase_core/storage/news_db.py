@@ -331,6 +331,12 @@ class NewsDB:
             for row in rows:
                 article_dict = dict(row)
                 
+                # Convert datetime objects to ISO format strings for JSON serialization
+                if isinstance(article_dict.get("published_at"), datetime):
+                    article_dict["published_at"] = article_dict["published_at"].isoformat()
+                if isinstance(article_dict.get("fetched_at"), datetime):
+                    article_dict["fetched_at"] = article_dict["fetched_at"].isoformat()
+                
                 # Fetch topics for this article
                 topics_list = conn.execute(
                     "SELECT topic FROM news_topics WHERE article_id = ?",
@@ -370,6 +376,12 @@ class NewsDB:
             result = []
             for row in rows:
                 article_dict = dict(row)
+                
+                # Convert datetime objects to ISO format strings for JSON serialization
+                if isinstance(article_dict.get("published_at"), datetime):
+                    article_dict["published_at"] = article_dict["published_at"].isoformat()
+                if isinstance(article_dict.get("fetched_at"), datetime):
+                    article_dict["fetched_at"] = article_dict["fetched_at"].isoformat()
                 
                 # Fetch topics for this article
                 topics_list = conn.execute(

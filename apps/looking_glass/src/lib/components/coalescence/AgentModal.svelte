@@ -222,10 +222,11 @@
     formData.turns = [
       ...formData.turns,
       {
-        id: formData.turns.length + 1,
+        id: formData.turns.length,  // 0-based IDs: 0, 1, 2, ...
         name: '',
         model: formData.model,
         max_tokens: 1500,
+        max_steps: undefined, // Optional: falls leer, wird Agent-Standard verwendet
         mcps: [],
         tools: [],
         prompt: '',
@@ -545,7 +546,7 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                       </button>
                     </div>
                     
-                    <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div class="grid grid-cols-3 gap-4 mb-4">
                       <div>
                         <label class="block text-xs font-semibold text-neutral-400 mb-2">Turn Name</label>
                         <input
@@ -565,6 +566,19 @@ Du bist ein Agent, der Märkte analysiert. Deine Aufgabe ist es, Signale zu find
                           step="100"
                           class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
                         />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-semibold text-neutral-400 mb-2">Max Steps</label>
+                        <input
+                          type="number"
+                          bind:value={turn.max_steps}
+                          min="1"
+                          max="50"
+                          step="1"
+                          placeholder="Optional"
+                          class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+                        />
+                        <p class="text-xs text-neutral-500 mt-1">Tool-Call-Iterationen (falls leer: Agent-Standard)</p>
                       </div>
                     </div>
 

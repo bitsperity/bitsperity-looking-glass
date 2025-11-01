@@ -729,3 +729,55 @@ def get_relation_timeline(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting relation timeline: {str(e)}")
 
+
+@router.post("/reset")
+def factory_reset(
+    body: dict,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """
+    DANGER: Factory reset - Delete ALL thoughts from Qdrant collection.
+    This is irreversible!
+    
+    Requires confirm=true in body.
+    """
+    confirm = body.get("confirm", False)
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Reset requires confirm=true in body. This will delete ALL data!"
+        )
+    
+    try:
+        # Get count before deletion
+        all_points = store.scroll(limit=100000)
+        before_count = len(all_points)
+        
+        # Delete all points by deleting and recreating collection
+        # More efficient than deleting points one by one
+        collection_name = store.collection_name
+        
+        # Delete entire collection
+        try:
+            store.client.delete_collection(collection_name)
+        except Exception as e:
+            # Collection might not exist, continue
+            pass
+        
+        # Reinitialize collection
+        store.initialize_collection()
+        
+        return {
+            "status": "success",
+            "message": "Manifold factory reset complete",
+            "deleted": {
+                "thoughts": before_count,
+            },
+            "collection_recreated": True
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset: {str(e)}"
+        )
+

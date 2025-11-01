@@ -223,6 +223,11 @@ class CoalesenceDB:
                 elif not isinstance(tools_value, list):
                     tools_value = []
                 
+                # Use turn.id if present and valid, otherwise use index (0-based)
+                turn_id = turn.get("id")
+                if turn_id is None:
+                    turn_id = index  # 0-based IDs: 0, 1, 2, ...
+                
                 cursor.execute("""
                     INSERT INTO agent_turns (
                         agent_name, turn_id, turn_name, model, max_tokens, max_steps,
@@ -230,7 +235,7 @@ class CoalesenceDB:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     agent_name,
-                    turn.get("id", index + 1),  # Fallback to index+1 if id missing
+                    turn_id,
                     turn.get("name", f"turn-{index + 1}"),
                     turn.get("model"),
                     turn.get("max_tokens"),

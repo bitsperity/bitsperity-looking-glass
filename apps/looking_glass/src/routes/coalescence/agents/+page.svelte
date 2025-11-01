@@ -76,7 +76,7 @@
         budget_daily_tokens: formData.budget_daily_tokens,
         timeout_minutes: formData.timeout_minutes,
         turns: formData.turns.map((turn: any, index: number) => ({
-          id: turn.id || index + 1,
+          id: turn.id !== undefined ? turn.id : index,  // 0-based IDs: 0, 1, 2, ...
           name: turn.name || `Turn ${index + 1}`,
           max_tokens: turn.max_tokens || 1500,
           max_steps: turn.max_steps,

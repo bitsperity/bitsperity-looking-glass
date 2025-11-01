@@ -12,21 +12,26 @@ from typing import Any, Dict
 router = APIRouter()
 
 
+class ResetRequest(BaseModel):
+    """Reset confirmation"""
+    confirm: bool = False
+
+
 @router.post("/v1/kg/admin/reset")
 async def reset_graph(
-    confirm: bool = False,
+    request: ResetRequest = ResetRequest(confirm=False),
     store: GraphStore = Depends(get_graph_store)
 ):
     """
     DANGER: Delete ALL data in the knowledge graph.
     This is irreversible!
     
-    Requires confirm=true query parameter.
+    Requires confirm=true in body.
     """
-    if not confirm:
+    if not request.confirm:
         raise HTTPException(
             status_code=400,
-            detail="Reset requires confirm=true parameter. This will delete ALL data!"
+            detail="Reset requires confirm=true in body. This will delete ALL data!"
         )
     
     try:

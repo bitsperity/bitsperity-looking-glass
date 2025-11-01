@@ -414,9 +414,21 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
   // GET /api/runs/:id/tools/detailed - Detailed tool execution breakdown
   app.get('/api/runs/:id/tools/detailed', (req: Request, res: Response) => {
     try {
-      const chat = db.getChatHistoryComplete(req.params.id);
+      const runId = req.params.id;
+      const chat = db.getChatHistoryComplete(runId);
       if (!chat) {
         return res.status(404).json({ error: 'Run not found' });
+      }
+
+      if (!chat.turns || !Array.isArray(chat.turns)) {
+        logger.warn({ runId }, 'Chat has no turns array');
+        return res.json({
+          runId: chat.runId,
+          totalTools: 0,
+          byStatus: { success: 0, error: 0, pending: 0 },
+          byMcp: {},
+          timeline: []
+        });
       }
 
       const toolBreakdown = {
@@ -432,41 +444,87 @@ export function createApiServer(db: OrchestrationDB, port: number, config?: Part
       };
 
       for (const turn of chat.turns) {
-        for (const tool of turn.toolCalls || []) {
+        if (!turn || !turn.toolCalls || !Array.isArray(turn.toolCalls)) {
+          continue;
+        }
+        
+        for (const tool of turn.toolCalls) {
+          if (!tool) continue;
           // Count by status
           if (tool.status === 'success') toolBreakdown.byStatus.success++;
           else if (tool.status === 'error') toolBreakdown.byStatus.error++;
           else if (tool.status === 'pending') toolBreakdown.byStatus.pending++;
 
           // Extract MCP name (format: "mcp_tool-name")
-          const [mcp, ...toolNameParts] = tool.tool_name.split('_');
-          if (!toolBreakdown.byMcp[mcp]) {
+          const toolName = tool.name || '';
+          const [mcp, ...toolNameParts] = toolName.split('_');
+          if (mcp && !toolBreakdown.byMcp[mcp]) {
             toolBreakdown.byMcp[mcp] = { count: 0, success: 0, error: 0, avgDuration: 0, totalDuration: 0 };
           }
-          toolBreakdown.byMcp[mcp].count++;
-          if (tool.status === 'success') toolBreakdown.byMcp[mcp].success++;
-          else if (tool.status === 'error') toolBreakdown.byMcp[mcp].error++;
-          toolBreakdown.byMcp[mcp].totalDuration += tool.duration_ms || 0;
-          toolBreakdown.byMcp[mcp].avgDuration = Math.round(toolBreakdown.byMcp[mcp].totalDuration / toolBreakdown.byMcp[mcp].count);
+          if (mcp) {
+            toolBreakdown.byMcp[mcp].count++;
+            if (tool.status === 'success') toolBreakdown.byMcp[mcp].success++;
+            else if (tool.status === 'error') toolBreakdown.byMcp[mcp].error++;
+            const durationMs = typeof tool.duration === 'object' ? (tool.duration?.ms || 0) : (tool.duration || 0);
+            toolBreakdown.byMcp[mcp].totalDuration += durationMs;
+            if (toolBreakdown.byMcp[mcp].count > 0) {
+              toolBreakdown.byMcp[mcp].avgDuration = Math.round(toolBreakdown.byMcp[mcp].totalDuration / toolBreakdown.byMcp[mcp].count);
+            }
+          }
 
           // Add to timeline
+          const durationMs = typeof tool.duration === 'object' ? (tool.duration?.ms || 0) : (tool.duration || 0);
+          let args = tool.args || null;
+          const result = tool.result || null;
+          
+          // Parse args if it's a string
+          if (args && typeof args === 'string') {
+            try {
+              args = JSON.parse(args);
+            } catch (e) {
+              // If parsing fails, keep as string
+              args = args;
+            }
+          }
+          
+          // Calculate result size
+          let resultSize = 0;
+          if (result) {
+            if (typeof result === 'string') {
+              resultSize = Buffer.byteLength(result);
+            } else {
+              try {
+                resultSize = JSON.stringify(result).length;
+              } catch (e) {
+                resultSize = 0;
+              }
+            }
+          }
+          
           toolBreakdown.timeline.push({
-            turnNumber: turn.turnNumber,
-            toolName: tool.tool_name,
-            status: tool.status,
-            duration: tool.duration_ms,
-            timestamp: tool.created_at,
+            turnNumber: turn.number || turn.turnNumber || 0,
+            toolName: toolName,
+            status: tool.status || 'unknown',
+            duration: durationMs,
+            timestamp: tool.timestamp || new Date().toISOString(),
             error: tool.error || null,
-            args: tool.tool_input ? JSON.parse(tool.tool_input) : null,
-            resultSize: tool.tool_output ? Buffer.byteLength(tool.tool_output) : 0
+            args: args,
+            resultSize: resultSize
           });
         }
       }
 
       res.json(toolBreakdown);
-    } catch (error) {
-      logger.error({ error }, 'Failed to fetch tool details');
-      res.status(500).json({ error: 'Failed to fetch tool details' });
+    } catch (error: any) {
+      logger.error({ 
+        error: error?.message || String(error),
+        stack: error?.stack,
+        runId: req.params.id
+      }, 'Failed to fetch tool details');
+      res.status(500).json({ 
+        error: 'Failed to fetch tool details',
+        message: error?.message || String(error)
+      });
     }
   });
 
