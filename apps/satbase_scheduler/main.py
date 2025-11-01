@@ -32,6 +32,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Refresh Watchlist (Prices + News)",
             "func": watchlist.refresh_watchlist,
             "trigger": CronTrigger(hour=7, minute=0, timezone='UTC'),
+            "trigger_config": {"hour": 7, "minute": 0, "timezone": "UTC", "type": "cron"},
             "max_instances": 1,
             "enabled": True
         },
@@ -42,6 +43,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Per-Topic News Ingestion",
             "func": topics.ingest_topics_job,
             "trigger": IntervalTrigger(hours=1),
+            "trigger_config": {"hours": 1, "timezone": "UTC", "type": "interval"},
             "max_instances": 1,
             "enabled": True
         },
@@ -52,6 +54,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Refresh FRED Core Indicators",
             "func": fred.refresh_fred_core,
             "trigger": CronTrigger(hour=8, minute=0, timezone='UTC'),
+            "trigger_config": {"hour": 8, "minute": 0, "timezone": "UTC", "type": "cron"},
             "max_instances": 1,
             "enabled": True
         },
@@ -62,6 +65,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Refresh Watchlist Prices",
             "func": prices.refresh_watchlist_prices,
             "trigger": CronTrigger(hour=7, minute=5, timezone='UTC'),  # 5 min after watchlist refresh
+            "trigger_config": {"hour": 7, "minute": 5, "timezone": "UTC", "type": "cron"},
             "max_instances": 1,
             "enabled": True
         },
@@ -72,6 +76,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Detect Price Gaps",
             "func": prices.detect_price_gaps,
             "trigger": CronTrigger(hour=2, minute=0, timezone='UTC'),  # Daily 2:00 UTC
+            "trigger_config": {"hour": 2, "minute": 0, "timezone": "UTC", "type": "cron"},
             "max_instances": 1,
             "enabled": True
         },
@@ -82,6 +87,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Fill Price Gaps",
             "func": prices.fill_price_gaps,
             "trigger": CronTrigger(hour=3, minute=0, timezone='UTC'),  # Daily 3:00 UTC
+            "trigger_config": {"hour": 3, "minute": 0, "timezone": "UTC", "type": "cron"},
             "max_instances": 1,
             "enabled": True
         },
@@ -92,6 +98,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Detect Data Gaps",
             "func": gaps.detect_gaps,
             "trigger": CronTrigger(day_of_week='sun', hour=2, minute=0, timezone='UTC'),  # Weekly Sunday 2:00 UTC
+            "trigger_config": {"day_of_week": "sun", "hour": 2, "minute": 0, "timezone": "UTC", "type": "cron"},
             "max_instances": 1,
             "enabled": True
         },
@@ -102,6 +109,7 @@ def setup_scheduler() -> AsyncIOScheduler:
             "name": "Fill Data Gaps",
             "func": gaps.fill_gaps,
             "trigger": CronTrigger(hour=3, minute=30, timezone='UTC'),  # Daily 3:30 UTC
+            "trigger_config": {"hour": 3, "minute": 30, "timezone": "UTC", "type": "cron"},
             "max_instances": 1,
             "enabled": True
         },
@@ -132,15 +140,24 @@ def setup_scheduler() -> AsyncIOScheduler:
         # Store job config in DB (use original config from jobs_config if available)
         trigger_type = "cron" if isinstance(job_config["trigger"], CronTrigger) else "interval"
         
-        # Try to get original config, otherwise extract from trigger
+        # Use trigger_config from job_config if provided, otherwise extract from trigger
         if "trigger_config" in job_config:
             trigger_config = job_config["trigger_config"]
         elif isinstance(job_config["trigger"], CronTrigger):
-            # Simple extraction - just store timezone and next_run
+            # Fallback: try to extract from trigger fields (if trigger_config not provided)
             trigger_config = {
                 "timezone": str(job_config["trigger"].timezone),
                 "type": "cron"
             }
+            # Try to extract hour, minute, day_of_week from trigger fields
+            if hasattr(job_config["trigger"], 'fields'):
+                fields = job_config["trigger"].fields
+                if len(fields) > 2 and hasattr(fields[2], 'values') and fields[2].values:
+                    trigger_config["hour"] = fields[2].values[0]
+                if len(fields) > 1 and hasattr(fields[1], 'values') and fields[1].values:
+                    trigger_config["minute"] = fields[1].values[0]
+                if len(fields) > 5 and hasattr(fields[5], 'values') and fields[5].values:
+                    trigger_config["day_of_week"] = fields[5].values[0]
         elif isinstance(job_config["trigger"], IntervalTrigger):
             trigger_config = {
                 "hours": job_config["trigger"].interval.total_seconds() / 3600,

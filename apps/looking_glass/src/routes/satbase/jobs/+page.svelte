@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { apiGet, apiPost } from '$lib/api/client';
+  import { apiGet, apiPost, apiDelete } from '$lib/api/client';
   import Card from '$lib/components/shared/Card.svelte';
   import Button from '$lib/components/shared/Button.svelte';
   import Input from '$lib/components/shared/Input.svelte';
@@ -38,6 +38,8 @@
   let actionLoading: boolean = false;
   let cleanupLoading: boolean = false;
   let retryingJobId: string | null = null;
+  let deletingJobId: string | null = null;
+  let stoppingJobId: string | null = null;
   
   // Expanded job details
   let expandedJobId: string | null = null;
@@ -84,6 +86,74 @@
     const date = new Date(isoString);
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   }
+
+  function getJobDescription(job: Job): string {
+    if (!job.payload) return job.kind;
+    
+    // Extract meaningful info from payload based on job kind
+    if (job.kind === 'news') {
+      const query = job.payload.query || '';
+      const topic = job.payload.topic || '';
+      const from = job.payload.from || '';
+      const to = job.payload.to || '';
+      
+      let desc = query ? `"${query}"` : 'News';
+      if (topic && topic !== query) desc += ` (${topic})`;
+      if (from || to) {
+        const dateRange = from && to ? `${from} to ${to}` : from || to || '';
+        if (dateRange) desc += ` • ${dateRange}`;
+      }
+      return desc;
+    } else if (job.kind === 'prices') {
+      const tickers = job.payload.tickers || [];
+      return tickers.length > 0 ? `Prices: ${tickers.join(', ')}` : 'Prices';
+    } else if (job.kind === 'macro') {
+      const series = job.payload.series || [];
+      return series.length > 0 ? `FRED: ${series.join(', ')}` : 'Macro';
+    } else if (job.kind === 'delete_topic') {
+      const topic = job.payload.topic_name || '';
+      return topic ? `Delete topic: ${topic}` : 'Delete topic';
+    }
+    
+    return job.kind;
+  }
+
+  function getJobSummary(job: Job): string {
+    if (!job.result) return '';
+    
+    if (job.kind === 'news') {
+      const result = job.result;
+      if (typeof result === 'object') {
+        // Try to extract article counts
+        const totalDays = result.total_days || 0;
+        const stored = result.articles_stored || 0;
+        const discarded = result.articles_discarded || 0;
+        if (totalDays > 0 || stored > 0) {
+          return `${stored} articles stored${discarded > 0 ? `, ${discarded} discarded` : ''}${totalDays > 1 ? ` (${totalDays} days)` : ''}`;
+        }
+      }
+    } else if (job.kind === 'prices') {
+      const result = job.result;
+      if (typeof result === 'object') {
+        const tickers = result.tickers || [];
+        const bars = result.bars || 0;
+        return tickers.length > 0 ? `${tickers.length} tickers, ${bars} bars` : '';
+      }
+    } else if (job.kind === 'macro') {
+      const result = job.result;
+      if (typeof result === 'object') {
+        const series = result.series || [];
+        const observations = result.observations || 0;
+        return series.length > 0 ? `${series.length} series, ${observations} observations` : '';
+      }
+    }
+    
+    // Fallback to JSON string if no specific extraction
+    if (typeof job.result === 'object') {
+      return JSON.stringify(job.result).slice(0, 80) + '...';
+    }
+    return String(job.result).slice(0, 80);
+  }
   
   function getProgressPercent(job: Job): number | null {
     if (!job.progress_total || job.progress_total === 0) return null;
@@ -128,19 +198,54 @@
     }
   }
 
-  async function resetAllJobs() {
+  async function deleteJob(jobId: string, event?: Event) {
+    if (event) event.stopPropagation();
+    if (!confirm('Delete this job?')) {
+      return;
+    }
+    deletingJobId = jobId;
+    error = null;
+    try {
+      await apiDelete(`/v1/ingest/jobs/${jobId}`);
+      await loadJobs();
+      error = `✓ Job deleted`;
+      setTimeout(() => error = null, 2000);
+    } catch (e) {
+      error = `Failed to delete job: ${String(e)}`;
+    } finally {
+      deletingJobId = null;
+    }
+  }
+
+  async function stopJob(jobId: string, event?: Event) {
+    if (event) event.stopPropagation();
+    stoppingJobId = jobId;
+    error = null;
+    try {
+      await apiPost(`/v1/ingest/jobs/${jobId}/stop`, {});
+      await loadJobs();
+      error = `✓ Job stopped`;
+      setTimeout(() => error = null, 2000);
+    } catch (e: any) {
+      error = e?.message || `Failed to stop job: ${String(e)}`;
+    } finally {
+      stoppingJobId = null;
+    }
+  }
+
+  async function deleteAllJobs() {
     if (!confirm('⚠️ This will DELETE ALL job history. Are you sure?')) {
       return;
     }
     cleanupLoading = true;
     error = null;
     try {
-      const res = await apiPost<{ deleted: number; message: string }>('/v1/ingest/jobs/reset', {});
+      const res = await apiDelete<{ deleted: number; message: string }>('/v1/ingest/jobs');
       await loadJobs();
       error = `✓ ${res.message}`;
       setTimeout(() => error = null, 3000);
     } catch (e) {
-      error = `Failed to reset jobs: ${String(e)}`;
+      error = `Failed to delete all jobs: ${String(e)}`;
     } finally {
       cleanupLoading = false;
     }
@@ -264,11 +369,11 @@
         {loading ? '⟳' : '↻'} Refresh
       </Button>
       <button
-        on:click={resetAllJobs}
+        on:click={deleteAllJobs}
         disabled={cleanupLoading}
         class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-red-400 hover:text-red-300 hover:bg-neutral-700 disabled:opacity-50 transition-colors"
       >
-        🗑️ Reset
+        🗑️ Delete All
       </button>
     </div>
   </div>
@@ -373,7 +478,7 @@
                 <span class="text-xl">{getStatusIcon(job.status)}</span>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium text-sm text-neutral-100">{job.kind}</span>
+                    <span class="font-medium text-sm text-neutral-100">{getJobDescription(job)}</span>
                     <Badge variant={job.status === 'running' ? 'warning' : 'secondary'} size="sm">
                       {job.status}
                     </Badge>
@@ -395,7 +500,24 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-xs text-neutral-400 font-mono">{formatDuration(job)}</span>
+                {#if job.status === 'queued'}
+                  <button
+                    on:click={(e) => stopJob(job.job_id, e)}
+                    disabled={stoppingJobId === job.job_id}
+                    class="px-2 py-1 text-xs rounded bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 disabled:opacity-50 transition-colors"
+                    title="Stop job"
+                  >
+                    {stoppingJobId === job.job_id ? '⟳' : '⏹'}
+                  </button>
+                {/if}
+                <button
+                  on:click={(e) => deleteJob(job.job_id, e)}
+                  disabled={deletingJobId === job.job_id}
+                  class="px-2 py-1 text-xs rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                  title="Delete job"
+                >
+                  {deletingJobId === job.job_id ? '⟳' : '🗑'}
+                </button>
                 <svg class="w-4 h-4 text-neutral-500 transition-transform {expandedJobId === job.job_id ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
@@ -445,22 +567,26 @@
                 <span class="text-xl">✓</span>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium text-sm text-neutral-100">{job.kind}</span>
+                    <span class="font-medium text-sm text-neutral-100">{getJobDescription(job)}</span>
                     <span class="text-xs text-neutral-500">{formatTime(job.started_at)}</span>
                   </div>
                   {#if job.result}
                     <div class="text-xs text-neutral-500 mt-1">
-                      {#if typeof job.result === 'object'}
-                        {JSON.stringify(job.result).slice(0, 80)}...
-                      {:else}
-                        {job.result}
-                      {/if}
+                      {getJobSummary(job)}
                     </div>
                   {/if}
                 </div>
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-xs text-neutral-400 font-mono">{formatDuration(job)}</span>
+                <button
+                  on:click={(e) => deleteJob(job.job_id, e)}
+                  disabled={deletingJobId === job.job_id}
+                  class="px-2 py-1 text-xs rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                  title="Delete job"
+                >
+                  {deletingJobId === job.job_id ? '⟳' : '🗑'}
+                </button>
                 <svg class="w-4 h-4 text-neutral-500 transition-transform {expandedJobId === job.job_id ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
@@ -497,11 +623,11 @@
             🧹 Cleanup
           </Button>
           <button
-            on:click={resetAllJobs}
+            on:click={deleteAllJobs}
             disabled={cleanupLoading}
             class="px-3 py-1.5 text-sm rounded-lg bg-neutral-800 text-red-400 hover:text-red-300 hover:bg-neutral-700 disabled:opacity-50 transition-colors"
           >
-            🗑️ Reset All
+            🗑️ Delete All
           </button>
         </div>
       </div>
@@ -516,7 +642,7 @@
                 <span class="text-xl">{getStatusIcon(job.status)}</span>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium text-sm text-red-300">{job.kind}</span>
+                    <span class="font-medium text-sm text-red-300">{getJobDescription(job)}</span>
                     <Badge variant="secondary" size="sm">{job.status}</Badge>
                   </div>
                   {#if job.error}
@@ -528,11 +654,19 @@
                 <Button 
                   variant="primary" 
                   size="sm" 
-                  on:click={() => retryJob(job.job_id, job)}
+                  on:click={(e) => { e.stopPropagation(); retryJob(job.job_id, job); }}
                   disabled={retryingJobId === job.job_id}
                 >
                   {retryingJobId === job.job_id ? '⟳' : '↻'} Retry
                 </Button>
+                <button
+                  on:click={(e) => deleteJob(job.job_id, e)}
+                  disabled={deletingJobId === job.job_id}
+                  class="px-2 py-1 text-xs rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                  title="Delete job"
+                >
+                  {deletingJobId === job.job_id ? '⟳' : '🗑'}
+                </button>
                 <svg class="w-4 h-4 text-neutral-500 transition-transform {expandedJobId === job.job_id ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>

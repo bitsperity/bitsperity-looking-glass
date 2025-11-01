@@ -127,3 +127,4 @@ workspace_id: "tesla-analysis-2025"
 - ✅ **Workspace Summary** für Überblick nutzen
 - ⚠️ **Sessions nur wenn wirklich nötig** (z.B. mehrere klar getrennte Analyse-Zyklen)
 
+

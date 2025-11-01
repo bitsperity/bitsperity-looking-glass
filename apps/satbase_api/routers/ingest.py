@@ -51,10 +51,13 @@ def enqueue_prices_daily(tickers: list[str]) -> str:
     import httpx
     job_id = _new_job("prices_daily", {"tickers": tickers})
     try:
-        with httpx.Client(timeout=2) as client:
-            client.post("http://localhost:8080/v1/ingest/prices/daily", json={"tickers": tickers})
-    except Exception:
-        pass
+        with httpx.Client(timeout=10) as client:
+            response = client.post("http://localhost:8080/v1/ingest/prices/daily", json={"tickers": tickers}, timeout=10)
+            response.raise_for_status()
+    except Exception as e:
+        # If HTTP request fails, log warning but keep job_id
+        import logging
+        logging.warning(f"Failed to trigger prices job via HTTP: {e}. Job {job_id} created but may remain queued.")
     return job_id
 
 
@@ -63,27 +66,42 @@ def enqueue_macro_fred(series: list[str]) -> str:
     import httpx
     job_id = _new_job("macro_fred", {"series": series})
     try:
-        with httpx.Client(timeout=2) as client:
-            client.post("http://localhost:8080/v1/ingest/macro/fred", json={"series": series})
-    except Exception:
-        pass
+        with httpx.Client(timeout=10) as client:
+            response = client.post("http://localhost:8080/v1/ingest/macro/fred", json={"series": series}, timeout=10)
+            response.raise_for_status()
+    except Exception as e:
+        # If HTTP request fails, log warning but keep job_id
+        import logging
+        logging.warning(f"Failed to trigger macro job via HTTP: {e}. Job {job_id} created but may remain queued.")
     return job_id
 
 
-def enqueue_news(query: str, from_date: str | None = None, to_date: str | None = None, topic: str | None = None) -> str:
+def enqueue_news(query: str, from_date: str | None = None, to_date: str | None = None, topic: str | None = None, hours: int | None = None) -> str:
     """Helper to enqueue news ingestion job"""
     import httpx
+    from datetime import date, timedelta
+    
+    # Handle hours parameter (convert to date range)
+    if hours is not None:
+        date_to = date.today()
+        date_from = date_to - timedelta(days=1)  # Last 24 hours ≈ 1 day
+        from_date = date_from.isoformat()
+        to_date = date_to.isoformat()
+    
     job_id = _new_job("news", {"query": query, "from": from_date, "to": to_date, "topic": topic})
     try:
-        with httpx.Client(timeout=2) as client:
+        with httpx.Client(timeout=10) as client:
             payload = {"query": query, "topic": topic}
             if from_date:
                 payload["from"] = from_date
             if to_date:
                 payload["to"] = to_date
-            client.post("http://localhost:8080/v1/ingest/news", json=payload)
-    except Exception:
-        pass
+            response = client.post("http://localhost:8080/v1/ingest/news", json=payload, timeout=10)
+            response.raise_for_status()
+    except Exception as e:
+        # If HTTP request fails, log warning but keep job_id
+        import logging
+        logging.warning(f"Failed to trigger news job via HTTP: {e}. Job {job_id} created but may remain queued.")
     return job_id
 
 
@@ -386,13 +404,80 @@ def cancel_job(job_id: str):
     s = load_settings()
     db = NewsDB(s.stage_dir.parent / "news.db")
     
+    # Check if job exists
+    job = db.get_job_by_id(job_id)
+    if not job:
+        return JSONResponse(
+            {"job_id": job_id, "status": "not_found", "message": "Job not found"},
+            status_code=404
+        )
+    
+    # Delete from database
     if db.delete_job(job_id):
-        del _JOBS[job_id]
-        return {"job_id": job_id, "status": "cancelled", "message": "Job cancelled"}
+        # Remove from in-memory cache if exists (don't fail if not present)
+        _JOBS.pop(job_id, None)
+        return {"job_id": job_id, "status": "deleted", "message": "Job deleted"}
+    
     return JSONResponse(
-        {"job_id": job_id, "status": "not_found", "message": "Job not found"},
-        status_code=404
+        {"job_id": job_id, "status": "error", "message": "Failed to delete job"},
+        status_code=500
     )
+
+
+@router.post("/ingest/jobs/{job_id}/stop")
+def stop_job(job_id: str):
+    """Stop a queued job (mark as cancelled)"""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    job = db.get_job_by_id(job_id)
+    if not job:
+        return JSONResponse(
+            {"job_id": job_id, "status": "not_found", "message": "Job not found"},
+            status_code=404
+        )
+    
+    current_status = job.get("status", "").lower()
+    if current_status not in ["queued"]:
+        return JSONResponse(
+            {"job_id": job_id, "status": current_status, "message": f"Cannot stop job with status '{current_status}'. Only queued jobs can be stopped."},
+            status_code=400
+        )
+    
+    # Mark as cancelled
+    db.complete_job(job_id, status="cancelled", error="Stopped by user")
+    if job_id in _JOBS:
+        _JOBS[job_id]["status"] = "cancelled"
+        _JOBS[job_id]["error"] = "Stopped by user"
+    
+    return {"job_id": job_id, "status": "cancelled", "message": "Job stopped"}
+
+
+@router.delete("/ingest/jobs")
+def delete_all_jobs():
+    """Delete all jobs - DESTRUCTIVE OPERATION"""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    try:
+        with db.conn() as conn:
+            result = conn.execute("DELETE FROM job_tracking")
+            deleted_count = result.rowcount
+            
+        # Clear in-memory cache
+        _JOBS.clear()
+        
+        return {
+            "deleted": deleted_count,
+            "message": f"Deleted {deleted_count} jobs",
+            "warning": "All job history has been cleared"
+        }
+    except Exception as e:
+        log("delete_all_jobs_error", error=str(e))
+        return JSONResponse(
+            {"error": str(e), "message": "Failed to delete all jobs"},
+            status_code=500
+        )
 
 
 @router.post("/ingest/jobs/cleanup")

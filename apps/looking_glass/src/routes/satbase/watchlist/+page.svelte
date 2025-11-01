@@ -18,7 +18,7 @@
 	let addType: 'stock' | 'topic' | 'macro' = 'stock';
 	let addKey = '';
 	let addLabel = '';
-	let addTtlDays = 30;
+	let addTtlDays: number | null = null; // null = no expiration
 	let addAutoIngest = true;
 	let addActiveFrom = '';
 	let addActiveTo = '';
@@ -72,11 +72,14 @@
 			const itemData: any = {
 				type: addType,
 				key: addKey.toUpperCase(),
-				auto_ingest: addAutoIngest,
-				ttl_days: addTtlDays
+				auto_ingest: addAutoIngest
 			};
 
 			if (addLabel) itemData.label = addLabel;
+			// Only send ttl_days if provided and > 0 (null/0 = no expiration)
+			if (addTtlDays !== null && addTtlDays > 0) {
+				itemData.ttl_days = addTtlDays;
+			}
 			if (addActiveFrom) itemData.active_from = addActiveFrom;
 			if (addActiveTo) itemData.active_to = addActiveTo;
 
@@ -85,7 +88,7 @@
 			// Reset form
 			addKey = '';
 			addLabel = '';
-			addTtlDays = 30;
+			addTtlDays = null;
 			addAutoIngest = true;
 			addActiveFrom = '';
 			addActiveTo = '';
@@ -122,8 +125,14 @@
 				updates.enabled = editEnabled;
 			}
 
-			if (editTtlDays !== null && editTtlDays > 0) {
-				updates.ttl_days = editTtlDays;
+			// Handle TTL: null or 0 = no expiration, > 0 = set expiration
+			if (editTtlDays !== null) {
+				if (editTtlDays === 0) {
+					// Explicitly set to null to remove expiration
+					updates.expires_at = null;
+				} else if (editTtlDays > 0) {
+					updates.ttl_days = editTtlDays;
+				}
 			}
 
 			// Time windows
@@ -510,13 +519,15 @@
 
 				<!-- TTL -->
 				<div class="form-group">
-					<label>Time-to-Live (days)</label>
+					<label>Time-to-Live (days, optional)</label>
 					<input
 						type="number"
-						min="1"
+						min="0"
+						placeholder="Leave empty for no expiration"
 						bind:value={addTtlDays}
 						class="input"
 					/>
+					<p class="hint">Leave empty or set to 0 for items that never expire</p>
 				</div>
 
 				<!-- Auto-Ingest -->
@@ -603,14 +614,15 @@
 
 					<!-- TTL -->
 					<div class="form-group">
-						<label>Time-to-Live (days)</label>
+						<label>Time-to-Live (days, optional)</label>
 						<input
 							type="number"
-							min="1"
-							placeholder="Leave empty to keep current"
+							min="0"
+							placeholder="Leave empty or 0 for no expiration"
 							bind:value={editTtlDays}
 							class="input"
 						/>
+						<p class="hint">Set to 0 or leave empty to remove expiration</p>
 					</div>
 
 					<!-- Time Windows -->

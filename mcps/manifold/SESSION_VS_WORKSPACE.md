@@ -196,3 +196,4 @@ POST /v1/memory/workspace/{id}/summary # Workspace-Zusammenfassung erstellen
 
 **Aber:** Da Workspaces keine Management-Endpoints haben, sind sie aktuell weniger praktisch als Sessions.
 
+

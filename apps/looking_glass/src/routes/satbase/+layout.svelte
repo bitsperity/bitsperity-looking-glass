@@ -1,6 +1,7 @@
 <script lang="ts">
 	import SatbaseNav from '$lib/components/satbase/SatbaseNav.svelte';
 	import { page } from '$app/stores';
+	export let params: Record<string, string> = {};
 </script>
 
 <div class="satbase-layout">

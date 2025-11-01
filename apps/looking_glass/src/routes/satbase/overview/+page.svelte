@@ -98,6 +98,48 @@
 			} else {
 				heatmapData = {};
 			}
+
+			// Load daily heatmap for current month (initial load)
+			const currentMonth = new Date().getMonth() + 1;
+			const currentYear = new Date().getFullYear();
+			const daysInCurrentMonth = new Date(currentYear, currentMonth, 0).getDate();
+			const dailyFromDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
+			const dailyToDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(daysInCurrentMonth).padStart(2, '0')}`;
+			
+			const topicsForCurrentMonth = await satbaseApi.getTopicsAll(dailyFromDate, dailyToDate);
+			const allTopicsForDaily = topicsForCurrentMonth?.topics?.map((t: any) => t.name).join(',') || '';
+			if (allTopicsForDaily) {
+				const dailyResponse = await satbaseApi.getTopicsCoverage(
+					allTopicsForDaily,
+					dailyFromDate,
+					dailyToDate,
+					'day',
+					'matrix'
+				);
+
+				if (dailyResponse?.matrix && dailyResponse?.topics && dailyResponse?.periods) {
+					const transformed: Record<string, Record<number, number>> = {};
+					dailyResponse.topics.forEach((topic: string) => {
+						transformed[topic] = {};
+					});
+
+					dailyResponse.matrix.forEach((row: number[], rowIdx: number) => {
+						const period = dailyResponse.periods[rowIdx];
+						const dayIndex = parseInt(period.split('-')[2]);
+						
+						row.forEach((count: number, topicIdx: number) => {
+							const topic = dailyResponse.topics[topicIdx];
+							transformed[topic][dayIndex] = count;
+						});
+					});
+
+					dailyHeatmapData = transformed;
+				} else {
+					dailyHeatmapData = {};
+				}
+			} else {
+				dailyHeatmapData = {};
+			}
 		} catch (err) {
 			error = `Failed to load overview: ${err}`;
 		} finally {
@@ -138,11 +180,18 @@
 	$: formattedTime = lastUpdated.toLocaleTimeString();
 
 	// Reload heatmap when year changes
-	$: if (selectedYear && topicsSummary?.topics) {
+	$: if (selectedYear) {
 		(async () => {
 			try {
 				heatmapLoading = true;
-				const allTopics = topicsSummary.topics.map((t: any) => t.name).join(',');
+				// Use all topics, not just top 5 (consistent with initial load)
+				const topicsForYear = await satbaseApi.getTopicsAll(`${selectedYear}-01-01`, `${selectedYear}-12-31`);
+				const allTopics = topicsForYear?.topics?.map((t: any) => t.name).join(',') || '';
+				if (!allTopics) {
+					heatmapData = {};
+					heatmapLoading = false;
+					return;
+				}
 				const fromDate = `${selectedYear}-01-01`;
 				const toDate = `${selectedYear}-12-31`;
 				const response = await satbaseApi.getTopicsCoverage(
@@ -185,16 +234,22 @@
 	}
 
 	// Reload daily heatmap when month changes
-	$: if (selectedMonth && selectedYearForMonth && topicsSummary?.topics) {
+	$: if (selectedMonth && selectedYearForMonth) {
 		(async () => {
 			try {
 				dailyHeatmapLoading = true;
-				const allTopics = topicsSummary.topics.map((t: any) => t.name).join(',');
-				
-				// Calculate first and last day of selected month
+				// Use all topics for the month, not just top 5 (consistent with monthly heatmap)
 				const daysInMonth = new Date(selectedYearForMonth, selectedMonth, 0).getDate();
 				const fromDate = `${selectedYearForMonth}-${String(selectedMonth).padStart(2, '0')}-01`;
 				const toDate = `${selectedYearForMonth}-${String(selectedMonth).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+				
+				const topicsForMonth = await satbaseApi.getTopicsAll(fromDate, toDate);
+				const allTopics = topicsForMonth?.topics?.map((t: any) => t.name).join(',') || '';
+				if (!allTopics) {
+					dailyHeatmapData = {};
+					dailyHeatmapLoading = false;
+					return;
+				}
 				
 				const response = await satbaseApi.getTopicsCoverage(
 					allTopics,

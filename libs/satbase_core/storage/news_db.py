@@ -995,14 +995,14 @@ class NewsDB:
         return self.get_job(job_id)
     
     def delete_job(self, job_id: str) -> bool:
-        """Mark job as cancelled/deleted."""
+        """Delete job from database."""
         try:
             with self.conn() as conn:
-                conn.execute(
-                    "UPDATE job_tracking SET status = ? WHERE job_id = ?",
-                    ("cancelled", job_id)
+                result = conn.execute(
+                    "DELETE FROM job_tracking WHERE job_id = ?",
+                    (job_id,)
                 )
-                return True
+                return result.rowcount > 0
         except Exception as e:
             log("delete_job_error", job_id=job_id, error=str(e))
             return False

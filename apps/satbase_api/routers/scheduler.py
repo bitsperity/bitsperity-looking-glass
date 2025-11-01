@@ -104,8 +104,7 @@ def disable_job(job_id: str):
 async def trigger_job(job_id: str):
     """
     Manually trigger a job immediately.
-    Note: This requires the scheduler service to be running and listening for HTTP triggers.
-    For now, this endpoint returns a message indicating manual trigger is not yet implemented.
+    Executes the job function directly (bypasses scheduler timing).
     """
     db = _get_db()
     job = db.get_job(job_id)
@@ -122,14 +121,114 @@ async def trigger_job(job_id: str):
             status_code=status.HTTP_400_BAD_REQUEST
         )
     
-    # TODO: Implement HTTP trigger mechanism for scheduler
-    # For now, return a message
-    return {
-        "status": "pending",
-        "job_id": job_id,
-        "message": "Manual trigger requires scheduler HTTP API (not yet implemented)",
-        "note": "You can restart the scheduler service to reload job configurations"
-    }
+    # Map job_id to actual job function
+    # Import job functions dynamically - jobs are in satbase_scheduler which is mounted as volume
+    try:
+        import sys
+        import os
+        from pathlib import Path
+        
+        # Load settings BEFORE changing directory to ensure absolute paths
+        s = load_settings()
+        # Ensure stage_dir is absolute
+        if not s.stage_dir.is_absolute():
+            s.stage_dir = Path("/app/data/stage").resolve()
+        
+        # Set environment variable to ensure child processes use absolute path
+        os.environ["SATBASE_STAGE_DIR"] = str(s.stage_dir)
+        
+        # Try to find scheduler path - could be in /app/apps/satbase_scheduler or relative
+        scheduler_paths = [
+            Path("/app/apps/satbase_scheduler"),
+            Path(__file__).parent.parent.parent / "satbase_scheduler",
+            Path(__file__).parent.parent.parent.parent / "apps" / "satbase_scheduler"
+        ]
+        
+        scheduler_path = None
+        for path in scheduler_paths:
+            if path.exists() and (path / "jobs").exists():
+                scheduler_path = path.resolve()  # Make absolute
+                break
+        
+        if not scheduler_path:
+            return JSONResponse(
+                {"error": "Scheduler jobs directory not found. Cannot execute job."},
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # Add scheduler path and ensure libs are accessible
+        scheduler_str = str(scheduler_path)
+        libs_path = Path("/app/libs").resolve()
+        
+        # Add paths if not already there
+        if scheduler_str not in sys.path:
+            sys.path.insert(0, scheduler_str)
+        if str(libs_path) not in sys.path:
+            sys.path.insert(0, str(libs_path))
+        
+        # Change to scheduler directory temporarily (for relative imports like "from job_wrapper import")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(scheduler_path)
+            
+            if job_id == "topics_ingest":
+                from jobs.topics import ingest_topics_job
+                result = await ingest_topics_job()
+            elif job_id == "watchlist_refresh":
+                from jobs.watchlist import refresh_watchlist
+                result = await refresh_watchlist()
+            elif job_id == "fred_daily":
+                from jobs.fred import refresh_fred_core
+                result = await refresh_fred_core()
+            elif job_id == "prices_watchlist":
+                from jobs.prices import refresh_watchlist_prices
+                result = await refresh_watchlist_prices()
+            elif job_id == "prices_gaps":
+                from jobs.prices import detect_price_gaps
+                result = await detect_price_gaps()
+            elif job_id == "prices_fill_gaps":
+                from jobs.prices import fill_price_gaps
+                result = await fill_price_gaps()
+            elif job_id == "gaps_detect":
+                from jobs.gaps import detect_gaps
+                result = await detect_gaps()
+            elif job_id == "gaps_fill":
+                from jobs.gaps import fill_gaps
+                result = await fill_gaps()
+            else:
+                return JSONResponse(
+                    {"error": f"Manual trigger not yet implemented for job '{job_id}'"},
+                    status_code=status.HTTP_501_NOT_IMPLEMENTED
+                )
+            
+            return {
+                "status": "completed",
+                "job_id": job_id,
+                "result": result,
+                "message": f"Job '{job_id}' executed successfully"
+            }
+        finally:
+            os.chdir(old_cwd)
+            # Clean up sys.path (optional, but cleaner)
+            if scheduler_str in sys.path:
+                sys.path.remove(scheduler_str)
+            if str(libs_path) in sys.path and str(libs_path) != "/app/libs":  # Don't remove if it was already there
+                try:
+                    sys.path.remove(str(libs_path))
+                except ValueError:
+                    pass
+            
+    except ImportError as e:
+        return JSONResponse(
+            {"error": f"Failed to import job function: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    except Exception as e:
+        import traceback
+        return JSONResponse(
+            {"error": f"Job execution failed: {str(e)}", "traceback": traceback.format_exc()},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @router.get("/scheduler/jobs/{job_id}/executions")

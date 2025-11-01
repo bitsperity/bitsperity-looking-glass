@@ -2,6 +2,7 @@
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
   import Topbar from '$lib/components/layout/Topbar.svelte';
   export let data;
+  export let params: Record<string, string> = {};
   import '../app.css';
 </script>
 

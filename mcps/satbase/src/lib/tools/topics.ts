@@ -11,7 +11,7 @@ export const getTopicsTool = {
   name: 'get-topics',
   config: {
     title: 'Get Configured News Topics',
-    description: 'Get current list of configured news search topics from control/topics.json.',
+    description: 'Get current list of configured news search topics from watchlist (type=\'topic\').',
     inputSchema: z.object({}).shape
   },
   handler: async () => {

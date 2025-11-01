@@ -1,5 +1,6 @@
 <script lang="ts">
   import CoalescenceNav from '$lib/components/coalescence/CoalescenceNav.svelte';
+  export let params: Record<string, string> = {};
 </script>
 
 <!-- Coalescence nutzt das Looking Glass Layout, kein eigenes fixed Layout -->

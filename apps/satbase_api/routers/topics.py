@@ -10,34 +10,43 @@ from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import JSONResponse
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.news_db import NewsDB
+from libs.satbase_core.storage.watchlist_db import WatchlistDB
 
 router = APIRouter()
+
+
+def _get_watchlist_db() -> WatchlistDB:
+    """Get watchlist database instance."""
+    s = load_settings()
+    return WatchlistDB(s.stage_dir.parent / "control.db")
 
 
 @router.get("/news/topics/configured")
 def get_configured_topics():
     """
-    Get configured topics from control/topics.json.
+    Get configured topics from watchlist (type='topic').
+    Replaces old control/topics.json approach.
     """
-    s = load_settings()
-    topics_file = Path(s.stage_dir).parent / "control" / "topics.json"
+    db = _get_watchlist_db()
+    items = db.list_items(item_type='topic', enabled=None, include_expired=False)
     
-    try:
-        if topics_file.exists():
-            with open(topics_file, "r") as f:
-                data = json.load(f)
-                topics_list = data.get("topics", [])
-        else:
-            topics_list = []
-        
-        return {
-            "topics": topics_list,
-            "total": len(topics_list),
-            "source": "configuration"
-        }
+    # Transform to old format for backwards compatibility
+    topics_list = []
+    for item in items:
+        topics_list.append({
+            "symbol": item.get("key", ""),
+            "added_at": item.get("added_at", ""),
+            "expires_at": item.get("expires_at"),
+            "id": item.get("id"),
+            "label": item.get("label"),
+            "enabled": bool(item.get("enabled", True))
+        })
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load configured topics: {str(e)}")
+    return {
+        "topics": topics_list,
+        "total": len(topics_list),
+        "source": "watchlist"
+    }
 
 
 @router.get("/news/topics/all")
@@ -200,95 +209,78 @@ def get_topic_coverage(
 @router.post("/news/topics/add")
 def add_topic(body: dict[str, Any]):
     """
-    Add a new topic to the configured topics list.
+    Add a new topic to the watchlist (type='topic').
+    Replaces old control/topics.json approach.
     """
-    s = load_settings()
     topic_name = body.get("symbol", "").strip().upper()
     
     if not topic_name:
         raise HTTPException(status_code=400, detail="Topic name (symbol) is required")
     
-    # Load topics file
-    topics_file = Path(s.stage_dir).parent / "control" / "topics.json"
-    topics_file.parent.mkdir(parents=True, exist_ok=True)
+    db = _get_watchlist_db()
     
-    try:
-        if topics_file.exists():
-            with open(topics_file, "r") as f:
-                data = json.load(f)
-                topics_list = data.get("topics", [])
-        else:
-            topics_list = []
-            data = {"topics": topics_list}
-        
-        # Check if topic already exists
-        if any(t.get("symbol") == topic_name for t in topics_list):
-            raise HTTPException(status_code=409, detail=f"Topic '{topic_name}' already exists")
-        
-        # Add new topic
-        today = date.today().isoformat()
-        expires_at = body.get("expires_at", (date.today() + timedelta(days=365)).isoformat())
-        
-        new_topic = {
-            "symbol": topic_name,
-            "added_at": today,
-            "expires_at": expires_at
-        }
-        
-        topics_list.append(new_topic)
-        
-        # Save to file
-        with open(topics_file, "w") as f:
-            json.dump({"topics": topics_list}, f, indent=2)
-        
-        return {
-            "success": True,
-            "topic": new_topic,
-            "total_topics": len(topics_list)
-        }
+    # Check if topic already exists
+    existing_items = db.list_items(item_type='topic', include_expired=True)
+    if any(item.get("key") == topic_name for item in existing_items):
+        raise HTTPException(status_code=409, detail=f"Topic '{topic_name}' already exists")
     
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to add topic: {str(e)}")
+    # Prepare watchlist item
+    expires_at = body.get("expires_at")
+    if not expires_at:
+        expires_at = (date.today() + timedelta(days=365)).isoformat()
+    
+    watchlist_item = {
+        "type": "topic",
+        "key": topic_name,
+        "label": body.get("label", topic_name),
+        "enabled": body.get("enabled", True),
+        "auto_ingest": body.get("auto_ingest", True),
+        "expires_at": expires_at
+    }
+    
+    added = db.add_items([watchlist_item])
+    
+    if not added:
+        raise HTTPException(status_code=500, detail="Failed to add topic to watchlist")
+    
+    added_item = added[0]
+    
+    return {
+        "success": True,
+        "topic": {
+            "symbol": added_item.get("key", topic_name),
+            "added_at": added_item.get("added_at", date.today().isoformat()),
+            "expires_at": added_item.get("expires_at"),
+            "id": added_item.get("id")
+        },
+        "total_topics": len(db.list_items(item_type='topic'))
+    }
 
 
 @router.delete("/news/topics/{topic_name}")
 def delete_topic(topic_name: str):
     """
-    Remove a topic from the configured topics list.
+    Remove a topic from the watchlist (type='topic').
+    Replaces old control/topics.json approach.
     """
     topic_name = topic_name.strip().upper()
     
-    s = load_settings()
-    topics_file = Path(s.stage_dir).parent / "control" / "topics.json"
+    db = _get_watchlist_db()
     
-    if not topics_file.exists():
-        raise HTTPException(status_code=404, detail="Topics file not found")
+    # Find topic by key
+    items = db.list_items(item_type='topic', include_expired=True)
+    topic_item = next((item for item in items if item.get("key") == topic_name), None)
     
-    try:
-        with open(topics_file, "r") as f:
-            data = json.load(f)
-            topics_list = data.get("topics", [])
-        
-        # Find and remove topic
-        original_count = len(topics_list)
-        topics_list = [t for t in topics_list if t.get("symbol") != topic_name]
-        
-        if len(topics_list) == original_count:
-            raise HTTPException(status_code=404, detail=f"Topic '{topic_name}' not found")
-        
-        # Save to file
-        with open(topics_file, "w") as f:
-            json.dump({"topics": topics_list}, f, indent=2)
-        
+    if not topic_item:
+        raise HTTPException(status_code=404, detail=f"Topic '{topic_name}' not found")
+    
+    # Delete via watchlist DB
+    if db.delete_item(topic_item.get("id")):
+        remaining_items = db.list_items(item_type='topic')
         return {
             "success": True,
             "topic_removed": topic_name,
-            "remaining_count": len(topics_list)
+            "remaining_count": len(remaining_items)
         }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete topic: {str(e)}")
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete topic from watchlist")

@@ -280,7 +280,7 @@ export async function getTrendingTickers(params?: {
 }
 
 /**
- * Get all configured topics (from control/topics.json)
+ * Get all configured topics (from watchlist, type='topic')
  */
 export async function getConfiguredTopics(): Promise<any> {
   return apiGet(`/v1/news/topics/configured`);

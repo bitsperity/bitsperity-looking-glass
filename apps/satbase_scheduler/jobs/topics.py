@@ -19,7 +19,7 @@ async def ingest_topics_job() -> dict[str, Any]:
     s = load_settings()
     client = get_api_client()
 
-    # Load topics from WATCHLIST (symbols)
+    # Load topics from WATCHLIST (dynamic - agents can change watchlist daily)
     try:
         wl = await _fetch_watchlist(client, s.api_url)
         topics = [it["symbol"] for it in wl]
@@ -33,7 +33,7 @@ async def ingest_topics_job() -> dict[str, Any]:
     if not topics:
         return {
             "status": "ok",
-            "message": "Watchlist empty",
+            "message": "Watchlist empty - no topics to ingest",
             "topics_count": 0,
             "articles_ingested": 0
         }
@@ -70,17 +70,22 @@ async def ingest_topics_job() -> dict[str, Any]:
 
 
 async def _fetch_watchlist(client: httpx.AsyncClient, api_url: str) -> list[dict[str, Any]]:
-    """Fetch watchlist symbols from API and return a list of items with 'symbol'."""
-    r = await client.get(f"{api_url}/v1/watchlist", timeout=10.0)
+    """Fetch active topics from watchlist API."""
+    # Use correct endpoint: /v1/watchlist/items with type=topic filter
+    r = await client.get(
+        f"{api_url}/v1/watchlist/items",
+        params={"type": "topic", "active_now": "true", "enabled": "true"},
+        timeout=10.0
+    )
     r.raise_for_status()
     data = r.json() or {}
     items = data.get("items", [])
-    # normalize symbols
+    # Extract 'key' field (which is the topic name) and normalize
     out = []
     for it in items:
-        sym = (it.get("symbol") or "").strip().upper()
-        if sym:
-            out.append({"symbol": sym})
+        key = it.get("key", "").strip().upper()
+        if key:
+            out.append({"symbol": key})
     return out
 
 
