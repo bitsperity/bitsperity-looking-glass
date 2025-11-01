@@ -5,7 +5,7 @@ import { logger } from '../logger.js';
 // Import all tools
 import { listNewsTool, deleteNewsTool, newsHeatmapTool, trendingTickersTool, newsAnalyticsTool, getNewsByIdTool, bulkNewsTool, newsHealthTool, integrityCheckTool } from './tools/news.js';
 import { fredSearchTool, fredObservationsTool, fredCategoriesTool, fredRefreshCoreTool, macroStatusTool } from './tools/macro.js';
-import { listPricesTool, searchPricesTool, pricesInfoTool, pricesFundamentalsTool, pricesStatusTool } from './tools/prices.js';
+import { listPricesTool, searchPricesTool, pricesInfoTool, pricesFundamentalsTool, pricesStatusTool, listPricesBulkTool } from './tools/prices.js';
 import { btcOracleTool, usdToBtcTool, btcToUsdTool } from './tools/btc.js';
 import { enqueueNewsTool, enqueueNewsBodiesTool, enqueuePricesTool, enqueueMacroTool, newsBackfillTool } from './tools/ingest.js';
 import { listJobsTool, getJobTool, cleanupJobsTool, cancelJobTool, retryJobTool, adminJobsTool, adminJobsStatsTool } from './tools/jobs.js';
@@ -45,8 +45,9 @@ export function createMcpServer(): McpServer {
   server.registerTool(fredRefreshCoreTool.name, fredRefreshCoreTool.config, fredRefreshCoreTool.handler);
   server.registerTool(macroStatusTool.name, macroStatusTool.config, macroStatusTool.handler);
 
-  // Prices (5 tools)
+  // Prices (6 tools)
   server.registerTool(listPricesTool.name, listPricesTool.config, listPricesTool.handler);
+  server.registerTool(listPricesBulkTool.name, listPricesBulkTool.config, listPricesBulkTool.handler);
   server.registerTool(searchPricesTool.name, searchPricesTool.config, searchPricesTool.handler);
   server.registerTool(pricesInfoTool.name, pricesInfoTool.config, pricesInfoTool.handler);
   server.registerTool(pricesFundamentalsTool.name, pricesFundamentalsTool.config, pricesFundamentalsTool.handler);
@@ -106,6 +107,6 @@ export function createMcpServer(): McpServer {
   server.registerTool(listAdaptersTool.name, listAdaptersTool.config, listAdaptersTool.handler);
   server.registerTool(backfillMonitorTool.name, backfillMonitorTool.config, backfillMonitorTool.handler);
 
-  logger.info('59 tools registered successfully (47 core + 12 admin/quality)');
+  logger.info('60 tools registered successfully (48 core + 12 admin/quality)');
   return server;
 }

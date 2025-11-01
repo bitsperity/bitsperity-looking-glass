@@ -1,7 +1,9 @@
 from datetime import date
-from fastapi import APIRouter, Query, status, BackgroundTasks
+from fastapi import APIRouter, Query, status, BackgroundTasks, Body
 from fastapi.responses import JSONResponse
 from pathlib import Path
+from typing import List
+from pydantic import BaseModel
 
 from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.prices_db import PricesDB
@@ -99,41 +101,22 @@ def _fetch_ticker_sync(db: PricesDB, ticker: str, from_date, to_date, timeout_s:
 def _fetch_btcusd_sync(db: PricesDB, from_date, to_date) -> list:
     """Fetch BTCUSD data synchronously using yfinance (most reliable for crypto)."""
     try:
-        import yfinance as yf
-        from datetime import timedelta
+        reg = registry()
+        fetch, normalize, sink = reg["eod_yfinance"]
         
-        # Fetch BTCUSD from yfinance
-        btc_ticker = yf.Ticker("BTC-USD")
-        hist = btc_ticker.history(start=str(from_date) if from_date else "1970-01-01", 
-                                  end=str(to_date) if to_date else "2099-12-31")
+        params = {"tickers": ["BTCUSD"]}
+        raw = fetch(params)
+        models = list(normalize(raw))
         
-        if hist.empty:
-            return []
+        if models:
+            sink(models, date.today())
+            bars = db.query_bars("BTCUSD", from_date, to_date)
+            if bars:
+                return bars
         
-        # Convert to DailyBar format and save
-        from libs.satbase_core.models.price import DailyBar
-        bars = []
-        for idx, row in hist.iterrows():
-            dt = idx.date()
-            bars.append(DailyBar(
-                ticker="BTCUSD",
-                date=dt,
-                open=float(row['Open']),
-                high=float(row['High']),
-                low=float(row['Low']),
-                close=float(row['Close']),
-                volume=int(row['Volume']) if row['Volume'] else 0,
-                source="yfinance"
-            ))
-        
-        # Save to DB
-        if bars:
-            db.upsert_daily_bars("BTCUSD", [b.model_dump() for b in bars], source="yfinance")
-        
-        # Return queried bars
-        return db.query_bars("BTCUSD", from_date, to_date)
+        return []
     except Exception as e:
-        print(f"Failed to fetch BTCUSD: {e}")
+        print(f"Failed to fetch BTCUSD synchronously: {e}")
         return []
 
 
@@ -163,7 +146,7 @@ async def search_tickers(q: str, limit: int = 10):
                 "sector": quote.get("sector", ""),
             })
         
-        return {"query": q, "count": len(results), "results": results}
+
     except Exception as e:
         return {"query": q, "count": 0, "results": [], "error": str(e)}
 
@@ -206,15 +189,12 @@ async def get_prices_status(ticker: str):
     status_info = db.get_status(ticker)
     
     # Calculate missing days if we have data
-    missing_days = []
     if status_info['latest_date']:
-        try:
-            from datetime import timedelta
-            from_date = date.fromisoformat(status_info['latest_date']) - timedelta(days=30)
-            to_date = date.fromisoformat(status_info['latest_date'])
-            missing_days = db.get_missing_days(ticker, from_date, to_date)
-        except:
-            pass
+        latest = date.fromisoformat(status_info['latest_date'])
+        today = date.today()
+        missing_days = (today - latest).days
+    else:
+        missing_days = None
     
     return {
         "ticker": ticker.upper(),
@@ -222,112 +202,143 @@ async def get_prices_status(ticker: str):
         "bar_count": status_info['bar_count'],
         "missing_days": missing_days,
         "source": status_info['source'],
-        "source_fail_count": status_info['source_fail_count'],
         "invalid": status_info['invalid'],
-        "invalid_reason": status_info['invalid_reason'],
+        "invalid_reason": status_info.get('invalid_reason')
     }
 
 
 @router.get("/prices/info/{ticker}")
-async def ticker_info(ticker: str):
+async def get_prices_info(ticker: str):
     """Get detailed company information for a ticker."""
-    db = _get_prices_db()
-    
-    # Check cache in symbols_meta first
-    cached = db.get_symbols_meta(ticker)
-    if cached and cached.get('info'):
-        return cached['info']
-    
-    # Fetch from yfinance
     try:
-        t = yf.Ticker(ticker.upper())
-        info = t.info
+        ticker_obj = yf.Ticker(ticker.upper())
+        info = ticker_obj.info
         
-        if not info or "symbol" not in info:
-            return {"error": f"No info found for ticker {ticker.upper()}"}
-        
-        result = {
-            "symbol": info.get("symbol"),
-            "name": info.get("longName") or info.get("shortName"),
-            "sector": info.get("sector"),
-            "industry": info.get("industry"),
-            "description": info.get("longBusinessSummary"),
-            "website": info.get("website"),
-            "country": info.get("country"),
-            "currency": info.get("currency"),
-            "exchange": info.get("exchange"),
-            "market_cap": info.get("marketCap"),
-            "enterprise_value": info.get("enterpriseValue"),
+        return {
+            "ticker": ticker.upper(),
+            "name": info.get("longName") or info.get("shortName", ""),
+            "sector": info.get("sector", ""),
+            "industry": info.get("industry", ""),
+            "description": info.get("longBusinessSummary", ""),
+            "website": info.get("website", ""),
             "employees": info.get("fullTimeEmployees"),
+            "country": info.get("country", ""),
+            "currency": info.get("currency", ""),
+            "exchange": info.get("exchange", "")
         }
-        
-        # Cache in DB
-        db.update_symbols_meta(
-            ticker,
-            name=result['name'],
-            exchange=result['exchange'],
-            currency=result['currency'],
-            country=result['country'],
-            sector=result['sector'],
-            industry=result['industry'],
-            info=result
-        )
-        
-        return result
     except Exception as e:
-        return {"error": str(e)}
+        return JSONResponse(
+            {"error": f"Failed to fetch info for {ticker}: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @router.get("/prices/fundamentals/{ticker}")
-async def ticker_fundamentals(ticker: str):
+async def get_prices_fundamentals(ticker: str):
     """Get key financial metrics for a ticker."""
     try:
-        t = yf.Ticker(ticker.upper())
-        info = t.info
-        
-        if not info or "symbol" not in info:
-            return {"error": f"No fundamentals found for ticker {ticker.upper()}"}
+        ticker_obj = yf.Ticker(ticker.upper())
+        info = ticker_obj.info
         
         return {
-            "symbol": info.get("symbol"),
-            "current_price": info.get("currentPrice"),
-            "previous_close": info.get("previousClose"),
-            "day_high": info.get("dayHigh"),
-            "day_low": info.get("dayLow"),
-            "volume": info.get("volume"),
-            "avg_volume": info.get("averageVolume"),
+            "ticker": ticker.upper(),
             "market_cap": info.get("marketCap"),
-            "pe_ratio": info.get("trailingPE"),
-            "forward_pe": info.get("forwardPE"),
+            "enterprise_value": info.get("enterpriseValue"),
+            "pe_ratio": info.get("trailingPE") or info.get("forwardPE"),
             "peg_ratio": info.get("pegRatio"),
             "price_to_book": info.get("priceToBook"),
-            "eps": info.get("trailingEps"),
+            "price_to_sales": info.get("priceToSalesTrailing12Months"),
             "dividend_yield": info.get("dividendYield"),
+            "revenue": info.get("totalRevenue"),
+            "profit_margin": info.get("profitMargins"),
+            "eps": info.get("trailingEps") or info.get("forwardEps"),
             "beta": info.get("beta"),
             "52_week_high": info.get("fiftyTwoWeekHigh"),
             "52_week_low": info.get("fiftyTwoWeekLow"),
-            "revenue": info.get("totalRevenue"),
-            "revenue_per_share": info.get("revenuePerShare"),
-            "profit_margin": info.get("profitMargins"),
-            "operating_margin": info.get("operatingMargins"),
-            "return_on_equity": info.get("returnOnEquity"),
-            "return_on_assets": info.get("returnOnAssets"),
-            "debt_to_equity": info.get("debtToEquity"),
-            "recommendation": info.get("recommendationKey"),
-            "target_price": info.get("targetMeanPrice"),
+            "current_price": info.get("currentPrice") or info.get("regularMarketPrice")
         }
     except Exception as e:
-        return {"error": str(e)}
+        return JSONResponse(
+            {"error": f"Failed to fetch fundamentals for {ticker}: {str(e)}"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
-# ========== ADMIN ROUTES ==========
+@router.post("/prices/admin/mark-invalid/{ticker}")
+async def mark_invalid_ticker(ticker: str, reason: str = Query("", description="Reason for marking as invalid")):
+    """Mark a ticker as invalid (admin operation)."""
+    db = _get_prices_db()
+    db.mark_invalid(ticker, reason or "Manually marked as invalid")
+    
+    return {"status": "ok", "ticker": ticker.upper(), "message": f"Ticker marked as invalid: {reason or 'No reason provided'}"}
+
 
 @router.post("/prices/admin/unmark-invalid/{ticker}")
 async def unmark_invalid_ticker(ticker: str):
-    """Unmark a ticker as invalid so it can be re-fetched."""
+    """Unmark a ticker as invalid (admin operation)."""
     db = _get_prices_db()
     db.unmark_invalid(ticker)
+
     return {"status": "ok", "ticker": ticker.upper(), "message": "Ticker unmarked as invalid"}
+
+
+# ========== BULK PRICES ENDPOINT (before generic {ticker} route) ==========
+
+class BulkPricesRequest(BaseModel):
+    tickers: List[str]
+    from_: str | None = None
+    to: str | None = None
+    sync_timeout_s: int = 10
+
+@router.post("/prices/bulk")
+async def get_prices_bulk(
+    request: BulkPricesRequest = Body(...)
+):
+    """
+    Get price bars for multiple tickers in one request.
+    
+    More efficient than calling list-prices multiple times.
+    """
+    db = _get_prices_db()
+    
+    from_date = date.fromisoformat(request.from_) if request.from_ else None
+    to_date = date.fromisoformat(request.to) if request.to else None
+    
+    results = {}
+    
+    for ticker in request.tickers:
+        ticker_upper = ticker.upper()
+        
+        # Validate ticker not in invalid list
+        status_info = db.get_status(ticker_upper)
+        if status_info['invalid']:
+            results[ticker_upper] = {
+                "error": f"Invalid ticker: {ticker_upper}",
+                "reason": status_info['invalid_reason']
+            }
+            continue
+        
+        # Query bars
+        bars = db.query_bars(ticker_upper, from_date, to_date)
+        
+        # If no bars: try synchronous fetch
+        if not bars:
+            bars = _fetch_ticker_sync(db, ticker_upper, from_date, to_date, timeout_s=min(request.sync_timeout_s, 10))
+        
+        results[ticker_upper] = {
+            "ticker": ticker_upper,
+            "bars": [bar.model_dump() if hasattr(bar, 'model_dump') else bar for bar in bars],
+            "last_date": bars[0]['date'] if bars else None,
+            "source": status_info['source'],
+            "count": len(bars)
+        }
+    
+    return {
+        "tickers": list(results.keys()),
+        "from": request.from_,
+        "to": request.to,
+        "results": results
+    }
 
 
 # ========== GENERIC {ticker} ROUTES (after specific routes) ==========
@@ -415,4 +426,3 @@ async def get_prices(
         "to": to,
         "btc_view": btc_view,
     }
-

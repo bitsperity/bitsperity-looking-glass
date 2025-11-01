@@ -197,6 +197,31 @@ export const ListPricesResponseSchema = z.object({
   btc_view: z.boolean().optional()
 });
 
+// Bulk Prices Schemas
+export const ListPricesBulkRequestSchema = z.object({
+  tickers: z.array(z.string()).min(1).max(50).describe('List of ticker symbols (max 50)'),
+  from: DateStringSchema.optional().describe('Start date (YYYY-MM-DD)'),
+  to: DateStringSchema.optional().describe('End date (YYYY-MM-DD)'),
+  sync_timeout_s: z.number().int().min(1).max(30).default(10).optional().describe('Timeout for synchronous fetch per ticker (seconds)')
+});
+
+export const TickerPriceResultSchema = z.object({
+  ticker: z.string(),
+  bars: z.array(PriceBarSchema),
+  last_date: z.string().nullable(),
+  source: z.string().optional(),
+  count: z.number(),
+  error: z.string().optional(),
+  reason: z.string().optional()
+});
+
+export const ListPricesBulkResponseSchema = z.object({
+  tickers: z.array(z.string()),
+  from: z.string().nullable().optional(),
+  to: z.string().nullable().optional(),
+  results: z.record(z.string(), TickerPriceResultSchema)
+});
+
 // --- BTC Schemas ---
 
 export const BtcOracleRequestSchema = z.object({

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { callSatbase } from '../api-client.js';
-import { ListPricesRequestSchema, ListPricesResponseSchema } from '../schemas.js';
+import { ListPricesRequestSchema, ListPricesResponseSchema, ListPricesBulkRequestSchema, ListPricesBulkResponseSchema } from '../schemas.js';
 import logger from '../../logger.js';
 
 export const listPricesTool = {
@@ -182,6 +182,52 @@ export const pricesStatusTool = {
       };
     } catch (error: any) {
       logger.error({ tool: 'prices-status', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const listPricesBulkTool = {
+  name: 'list-prices-bulk',
+  config: {
+    title: 'Get Historical Price Data (Bulk)',
+    description: 'Fetch historical OHLCV price data for multiple tickers in one request. More efficient than calling list-prices multiple times.',
+    inputSchema: ListPricesBulkRequestSchema.shape,
+  },
+  handler: async (input: z.infer<typeof ListPricesBulkRequestSchema>) => {
+    logger.info({ tool: 'list-prices-bulk', tickerCount: input.tickers.length }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const body = {
+        tickers: input.tickers,
+        from_: input.from,
+        to: input.to,
+        sync_timeout_s: input.sync_timeout_s || 10
+      };
+
+      const result = await callSatbase<z.infer<typeof ListPricesBulkResponseSchema>>(
+        `/v1/prices/bulk`,
+        { 
+          method: 'POST',
+          body: JSON.stringify(body),
+          headers: { 'Content-Type': 'application/json' }
+        },
+        60000 // 60s timeout for bulk requests
+      );
+
+      const duration = performance.now() - start;
+      const successCount = Object.values(result.results || {}).filter((r: any) => !r.error).length;
+      logger.info({ tool: 'list-prices-bulk', duration, tickerCount: input.tickers.length, successCount }, 'Tool completed');
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'list-prices-bulk', error }, 'Tool failed');
       return {
         content: [{ type: 'text', text: `Error: ${error.message}` }],
         isError: true
