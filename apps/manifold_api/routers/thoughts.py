@@ -170,6 +170,14 @@ def merge_thoughts(
     if target_id == source_id:
         raise HTTPException(400, "Cannot merge thought with itself")
     
+    # CRITICAL: Reject merging deleted thoughts (they shouldn't be in workflows)
+    target_status = target.get("status", "active")
+    source_status = source.get("status", "active")
+    if target_status == "deleted":
+        raise HTTPException(400, f"Cannot merge: target thought {target_id} is deleted")
+    if source_status == "deleted":
+        raise HTTPException(400, f"Cannot merge: source thought {source_id} is deleted")
+    
     now = datetime.utcnow().isoformat() + "Z"
     merge_strategy = body.get("strategy", "keep_target")  # "keep_target", "merge_content", "keep_source"
     

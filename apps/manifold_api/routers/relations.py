@@ -219,10 +219,17 @@ def get_related(
         })
     
     # Find incoming links (scan all thoughts that link to this one)
+    # CRITICAL: Only scan active thoughts (exclude deleted)
     incoming = []
     typed_incoming = []
-    all_thoughts = store.scroll(limit=10000)
+    all_thoughts = store.scroll(
+        payload_filter={"must": [{"key": "status", "match": {"value": "active"}}]},
+        limit=10000
+    )
     for point in all_thoughts:
+        # Double-check: skip deleted (shouldn't happen with filter, but be safe)
+        if point.payload.get("status") == "deleted":
+            continue
         related_ids = point.payload.get("links", {}).get("related_thoughts", [])
         if thought_id in related_ids:
             incoming.append({"from_id": point.id, "to_id": thought_id, "relation_type": "related"})
@@ -246,6 +253,9 @@ def get_related(
     for rid in related_ids:
         thought = store.get_by_id(rid)
         if thought:
+            # CRITICAL: Skip deleted thoughts (shouldn't be in workflows)
+            if thought.get("status") == "deleted":
+                continue
             # include id in payload for frontend convenience
             if "id" not in thought:
                 try:
@@ -375,11 +385,20 @@ def get_thought_tree(
             result["parent"] = {"id": parent_id, "payload": parent}
     
     # Get children
-    children_filter = {"must": [{"key": "parent_id", "match": {"value": thought_id}}]}
+    # CRITICAL: Only get active children (exclude deleted)
+    children_filter = {
+        "must": [
+            {"key": "parent_id", "match": {"value": thought_id}},
+            {"key": "status", "match": {"value": "active"}}
+        ]
+    }
     children_points = store.scroll(payload_filter=children_filter, limit=100)
     
     children = []
     for p in children_points:
+        # Double-check: skip deleted (shouldn't happen with filter, but be safe)
+        if p.payload.get("status") == "deleted":
+            continue
         children.append({
             "id": str(p.id),
             "payload": p.payload,
@@ -396,6 +415,9 @@ def get_thought_tree(
     for rid in related_ids:
         thought = store.get_by_id(rid)
         if thought:
+            # CRITICAL: Skip deleted thoughts (shouldn't be in workflows)
+            if thought.get("status") == "deleted":
+                continue
             related.append({"id": rid, "payload": thought})
     
     result["related"] = related
@@ -414,9 +436,10 @@ def get_thoughts_with_relation_type(
     days: int | None = None,
     session_id: str | None = None,
     workspace_id: str | None = None,
+    mcp: bool = False,  # If True, apply token safety limits (MCP/Agent calls)
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Get all thoughts that have at least one relation of the specified type. Hard max limit of 100 for token safety.
+    """Get all thoughts that have at least one relation of the specified type. Hard max limit of 100 for token safety (only if mcp=true).
     
     Returns pairs of thoughts connected by the specified relation type.
     If include_thoughts=True (default), returns full thought objects instead of just IDs.
@@ -424,8 +447,9 @@ def get_thoughts_with_relation_type(
     Supports temporal filtering via from_dt/to_dt (ISO format) or days (relative from now).
     Filters apply to the source thought's created_at timestamp.
     """
-    if limit > 100:
-        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
+    # Cap limit for MCP calls (token safety), frontend can use higher limits
+    if mcp and limit > 100:
+        limit = 100
     from datetime import datetime, timedelta
     
     # Determine effective date range
@@ -437,7 +461,9 @@ def get_thoughts_with_relation_type(
         eff_to = now.isoformat() + "Z"
     
     # Build filter
+    # CRITICAL: Exclude deleted thoughts from discovery workflows
     must = []
+    must.append({"key": "status", "match": {"value": "active"}})  # Only active thoughts
     if session_id:
         must.append({"key": "session_id", "match": {"value": session_id}})
     if workspace_id:
@@ -453,6 +479,9 @@ def get_thoughts_with_relation_type(
     thought_cache = {}  # Cache thoughts to avoid multiple lookups
     
     for point in all_thoughts:
+        # Double-check: skip deleted (shouldn't happen with filter, but be safe)
+        if point.payload.get("status") == "deleted":
+            continue
         thought_id = str(point.id)
         if thought_id not in thought_cache:
             thought_cache[thought_id] = point.payload
@@ -468,7 +497,16 @@ def get_thoughts_with_relation_type(
                     if related_id not in thought_cache:
                         related_thought = store.get_by_id(related_id)
                         if related_thought:
+                            # CRITICAL: Skip deleted thoughts (shouldn't be in workflows)
+                            if related_thought.get("status") == "deleted":
+                                continue
                             thought_cache[related_id] = related_thought
+                        else:
+                            continue
+                    
+                    # Double-check related thought is not deleted
+                    if related_id in thought_cache and thought_cache[related_id].get("status") == "deleted":
+                        continue
                     
                     pair = {
                         "from_id": thought_id,

@@ -105,6 +105,7 @@ export const getSimilarTool = {
   handler: async (input: { thought_id: string; k?: number }) => {
     const params = new URLSearchParams();
     params.append('k', String(input.k ?? 5));
+    params.append('mcp', 'true');  // Always set mcp=true for MCP calls (token safety limits)
     const res = await callManifold(`/v1/memory/similar/${input.thought_id}?${params.toString()}`, {}, 15000);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
   }
@@ -167,6 +168,7 @@ export const getDuplicateWarningsTool = {
       if (input.days) params.append('days', String(input.days));
       params.append('include_marked', 'false');
       params.append('include_similarity', 'true');
+      params.append('mcp', 'true');  // Always set mcp=true for MCP calls (token safety limits)
       const res = await callManifold(`/v1/memory/duplicates/all?${params.toString()}`, {}, 30000);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     } catch (e: any) {
@@ -331,6 +333,7 @@ export const getAllDuplicatesTool = {
       if (input.include_marked !== undefined) params.append('include_marked', String(input.include_marked));
       if (input.include_similarity !== undefined) params.append('include_similarity', String(input.include_similarity));
       if (typeof input.include_content === 'boolean') params.append('include_content', String(input.include_content));
+      params.append('mcp', 'true');  // Always set mcp=true for MCP calls (token safety limits)
       const res = await callManifold(`/v1/memory/duplicates/all?${params.toString()}`, {}, 30000);
       
       // Additional MCP-level pruning: Even if backend returns content, ensure we only return essential fields

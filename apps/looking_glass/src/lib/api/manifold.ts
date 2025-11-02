@@ -60,12 +60,14 @@ export const similar = (id: string, k = 10) => http<{ status: string; similar: a
 // Relations extras
 export const relatedFacets = (id: string) => http<{ status: string; facets: Record<string, { value: string; count: number }[]> }>(`/v1/memory/thought/${id}/related/facets`);
 export const relatedGraph = (id: string, depth = 1) => http<{ status: string; nodes: any[]; edges: any[] }>(`/v1/memory/thought/${id}/related/graph?depth=${depth}`);
-export const globalGraph = (params: { limit?: number; type?: string; status?: string; tickers?: string } = {}) => {
+export const globalGraph = (params: { limit?: number; type?: string; status?: string; tickers?: string; session_id?: string; workspace_id?: string } = {}) => {
   const q = new URLSearchParams();
   if (params.limit != null) q.set('limit', String(params.limit));
   if (params.type) q.set('type', params.type);
   if (params.status) q.set('status', params.status);
   if (params.tickers) q.set('tickers', params.tickers);
+  if (params.session_id) q.set('session_id', params.session_id);
+  if (params.workspace_id) q.set('workspace_id', params.workspace_id);
   return http<{ status: string; nodes: any[]; edges: any[] }>(`/v1/memory/graph?${q.toString()}`);
 };
 

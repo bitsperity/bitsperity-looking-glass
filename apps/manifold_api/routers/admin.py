@@ -287,11 +287,13 @@ def get_similar(
     thought_id: str,
     k: int = 5,  # Reduced from 10 for token efficiency
     vector_type: str = "summary",
+    mcp: bool = False,  # If True, apply token safety limits (MCP/Agent calls)
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Find k nearest neighbors using vector similarity (configurable vector type). Hard max limit of 20 for token safety."""
-    if k > 20:
-        raise HTTPException(status_code=400, detail=f"k cannot exceed 20 (token safety). Received: {k}")
+    """Find k nearest neighbors using vector similarity (configurable vector type). Hard max limit of 20 for token safety (only if mcp=true)."""
+    # Cap k for MCP calls (token safety), frontend can use higher limits
+    if mcp and k > 20:
+        k = 20
     thought = store.get_by_id(thought_id)
     if not thought:
         raise HTTPException(404, f"Thought {thought_id} not found")
@@ -316,19 +318,30 @@ def get_similar(
         if not query_vector:
             return {"status": "ok", "similar": []}
         
-        # Search for similar thoughts (exclude self)
+        # Search for similar thoughts (exclude self and deleted)
         import qdrant_client.models as qm
         results = store.client.search(
             collection_name=store.collection_name,
             query_vector=qm.NamedVector(name=vector_type or "summary", vector=query_vector),
+            query_filter=qm.Filter(
+                must=[
+                    qm.FieldCondition(
+                        key="status",
+                        match=qm.MatchValue(value="active")
+                    )
+                ]
+            ),
             limit=k + 1,
             with_payload=True
         )
         
-        # Filter out the query thought itself
+        # Filter out the query thought itself and deleted thoughts
         similar = []
         for hit in results:
             if str(hit.id) != str(thought_id):
+                # Double-check: skip deleted (shouldn't happen with filter, but be safe)
+                if hit.payload.get("status") == "deleted":
+                    continue
                 similar.append({
                     "thought_id": str(hit.id),
                     "score": hit.score,
@@ -511,10 +524,11 @@ def get_all_duplicates(
     include_marked: bool = True,
     include_similarity: bool = True,
     include_content: bool = False,  # Default False to save tokens
+    mcp: bool = False,  # If True, apply token safety limits (MCP/Agent calls)
     store: QdrantStore = Depends(get_qdrant_store),
 ):
     """Get all duplicates from both sources: marked duplicate relations AND similarity-based detection.
-    Hard max limit of 100 for token safety.
+    Hard max limit of 100 for token safety (only if mcp=true).
     
     This is the comprehensive duplicate detection endpoint that combines:
     1. Thoughts with explicit "duplicate" relation type (marked duplicates)
@@ -524,8 +538,9 @@ def get_all_duplicates(
     
     Returns unified list of duplicate pairs with source indicator (marked vs similarity).
     """
-    if limit > 100:
-        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
+    # Cap limit for MCP calls (token safety), frontend can use higher limits
+    if mcp and limit > 100:
+        limit = 100
     try:
         all_pairs = []
         seen_pairs = set()  # Deduplicate across both sources
@@ -541,7 +556,9 @@ def get_all_duplicates(
                 eff_to = now.isoformat() + "Z"
             
             # Build filter for thoughts (for temporal filtering)
+            # CRITICAL: Exclude deleted thoughts from discovery workflows
             must = []
+            must.append({"key": "status", "match": {"value": "active"}})  # Only active thoughts
             if session_id:
                 must.append({"key": "session_id", "match": {"value": session_id}})
             if workspace_id:
@@ -559,6 +576,7 @@ def get_all_duplicates(
             intends_date_filter = bool(eff_from or eff_to)
             if intends_date_filter and len(all_thoughts) == 0:
                 must_base = []
+                must_base.append({"key": "status", "match": {"value": "active"}})  # Only active thoughts
                 if session_id:
                     must_base.append({"key": "session_id", "match": {"value": session_id}})
                 if workspace_id:
@@ -597,6 +615,10 @@ def get_all_duplicates(
                             # Get related thought (don't filter by date - marked relations are explicit)
                             related_thought = store.get_by_id(related_id)
                             if not related_thought:
+                                continue
+                            
+                            # CRITICAL: Skip if related thought is deleted (shouldn't be in workflows)
+                            if related_thought.get("status") == "deleted":
                                 continue
                             
                             # For marked duplicate relations: only filter by source thought's created_at
@@ -651,6 +673,7 @@ def get_all_duplicates(
                 eff_to = now.isoformat() + "Z"
             
             must = []
+            must.append({"key": "status", "match": {"value": "active"}})  # Only active thoughts
             if session_id:
                 must.append({"key": "session_id", "match": {"value": session_id}})
             if workspace_id:
@@ -667,9 +690,15 @@ def get_all_duplicates(
             for i, point in enumerate(all_points):
                 if str(point.id) in seen_ids:
                     continue
+                # Double-check: skip deleted (shouldn't happen with filter, but be safe)
+                if point.payload.get("status") == "deleted":
+                    continue
                 
                 for j, other_point in enumerate(all_points[i+1:], start=i+1):
                     if str(other_point.id) in seen_ids:
+                        continue
+                    # Double-check: skip deleted
+                    if other_point.payload.get("status") == "deleted":
                         continue
                     
                     # Title-based duplicate detection

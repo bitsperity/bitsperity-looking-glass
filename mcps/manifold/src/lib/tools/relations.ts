@@ -157,6 +157,7 @@ export const getThoughtsWithRelationTypeTool = {
     if (input.days) params.append('days', String(input.days));
     if (input.session_id) params.append('session_id', input.session_id);
     if (input.workspace_id) params.append('workspace_id', input.workspace_id);
+    params.append('mcp', 'true');  // Always set mcp=true for MCP calls (token safety limits)
     const res = await callManifold(`/v1/memory/thought/with-relation-type/${input.relation_type}?${params.toString()}`, {}, 15000);
     
     // Additional MCP-level pruning: Even if backend returns content, ensure we only return essential fields

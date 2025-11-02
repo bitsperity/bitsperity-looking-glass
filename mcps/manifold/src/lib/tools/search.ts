@@ -19,7 +19,9 @@ export const searchThoughtsTool = {
     }).shape
   },
   handler: async (input: z.infer<typeof SearchRequestSchema>) => {
-    const res = await callManifold('/v1/memory/search', { method: 'POST', body: JSON.stringify(input) }, 30000);
+    // Always set mcp=true for MCP calls (token safety limits)
+    const body = { ...input, mcp: true };
+    const res = await callManifold('/v1/memory/search', { method: 'POST', body: JSON.stringify(body) }, 30000);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
   }
 };
@@ -54,6 +56,7 @@ export const getTimelineTool = {
     if (input.bucket) params.append('bucket', String(input.bucket));
     if (input.limit) params.append('limit', String(input.limit));
     if (typeof input.include_content === 'boolean') params.append('include_content', String(input.include_content));
+    params.append('mcp', 'true');  // Always set mcp=true for MCP calls (token safety limits)
     const res = await callManifold(`/v1/memory/timeline?${params.toString()}`, {}, 15000);
     
     // Additional MCP-level pruning: Even if backend returns content, strip unnecessary fields for LLM efficiency

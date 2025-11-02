@@ -69,7 +69,7 @@
     }
 
     try {
-      const resp = await searchThoughts({ q: searchQuery, limit: 100 });
+      const resp = await searchThoughts({ query: searchQuery, limit: 100 });
       searchResults = (resp.results || []).map((r: any) => String(r.id));
       searchActive = true;
       applyMask();

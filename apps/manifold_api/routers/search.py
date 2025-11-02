@@ -17,7 +17,7 @@ router = APIRouter(prefix="/v1/memory", tags=["search"])
 
 class SearchRequestV2(BaseModel):
     """Extended search with vector_type and include_content."""
-    query: str
+    query: str = ""  # Optional: empty string means "show all" (no semantic filtering)
     limit: int = 10  # Reduced from 50 for token efficiency
     offset: int = 0
     vector_type: str = "summary"  # "text" | "title" | "summary"
@@ -25,12 +25,14 @@ class SearchRequestV2(BaseModel):
     boosts: Optional[dict] = None
     diversity: Optional[dict] = None
     filters: Optional[dict] = None
+    mcp: bool = False  # If True, apply token safety limits (MCP/Agent calls)
     
     def __init__(self, **data):
         super().__init__(**data)
-        # HARD MAX LIMIT: Never exceed 50
-        if self.limit > 50:
-            raise HTTPException(status_code=400, detail=f"limit cannot exceed 50 (token safety). Received: {self.limit}")
+        # HARD MAX LIMIT: Only apply for MCP calls (token safety)
+        # Frontend can use higher limits, but we cap at reasonable max
+        if self.mcp and self.limit > 50:
+            self.limit = 50  # Cap instead of raise exception
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -48,6 +50,21 @@ def search_thoughts(
     # Convert filters to Qdrant payload filter
     qdrant_filter = _build_qdrant_filter(request.filters)
     
+    # CRITICAL: Exclude deleted thoughts from discovery workflows
+    # Add status filter to ensure only active thoughts are returned
+    if qdrant_filter is None:
+        qdrant_filter = {"must": []}
+    elif "must" not in qdrant_filter:
+        qdrant_filter["must"] = []
+    
+    # Add status filter if not already present
+    has_status_filter = any(
+        isinstance(f, dict) and f.get("key") == "status" 
+        for f in qdrant_filter.get("must", [])
+    )
+    if not has_status_filter:
+        qdrant_filter["must"].append({"key": "status", "match": {"value": "active"}})
+    
     # Query Qdrant (use specified vector_type: text | title | summary)
     vector_name = request.vector_type or "summary"
     raw_results = store.query(
@@ -62,6 +79,9 @@ def search_thoughts(
     candidates = []
     for hit in raw_results:
         payload = hit.payload
+        # Double-check: skip deleted (shouldn't happen with filter, but be safe)
+        if payload.get("status") == "deleted":
+            continue
         base_sim = hit.score
         comps = compute_score_components(
             base_sim,
@@ -134,11 +154,13 @@ def get_timeline(
     bucket: str | None = "day",
     limit: int = 20,  # Reduced from 1000 for token efficiency
     include_content: bool = False,  # Default False to save tokens
+    mcp: bool = False,  # If True, apply token safety limits (MCP/Agent calls)
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Timeline view: thoughts in date range, grouped by day or week. Hard max limit of 100 for token safety."""
-    if limit > 100:
-        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
+    """Timeline view: thoughts in date range, grouped by day or week. Hard max limit of 100 for token safety (only if mcp=true)."""
+    # Cap limit for MCP calls (token safety), frontend can use higher limits
+    if mcp and limit > 100:
+        limit = 100
     
     # Filters: type (exact), tickers (OR across list), created_at range (from_dt/to_dt or last `days`), session_id, workspace_id.
     # Bucketing: `bucket=day` (default) or `bucket=week`.
@@ -154,7 +176,9 @@ def get_timeline(
         eff_to = now.isoformat() + "Z"
 
     # Build base MUST conditions (type + tickers + session/workspace)
+    # CRITICAL: Exclude deleted thoughts from discovery workflows
     must_base = []
+    must_base.append({"key": "status", "match": {"value": "active"}})  # Only active thoughts
     if type:
         must_base.append({"key": "type", "match": {"value": type}})
     if tickers:
@@ -210,6 +234,9 @@ def get_timeline(
 
     for point in results:
         payload = point.payload
+        # Double-check: skip deleted (shouldn't happen with filter, but be safe)
+        if payload.get("status") == "deleted":
+            continue
         created = payload.get("created_at", "")
         key = "unknown"
         if created:
