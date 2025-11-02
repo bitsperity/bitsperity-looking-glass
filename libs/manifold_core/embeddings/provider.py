@@ -9,13 +9,13 @@ class EmbeddingProvider(ABC):
     """Abstract base for embedding providers."""
     
     @abstractmethod
-    def embed(self, text: str) -> List[float]:
-        """Embed single text."""
+    def embed(self, text: str, is_query: bool = False) -> List[float]:
+        """Embed single text. For e5-family models, use is_query=True for search queries."""
         pass
     
     @abstractmethod
-    def embed_batch(self, texts: List[str]) -> List[List[float]]:
-        """Embed batch of texts."""
+    def embed_batch(self, texts: List[str], is_query: bool = False) -> List[List[float]]:
+        """Embed batch of texts. For e5-family models, use is_query=True for search queries."""
         pass
 
 

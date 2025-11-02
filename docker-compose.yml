@@ -130,7 +130,7 @@ services:
     environment:
       - QDRANT_URL=http://localhost:6333
       - MANIFOLD_QDRANT_COLLECTION=manifold_thoughts
-      - MANIFOLD_EMBED_MODEL=mixedbread-ai/mxbai-embed-large-v1
+      - MANIFOLD_EMBED_MODEL=intfloat/multilingual-e5-large
       - MANIFOLD_EMBED_DEVICE=cuda  # cuda, cpu, or empty for auto-detect
     volumes:
       - ./apps:/app/apps

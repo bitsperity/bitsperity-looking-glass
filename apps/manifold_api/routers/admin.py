@@ -379,7 +379,8 @@ def check_duplicate(
         return {"status": "ok", "similar": [], "message": "No text to check"}
     
     try:
-        query_vec = embedder.embed(text_to_check)
+        # Use is_query=True for e5-family models (improves search quality)
+        query_vec = embedder.embed(text_to_check, is_query=True)
         
         # Search with summary vector (cheap discovery)
         similar_points = store.query(

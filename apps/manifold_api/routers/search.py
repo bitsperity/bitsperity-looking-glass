@@ -43,9 +43,10 @@ def search_thoughts(
 ):
     """Semantic + filter search with optional 2-phase retrieval (cheap summary discovery)."""
     # Embed query (only if query is not empty)
+    # Use is_query=True for e5-family models (improves search quality)
     query_vec = None
     if request.query and request.query.strip():
-        query_vec = embedder.embed(request.query)
+        query_vec = embedder.embed(request.query, is_query=True)
     
     # Convert filters to Qdrant payload filter
     qdrant_filter = _build_qdrant_filter(request.filters)
