@@ -8,13 +8,13 @@ const FindDefaultChatSchema = z.object({
 
 export const findDefaultChat = {
   name: "find_default_chat",
-  description: "Find and verify the default Telegram chat. Returns chat information including ID, title, and type. This helps agents understand which chat they're using.",
+  description: "Find and verify the default Telegram chat configured via TELEGRAM_DEFAULT_CHAT_ID environment variable. Returns detailed chat information including ID, title/name, type (private/group/supergroup/channel), username, description, and metadata. Helps agents understand which chat they're automatically using for send_message, send_photo, etc. If no default chat is configured, returns error with setup instructions. Use this to verify chat configuration or discover the active chat.",
   parameters: {
     type: "object",
     properties: {
       token: {
         type: "string",
-        description: "Telegram bot token (optional, uses TELEGRAM_BOT_TOKEN env var)"
+        description: "Telegram bot token (optional, defaults to TELEGRAM_BOT_TOKEN environment variable if not provided)"
       }
     },
     required: []

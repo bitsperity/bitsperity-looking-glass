@@ -14,7 +14,7 @@ export const fredSearchTool = {
   name: 'fred-search',
   config: {
     title: 'Search FRED Economic Series',
-    description: 'Search Federal Reserve Economic Data (FRED) series by keyword.',
+    description: 'Search Federal Reserve Economic Data (FRED) economic series by keyword. FRED provides thousands of economic indicators (inflation, employment, GDP, interest rates, etc.). Search by keywords like "inflation", "unemployment", "GDP", "interest rate" to find relevant series. Returns series metadata including ID, title, frequency, units, date ranges, and popularity. Use the series_id from results with fred-observations to get actual data. Default limit 20 results, max 100.',
     inputSchema: FredSearchRequestSchema.shape
   },
   handler: async (input: z.infer<typeof FredSearchRequestSchema>) => {
@@ -51,7 +51,7 @@ export const fredObservationsTool = {
   name: 'fred-observations',
   config: {
     title: 'Get FRED Economic Data',
-    description: 'Fetch FRED economic data observations for a given series.',
+    description: 'Fetch historical economic data observations for a FRED series. Returns time series data (date-value pairs) for the specified series_id. Optionally filter by date range (from/to in YYYY-MM-DD format). Returns all available observations if no date range specified. Values may be "." for missing data. Essential for economic analysis, macro trends, correlation with market movements, or fundamental economic research. Combine with price data to analyze relationships between economic indicators and stock performance.',
     inputSchema: FredObservationsRequestSchema.shape
   },
   handler: async (input: z.infer<typeof FredObservationsRequestSchema>) => {
@@ -90,7 +90,7 @@ export const fredCategoriesTool = {
   name: 'fred-categories',
   config: {
     title: 'Browse FRED Categories',
-    description: 'Browse FRED series organized by economic category (inflation, employment, GDP, etc). Returns all categories or filter by one.',
+    description: 'Browse FRED economic series organized by category. Returns all available economic categories (inflation, employment, GDP, money/credit, prices, production, etc.) or filter to a specific category to see series within it. Useful for discovering relevant economic indicators, understanding FRED organization, or finding series by economic theme. Each category includes series count and metadata. Leave category empty to get all categories.',
     inputSchema: FredCategoriesRequestSchema.shape
   },
   handler: async (input: z.infer<typeof FredCategoriesRequestSchema>) => {
@@ -129,7 +129,7 @@ export const fredRefreshCoreTool = {
   name: 'fred-refresh-core',
   config: {
     title: 'Refresh FRED Core Indicators',
-    description: 'Trigger refresh for all 28 core FRED series.',
+    description: 'Trigger background refresh for all 28 core FRED economic indicators (CPI, unemployment, Fed funds rate, GDP, etc.). This fetches latest data from FRED API and updates the database. Returns job_id for tracking. Use this to ensure economic data is current. Core indicators include: CPIAUCSL (CPI), UNRATE (unemployment), FEDFUNDS (Fed funds rate), GDP, DGS10 (10Y treasury), DEXUSEU (EUR/USD), etc. Refresh runs asynchronously.',
     inputSchema: z.object({}).shape
   },
   handler: async () => {
@@ -158,9 +158,9 @@ export const macroStatusTool = {
   name: 'macro-status',
   config: {
     title: 'Get FRED Series Status',
-    description: 'Get status for a FRED series (observation count, latest value, etc.).',
+    description: 'Get status and metadata for a FRED series including observation count, date range (first/last observation), latest value, update timestamp, and data freshness. Useful for checking if a series has recent data, understanding data coverage, or verifying series availability before fetching observations. Returns summary information without the full time series.',
     inputSchema: z.object({
-      series_id: z.string().describe('FRED series ID')
+      series_id: z.string().describe('FRED series ID (e.g., "CPIAUCSL", "UNRATE", "GDP").')
     }).shape
   },
   handler: async (input: { series_id: string }) => {

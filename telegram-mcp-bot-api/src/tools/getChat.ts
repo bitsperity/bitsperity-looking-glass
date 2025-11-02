@@ -9,17 +9,17 @@ const GetChatSchema = z.object({
 
 export const getChat = {
   name: "get_chat",
-  description: "Get information about a Telegram chat",
+  description: "Get detailed information about a Telegram chat by chat ID or username. Returns chat metadata including ID, type (private/group/supergroup/channel), title/name, username, description, invite link, permissions (for groups), member count (if available), and other metadata. Useful for verifying chat existence, understanding chat properties, or retrieving chat details before sending messages. Supports private chats, groups, supergroups, and channels.",
   parameters: {
     type: "object",
     properties: {
       token: {
         type: "string",
-        description: "Telegram bot token"
+        description: "Telegram bot token (optional, defaults to TELEGRAM_BOT_TOKEN environment variable if not provided)"
       },
       chatId: {
         type: ["string", "number"],
-        description: "Chat ID or username (e.g., @username or -1001234567890)"
+        description: "Chat ID or username to query. For private chats: numeric ID. For groups: numeric ID (often negative, e.g., -1001234567890). For channels/public: username with @ (e.g., '@channelname') or numeric ID."
       }
     },
     required: ["chatId"]

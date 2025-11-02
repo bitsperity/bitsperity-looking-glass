@@ -10,7 +10,7 @@ export const initCollectionTool = {
   name: 'init-collection',
   config: {
     title: 'Initialize Collection',
-    description: 'Create a new versioned Qdrant collection and set up alias for zero-downtime updates',
+    description: 'Create a new versioned Qdrant collection and set up alias for zero-downtime updates. Creates a new collection with timestamp-based name and configures the active alias. Use this when setting up Tesseract for the first time or creating a fresh collection for re-embedding. After initialization, use batch-embedding to populate the collection, then switch-collection to activate it. Returns collection name and alias configuration.',
     inputSchema: {},
     outputSchema: initCollectionOutputSchema.shape,
   },

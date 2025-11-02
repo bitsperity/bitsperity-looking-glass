@@ -28,60 +28,51 @@ class QdrantStore:
             "title": qm.VectorParams(size=self.vector_dim, distance=qm.Distance.COSINE),
             "summary": qm.VectorParams(size=self.vector_dim, distance=qm.Distance.COSINE),
         }
+        collection_exists = False
         try:
             self.client.get_collection(self.collection_name)
+            collection_exists = True
         except Exception:
             self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=vectors_config,
             )
-            # Create payload indexes
-            self.client.create_payload_index(
-                self.collection_name,
-                "type",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                self.collection_name,
-                "status",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                self.collection_name,
-                "tickers",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                self.collection_name,
-                "created_at",
-                field_schema=qm.PayloadSchemaType.DATETIME,
-            )
-            # NEW: Session/Workspace/Tree indexes
-            self.client.create_payload_index(
-                self.collection_name,
-                "session_id",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                self.collection_name,
-                "workspace_id",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                self.collection_name,
-                "parent_id",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
-            self.client.create_payload_index(
-                self.collection_name,
-                "ordinal",
-                field_schema=qm.PayloadSchemaType.INTEGER,
-            )
-            self.client.create_payload_index(
-                self.collection_name,
-                "section",
-                field_schema=qm.PayloadSchemaType.KEYWORD,
-            )
+        
+        # Create/ensure payload indexes exist (even if collection already existed)
+        indexes_to_create = [
+            ("type", qm.PayloadSchemaType.KEYWORD),
+            ("status", qm.PayloadSchemaType.KEYWORD),
+            ("tickers", qm.PayloadSchemaType.KEYWORD),
+            ("created_at", qm.PayloadSchemaType.DATETIME),
+            ("session_id", qm.PayloadSchemaType.KEYWORD),
+            ("workspace_id", qm.PayloadSchemaType.KEYWORD),
+            ("parent_id", qm.PayloadSchemaType.KEYWORD),
+            ("ordinal", qm.PayloadSchemaType.INTEGER),
+            ("section", qm.PayloadSchemaType.KEYWORD),
+        ]
+        
+        # Get existing indexes to avoid duplicate creation errors
+        existing_indexes = set()
+        if collection_exists:
+            try:
+                collection_info = self.client.get_collection(self.collection_name)
+                # Check existing payload indexes (if accessible via API)
+                # Note: Qdrant Python SDK may not expose this easily, so we'll try-catch each creation
+                pass
+            except Exception:
+                pass
+        
+        # Create indexes (will skip if already exist due to Qdrant's idempotency, but catch errors to be safe)
+        for field_name, field_schema in indexes_to_create:
+            try:
+                self.client.create_payload_index(
+                    self.collection_name,
+                    field_name,
+                    field_schema=field_schema,
+                )
+            except Exception:
+                # Index likely already exists, continue
+                pass
 
     def upsert_point(self, point_id: str, payload: Dict[str, Any], vectors: Dict[str, List[float]]):
         """Upsert single point with named vectors (text, title, summary)."""

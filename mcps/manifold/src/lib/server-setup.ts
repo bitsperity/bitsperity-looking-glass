@@ -4,12 +4,12 @@ import { logger } from '../logger.js';
 
 // Tools
 import { getHealthTool, getConfigTool, getDeviceTool } from './tools/health.js';
-import { createThoughtTool, getThoughtTool, patchThoughtTool, deleteThoughtTool, getThoughtChildrenTool } from './tools/thoughts.js';
+import { createThoughtTool, getThoughtTool, patchThoughtTool, deleteThoughtTool, getThoughtChildrenTool, mergeThoughtsTool } from './tools/thoughts.js';
 import { searchThoughtsTool, getTimelineTool, getStatsTool } from './tools/search.js';
-import { linkRelatedTool, batchLinkRelatedTool, unlinkRelatedTool, getRelatedTool, getRelatedFacetsTool, getRelatedGraphTool, getThoughtTreeTool } from './tools/relations.js';
+import { linkRelatedTool, batchLinkRelatedTool, unlinkRelatedTool, getRelatedTool, getRelatedFacetsTool, getRelatedGraphTool, getThoughtTreeTool, getThoughtsWithRelationTypeTool } from './tools/relations.js';
 import { getBirdviewGraphTool } from './tools/graph.js';
 import { promoteThoughtTool, syncAriadneTool } from './tools/promote.js';
-import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool, checkDuplicateTool, getDuplicateWarningsTool, getStatisticsTool, getGraphMetricsTool, getOverviewTool, getRelationTimelineTool, quarantineThoughtTool, unquarantineThoughtTool, explainSearchTool } from './tools/admin.js';
+import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool, checkDuplicateTool, getDuplicateWarningsTool, getAllDuplicatesTool, getStatisticsTool, getGraphMetricsTool, getOverviewTool, getRelationTimelineTool, quarantineThoughtTool, unquarantineThoughtTool, explainSearchTool } from './tools/admin.js';
 import { listSessionsTool, getSessionThoughtsTool, getSessionGraphTool, getSessionSummaryTool, upsertSessionSummaryTool } from './tools/sessions.js';
 import { listWorkspacesTool, getWorkspaceThoughtsTool, getWorkspaceGraphTool, getWorkspaceSummaryTool, upsertWorkspaceSummaryTool } from './tools/workspaces.js';
 
@@ -29,6 +29,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(patchThoughtTool.name, patchThoughtTool.config, patchThoughtTool.handler);
   server.registerTool(deleteThoughtTool.name, deleteThoughtTool.config, deleteThoughtTool.handler);
   server.registerTool(getThoughtChildrenTool.name, getThoughtChildrenTool.config, getThoughtChildrenTool.handler);
+  server.registerTool(mergeThoughtsTool.name, mergeThoughtsTool.config, mergeThoughtsTool.handler);
 
   // Search & Analytics
   server.registerTool(searchThoughtsTool.name, searchThoughtsTool.config, searchThoughtsTool.handler);
@@ -43,6 +44,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(getRelatedFacetsTool.name, getRelatedFacetsTool.config, getRelatedFacetsTool.handler);
   server.registerTool(getRelatedGraphTool.name, getRelatedGraphTool.config, getRelatedGraphTool.handler);
   server.registerTool(getThoughtTreeTool.name, getThoughtTreeTool.config, getThoughtTreeTool.handler);
+  server.registerTool(getThoughtsWithRelationTypeTool.name, getThoughtsWithRelationTypeTool.config, getThoughtsWithRelationTypeTool.handler);
   server.registerTool(getBirdviewGraphTool.name, getBirdviewGraphTool.config, getBirdviewGraphTool.handler);
 
   // Promote & Sync
@@ -77,6 +79,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(getSimilarTool.name, getSimilarTool.config, getSimilarTool.handler);
   server.registerTool(checkDuplicateTool.name, checkDuplicateTool.config, checkDuplicateTool.handler);
   server.registerTool(getDuplicateWarningsTool.name, getDuplicateWarningsTool.config, getDuplicateWarningsTool.handler);
+  server.registerTool(getAllDuplicatesTool.name, getAllDuplicatesTool.config, getAllDuplicatesTool.handler);
   server.registerTool(getStatisticsTool.name, getStatisticsTool.config, getStatisticsTool.handler);
   server.registerTool(getGraphMetricsTool.name, getGraphMetricsTool.config, getGraphMetricsTool.handler);
   server.registerTool(getOverviewTool.name, getOverviewTool.config, getOverviewTool.handler);

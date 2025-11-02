@@ -5,14 +5,14 @@ export const getBirdviewGraphTool = {
   name: 'mf-graph',
   config: {
     title: 'Birdview Graph',
-    description: 'Global graph (nodes/edges) with optional filters.',
+    description: 'Get global graph structure (nodes and edges) across the entire knowledge graph or filtered subset. Returns arrays of nodes (thoughts) and edges (relations) with their types and weights. Supports filtering by type, status, tickers, session_id, or workspace_id. Useful for global visualization, understanding overall graph structure, network analysis, or exporting graph data. More efficient than fetching all thoughts when you only need graph structure. Default limit 500 nodes, max 5000. Higher limits may be slow for large graphs.',
     inputSchema: z.object({
-      limit: z.number().int().min(10).max(5000).default(500),
-      type: z.string().optional(),
-      status: z.string().optional(),
-      tickers: z.string().optional(),
-      session_id: z.string().optional(),
-      workspace_id: z.string().optional()
+      limit: z.number().int().min(10).max(5000).default(500).describe('Maximum nodes to include. Default 500, max 5000.'),
+      type: z.string().optional().describe('Filter by thought type (observation, hypothesis, analysis, etc.).'),
+      status: z.string().optional().describe('Filter by status (active, deleted, quarantined).'),
+      tickers: z.string().optional().describe('Filter by ticker symbols (comma-separated, e.g., "AAPL,NVDA").'),
+      session_id: z.string().optional().describe('Filter to specific session.'),
+      workspace_id: z.string().optional().describe('Filter to specific workspace.')
     }).shape
   },
   handler: async (input: any) => {

@@ -7,7 +7,7 @@ export const getCoverageTool = {
   name: 'get-coverage',
   config: {
     title: 'Get Data Coverage',
-    description: 'Get complete data coverage overview. Returns inventory of all available data: news, prices, macro indicators. Agents use this to understand what data they have access to.',
+    description: 'Get complete data coverage overview showing inventory of all available data in Satbase. Returns comprehensive statistics for news (total articles, date ranges, body coverage %, tickers mentioned), prices (available tickers, date ranges, coverage per ticker), and macro indicators (FRED series, observation counts, date ranges). Essential for agents to understand what data they have access to, date ranges available, coverage quality, and data gaps. Use this at the start of analysis to assess available data before querying specific datasets.',
     inputSchema: z.object({}).shape // No input parameters
   },
   handler: async () => {

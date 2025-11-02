@@ -55,11 +55,13 @@ def list_sessions(
 @router.get("/session/{session_id}/thoughts")
 def get_session_thoughts(
     session_id: str,
-    limit: int = 1000,
-    include_content: bool = True,
+    limit: int = 20,  # Reduced from 1000 for token efficiency
+    include_content: bool = False,  # Default False to save tokens
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Get all thoughts in a session."""
+    """Get all thoughts in a session. Hard max limit of 100 for token safety."""
+    if limit > 100:
+        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
     try:
         thoughts_points = store.scroll(
             payload_filter={"must": [{"key": "session_id", "match": {"value": session_id}}]},
@@ -87,10 +89,12 @@ def get_session_thoughts(
 @router.get("/session/{session_id}/graph")
 def get_session_graph(
     session_id: str,
-    limit: int = 500,
+    limit: int = 50,  # Reduced from 500 for token efficiency
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Get nodes and edges graph for a session (related_thoughts + parent-child)."""
+    """Get nodes and edges graph for a session (related_thoughts + parent-child). Hard max limit of 100 for token safety."""
+    if limit > 100:
+        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
     try:
         # Fetch all thoughts in session
         points = store.scroll(

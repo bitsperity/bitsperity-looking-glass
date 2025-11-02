@@ -402,3 +402,123 @@ def get_thought_tree(
     
     return result
 
+
+@router.get("/with-relation-type/{relation_type}")
+def get_thoughts_with_relation_type(
+    relation_type: Literal["supports", "contradicts", "followup", "duplicate", "related"],
+    limit: int = 20,  # Reduced from 100 for token efficiency
+    include_thoughts: bool = True,
+    include_content: bool = False,  # Default False to save tokens (only applies if include_thoughts=True)
+    from_dt: str | None = None,
+    to_dt: str | None = None,
+    days: int | None = None,
+    session_id: str | None = None,
+    workspace_id: str | None = None,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Get all thoughts that have at least one relation of the specified type. Hard max limit of 100 for token safety.
+    
+    Returns pairs of thoughts connected by the specified relation type.
+    If include_thoughts=True (default), returns full thought objects instead of just IDs.
+    
+    Supports temporal filtering via from_dt/to_dt (ISO format) or days (relative from now).
+    Filters apply to the source thought's created_at timestamp.
+    """
+    if limit > 100:
+        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
+    from datetime import datetime, timedelta
+    
+    # Determine effective date range
+    eff_from = from_dt
+    eff_to = to_dt
+    if not eff_from and not eff_to and days and days > 0:
+        now = datetime.utcnow()
+        eff_from = (now - timedelta(days=days)).isoformat() + "Z"
+        eff_to = now.isoformat() + "Z"
+    
+    # Build filter
+    must = []
+    if session_id:
+        must.append({"key": "session_id", "match": {"value": session_id}})
+    if workspace_id:
+        must.append({"key": "workspace_id", "match": {"value": workspace_id}})
+    if eff_from:
+        must.append({"key": "created_at", "range": {"gte": eff_from}})
+    if eff_to:
+        must.append({"key": "created_at", "range": {"lte": eff_to}})
+    
+    filters = {"must": must} if must else None
+    all_thoughts = store.scroll(payload_filter=filters, limit=10000)
+    pairs = []
+    thought_cache = {}  # Cache thoughts to avoid multiple lookups
+    
+    for point in all_thoughts:
+        thought_id = str(point.id)
+        if thought_id not in thought_cache:
+            thought_cache[thought_id] = point.payload
+        
+        links = point.payload.get("links", {})
+        relations = links.get("relations", []) or []
+        
+        for r in relations:
+            if r.get("type") == relation_type:
+                related_id = r.get("related_id")
+                if related_id:
+                    # Cache related thought if not already cached
+                    if related_id not in thought_cache:
+                        related_thought = store.get_by_id(related_id)
+                        if related_thought:
+                            thought_cache[related_id] = related_thought
+                    
+                    pair = {
+                        "from_id": thought_id,
+                        "to_id": related_id,
+                        "relation_type": relation_type,
+                        "weight": r.get("weight", 1.0),
+                        "created_at": r.get("created_at"),
+                    }
+                    
+                    # Include full thoughts if requested
+                    if include_thoughts:
+                        from_thought = thought_cache.get(thought_id, {})
+                        to_thought = thought_cache.get(related_id, {})
+                        
+                        # Strip content if include_content=False
+                        if not include_content:
+                            def _prune_thought(thought: dict) -> dict:
+                                """Keep only essential fields for relation-type queries."""
+                                return {
+                                    "id": thought.get("id"),
+                                    "title": thought.get("title"),
+                                    "summary": thought.get("summary"),
+                                    "type": thought.get("type"),
+                                    "tags": thought.get("tags", []),
+                                    "tickers": thought.get("tickers", []),
+                                    "confidence_score": thought.get("confidence_score"),
+                                    "created_at": thought.get("created_at"),
+                                    "status": thought.get("status"),
+                                }
+                            from_thought = _prune_thought(from_thought) if from_thought else {}
+                            to_thought = _prune_thought(to_thought) if to_thought else {}
+                        
+                        pair["from_thought"] = from_thought
+                        pair["to_thought"] = to_thought
+                    
+                    pairs.append(pair)
+    
+    # Deduplicate (bidirectional relations might appear twice)
+    seen = set()
+    unique_pairs = []
+    for pair in pairs:
+        key = tuple(sorted([pair["from_id"], pair["to_id"]]))
+        if key not in seen:
+            seen.add(key)
+            unique_pairs.append(pair)
+    
+    return {
+        "status": "ok",
+        "relation_type": relation_type,
+        "count": len(unique_pairs),
+        "pairs": unique_pairs
+    }
+

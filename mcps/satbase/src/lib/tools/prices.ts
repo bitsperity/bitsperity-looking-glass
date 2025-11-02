@@ -7,7 +7,7 @@ export const listPricesTool = {
   name: 'list-prices',
   config: {
     title: 'Get Historical Price Data',
-    description: 'Fetch historical OHLCV price data for a ticker.',
+    description: 'Fetch historical OHLCV (Open, High, Low, Close, Volume) price data for a single ticker over a date range. Returns daily price bars with timestamps. Dates must be in YYYY-MM-DD format. Use this for single-ticker analysis. For multiple tickers, use list-prices-bulk instead (much more efficient). Price data is sourced from Alpaca/Yahoo Finance and stored in parquet format. Returns array of bars with date, open, high, low, close, volume fields. Useful for price analysis, calculating returns, identifying trends, or correlating price movements with news events.',
     inputSchema: ListPricesRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof ListPricesRequestSchema>) => {
@@ -86,9 +86,9 @@ export const pricesInfoTool = {
   name: 'prices-info',
   config: {
     title: 'Get Ticker Information',
-    description: 'Get detailed company information for a ticker (sector, industry, description, etc.).',
+    description: 'Get detailed company information for a ticker including sector classification, industry, company description, business summary, and other metadata. Useful for understanding what a company does, its business model, and industry context. Returns sector, industry, description, website, employees, etc. Use this to add context before analyzing news about a company or to understand sector classifications. Complements price and fundamental data.',
     inputSchema: z.object({
-      ticker: z.string().describe('Ticker symbol')
+      ticker: z.string().describe('Stock ticker symbol (e.g., "AAPL", "NVDA"). Must be a valid ticker.')
     }).shape
   },
   handler: async (input: { ticker: string }) => {
@@ -122,9 +122,9 @@ export const pricesFundamentalsTool = {
   name: 'prices-fundamentals',
   config: {
     title: 'Get Ticker Fundamentals',
-    description: 'Get key financial metrics for a ticker (PE ratio, market cap, revenue, etc.).',
+    description: 'Get key financial metrics and fundamental data for a ticker including valuation ratios (PE, P/B, P/S), market capitalization, revenue, earnings, margins, growth rates, and balance sheet metrics. Essential for comprehensive stock analysis - combine with price data and company info for full picture. Returns metrics like PE ratio, market cap, revenue, net income, profit margins, ROE, debt-to-equity, etc. Use this to assess valuation (is stock over/undervalued?), financial health, profitability, and growth trends. Critical for fundamental analysis and determining if price movements are justified by fundamentals.',
     inputSchema: z.object({
-      ticker: z.string().describe('Ticker symbol')
+      ticker: z.string().describe('Stock ticker symbol (e.g., "AAPL", "MSFT"). Must be a valid ticker.')
     }).shape
   },
   handler: async (input: { ticker: string }) => {
@@ -194,7 +194,7 @@ export const listPricesBulkTool = {
   name: 'list-prices-bulk',
   config: {
     title: 'Get Historical Price Data (Bulk)',
-    description: 'Fetch historical OHLCV price data for multiple tickers in one request. More efficient than calling list-prices multiple times.',
+    description: 'Fetch historical OHLCV price data for MULTIPLE tickers in a single API call. Much more efficient than calling list-prices multiple times (one call vs N calls). Accepts array of ticker symbols and returns price data for all tickers over the same date range. Dates must be in YYYY-MM-DD format. Returns a dictionary/map with ticker as key and array of price bars as value. Use this when analyzing multiple stocks (e.g., all tickers mentioned in news articles, sector-wide analysis, portfolio analysis). Critical for efficiency when processing many tickers. ALWAYS prefer this over multiple list-prices calls.',
     inputSchema: ListPricesBulkRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof ListPricesBulkRequestSchema>) => {

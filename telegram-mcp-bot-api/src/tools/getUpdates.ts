@@ -11,25 +11,25 @@ const GetUpdatesSchema = z.object({
 
 export const getUpdates = {
   name: "get_updates",
-  description: "Get recent updates from Telegram (useful for finding chat IDs). Automatically deletes webhooks to enable polling.",
+  description: "Get recent updates (messages, edits, etc.) from Telegram Bot API. Useful for finding chat IDs, discovering available chats, or retrieving recent bot interactions. Automatically deletes webhooks before polling (if enabled) to ensure updates are received. Returns list of updates with chat IDs, message details, and metadata. Use this to discover chat IDs for groups or channels, or to see recent bot activity. Updates include chat information, message text, timestamps, and sender details.",
   parameters: {
     type: "object",
     properties: {
       token: {
         type: "string",
-        description: "Telegram bot token (defaults to TELEGRAM_BOT_TOKEN env var)"
+        description: "Telegram bot token (optional, defaults to TELEGRAM_BOT_TOKEN environment variable if not provided)"
       },
       offset: {
         type: "number",
-        description: "Identifier of the first update to be returned"
+        description: "Identifier of the first update to be returned. Use this to get updates after a specific update_id. If omitted, returns the oldest available updates."
       },
       limit: {
         type: "number",
-        description: "Limits the number of updates to be retrieved (1-100, default: 100)"
+        description: "Limits the number of updates to be retrieved. Range: 1-100. Default: 100. Higher limits return more updates but may be slower."
       },
       deleteWebhook: {
         type: "boolean",
-        description: "Delete webhook before getting updates (default: true)"
+        description: "If true (default): deletes webhook before getting updates to enable polling mode. If false: attempts to get updates without deleting webhook (may fail if webhook is active)."
       }
     },
     required: []

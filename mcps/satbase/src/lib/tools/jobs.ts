@@ -11,7 +11,7 @@ export const listJobsTool = {
   name: 'list-jobs',
   config: {
     title: 'List Background Jobs',
-    description: 'List background ingestion jobs with status and progress.',
+    description: 'List background ingestion jobs (news, prices, macro data) with status (queued, running, done, error) and progress information. Filter by status to find specific job states. Returns job IDs, types, status, timestamps, and progress. Essential for monitoring data ingestion, checking job completion, or identifying failed jobs. Use get-job for detailed information about a specific job.',
     inputSchema: ListJobsRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof ListJobsRequestSchema>) => {
@@ -51,9 +51,9 @@ export const getJobTool = {
   name: 'get-job',
   config: {
     title: 'Get Job Details',
-    description: 'Get detailed information about a specific ingestion job.',
+    description: 'Get detailed information about a specific background ingestion job by job_id. Returns full job metadata including status, progress percentage, error messages (if failed), timestamps (created, started, completed), job type (news/prices/macro), parameters, and result summary. Use this to check job progress, debug failures, or verify completion. Returns 404 if job not found.',
     inputSchema: z.object({
-      job_id: z.string().describe('Job ID to retrieve')
+      job_id: z.string().describe('Job ID to retrieve. Get job IDs from list-jobs or from ingestion response (enqueue-news, enqueue-prices, etc.).')
     }).shape,
   },
   handler: async (input: { job_id: string }) => {
@@ -87,7 +87,7 @@ export const cleanupJobsTool = {
   name: 'jobs-cleanup',
   config: {
     title: 'Cleanup Stale Jobs',
-    description: 'Mark and clean jobs stuck in running state (after server restart).',
+    description: 'Mark and clean jobs stuck in "running" state after server restart or crashes. When the server restarts, jobs that were running may remain stuck as "running" even though they\'re no longer executing. This tool identifies and marks them as failed or cleaned up. Returns count of cleaned jobs. Use this for maintenance after server restarts or to recover from job system issues.',
     inputSchema: z.object({}).shape,
   },
   handler: async () => {
@@ -116,8 +116,10 @@ export const cancelJobTool = {
   name: 'jobs-cancel',
   config: {
     title: 'Cancel Job',
-    description: 'Cancel/delete a running or stuck job.',
-    inputSchema: z.object({ job_id: z.string() }).shape,
+    description: 'Cancel or delete a running or stuck background job by job_id. Stops execution if job is still running, or removes it if stuck. Useful for stopping long-running jobs that are no longer needed, or cleaning up stuck jobs that cleanup-jobs didn\'t handle. Returns cancellation confirmation. Note: Cancelled jobs cannot be resumed - use job-retry to restart if needed.',
+    inputSchema: z.object({ 
+      job_id: z.string().describe('Job ID to cancel. Get job IDs from list-jobs.')
+    }).shape,
   },
   handler: async (input: { job_id: string }) => {
     logger.info({ tool: 'jobs-cancel', input }, 'Tool invoked');
@@ -145,9 +147,9 @@ export const retryJobTool = {
   name: 'job-retry',
   config: {
     title: 'Retry Failed Job',
-    description: 'Retry a failed job by creating a new job with the same payload.',
+    description: 'Retry a failed job by creating a new job with the same payload/parameters as the original. Useful for recovering from transient failures (network issues, API rate limits, etc.). Creates a new job_id and starts fresh execution. Returns new job ID and status. Use this after investigating why a job failed and ensuring the issue is resolved.',
     inputSchema: z.object({
-      job_id: z.string().describe('Job ID to retry')
+      job_id: z.string().describe('Job ID of failed job to retry. Get from list-jobs filtered by status="error".')
     }).shape
   },
   handler: async (input: { job_id: string }) => {
@@ -181,11 +183,11 @@ export const adminJobsTool = {
   name: 'admin-jobs',
   config: {
     title: 'List Admin Jobs',
-    description: 'List all jobs with optional filters (status, job_type). Perfect for frontend monitoring.',
+    description: 'List all background jobs with comprehensive filtering options (status, job_type). Returns jobs with full metadata. Perfect for frontend monitoring dashboards, admin interfaces, or comprehensive job management. More detailed than list-jobs. Filter by status (queued/running/done/error) and/or job_type (news/prices/macro) to narrow results. Default limit 100, max 1000.',
     inputSchema: z.object({
-      status: z.enum(['queued', 'running', 'done', 'error']).optional().describe('Filter by status'),
-      job_type: z.string().optional().describe('Filter by job type'),
-      limit: z.number().int().min(1).max(1000).default(100).describe('Maximum number of jobs')
+      status: z.enum(['queued', 'running', 'done', 'error']).optional().describe('Filter by job status: queued (waiting), running (executing), done (completed successfully), error (failed).'),
+      job_type: z.string().optional().describe('Filter by job type (e.g., "news", "prices", "macro", "backfill").'),
+      limit: z.number().int().min(1).max(1000).default(100).describe('Maximum number of jobs to return. Default 100, max 1000.')
     }).shape
   },
   handler: async (input: { status?: string; job_type?: string; limit?: number }) => {
@@ -225,7 +227,7 @@ export const adminJobsStatsTool = {
   name: 'admin-jobs-stats',
   config: {
     title: 'Get Job Statistics',
-    description: 'Get overall job statistics (success rate, avg duration, etc.).',
+    description: 'Get overall job system statistics including success rate, average job duration, job counts by status/type, failure rates, and performance metrics. Useful for monitoring job system health, identifying performance trends, or generating admin dashboards. Returns aggregated statistics across all jobs.',
     inputSchema: z.object({}).shape
   },
   handler: async () => {

@@ -15,7 +15,7 @@ export const listNewsTool = {
   name: 'list-news',
   config: {
     title: 'List News Articles',
-    description: 'Fetch news articles with filters (date range, tickers, query, categories, sources, countries, languages). Supports token-efficient content retrieval via content_format parameter. Supports exclusion filters (e.g., "business,-sports").',
+    description: 'Fetch news articles from the database with comprehensive filtering options. Supports filtering by date range (required), tickers, semantic query (q), categories (business, technology, etc.), sources (Reuters, CNN, etc.), countries (ISO codes), and languages (ISO codes). Supports exclusion filters using negative syntax (e.g., "business,-sports" excludes sports). Use include_body=true to get full article content (token-expensive) or include_body=false to get metadata only (token-efficient). Use has_body=true to filter to only articles with fetched content. Content format can be text, html, or both. Sort by published_desc (newest first, default) or published_asc (oldest first). Returns paginated results with total count. Best for daily news discovery, topic-based queries, or ticker-specific news fetching.',
     inputSchema: ListNewsRequestSchema.shape
   },
   handler: async (input: z.infer<typeof ListNewsRequestSchema>) => {
@@ -102,7 +102,7 @@ export const newsHeatmapTool = {
   name: 'news-heatmap',
   config: {
     title: 'News Heatmap',
-    description: 'Generate heatmap of article counts by topic and time period. Visualize "Which topics had how many articles per year/month?"',
+    description: 'Generate heatmap data showing article counts by topic and time period. Returns article counts for each topic per time bucket (month or year based on granularity). Format "flat" returns array of period-topic-count objects suitable for charts. Format "matrix" returns 2D matrix (rows=periods, columns=topics) suitable for heatmap visualizations. Useful for understanding topic coverage patterns over time, identifying coverage gaps, comparing topic activity, or generating visualizations. Specify comma-separated topics (e.g., "AI,Fed,Earnings").',
     inputSchema: NewsHeatmapRequestSchema.shape
   },
   handler: async (input: z.infer<typeof NewsHeatmapRequestSchema>) => {
@@ -143,7 +143,7 @@ export const trendingTickersTool = {
   name: 'news-trending-tickers',
   config: {
     title: 'Trending Tickers',
-    description: 'Get trending tickers from recent news. Returns tickers ranked by mention count with sample headlines.',
+    description: 'Get trending stock tickers based on recent news mentions. Analyzes news articles from the past N hours and ranks tickers by mention frequency. Returns tickers sorted by mention count with article counts, total mentions, and sample headlines for each ticker. Useful for discovering which stocks are currently in the news, identifying market movers, finding hot topics, or focusing analysis on high-activity tickers. Use hours=24 for daily trends, hours=168 for weekly trends. Set min_mentions to filter out noise (e.g., min_mentions=5). Best for news discovery and identifying what the market is talking about right now.',
     inputSchema: TrendingTickersRequestSchema.shape
   },
   handler: async (input: z.infer<typeof TrendingTickersRequestSchema>) => {
@@ -181,10 +181,10 @@ export const newsAnalyticsTool = {
   name: 'news-analytics',
   config: {
     title: 'News Analytics & Trends',
-    description: 'Simple trend analysis: article counts over time with trend direction and moving averages.',
+    description: 'Simple trend analysis showing article counts over time with trend direction (increasing/decreasing/stable) and moving averages. Analyzes article volume patterns over the specified days. Optionally filter by comma-separated topics to analyze specific themes. Returns trend direction, article counts per day/week, moving averages, and summary statistics. Useful for understanding news volume trends, identifying activity spikes or declines, or assessing coverage changes over time.',
     inputSchema: z.object({
-      days: z.number().int().min(1).max(365).default(30).describe('Number of days to analyze'),
-      topics: z.string().optional().describe('Comma-separated topic names to filter')
+      days: z.number().int().min(1).max(365).default(30).describe('Number of days to analyze. Default 30, max 365.'),
+      topics: z.string().optional().describe('Comma-separated topic names to filter analysis (e.g., "AI,Fed"). If omitted, analyzes all topics.')
     }).shape
   },
   handler: async (input: { days?: number; topics?: string }) => {
@@ -223,9 +223,9 @@ export const getNewsByIdTool = {
   name: 'get-news-by-id',
   config: {
     title: 'Get News Article by ID',
-    description: 'Get a single news article by its ID.',
+    description: 'Get a single news article by its unique article ID. Returns full article metadata including title, text, source, URL, published_at timestamp, tickers, topics, regions, and optionally body content if available. Use this when you have a specific article ID and need complete details. More efficient than list-news when you know the exact ID. Returns 404 if article not found.',
     inputSchema: z.object({
-      article_id: z.string().describe('Article ID to retrieve')
+      article_id: z.string().describe('Unique article ID (UUID/hash) to retrieve. Get IDs from list-news or other news queries.')
     }).shape
   },
   handler: async (input: { article_id: string }) => {
@@ -259,10 +259,10 @@ export const bulkNewsTool = {
   name: 'bulk-news',
   config: {
     title: 'Bulk Fetch News Articles',
-    description: 'Fetch multiple news articles by their IDs in one request (token-efficient).',
+    description: 'Fetch multiple news articles by their IDs in a single API call. Much more efficient than calling get-news-by-id multiple times (one call vs N calls). Accepts array of article IDs and returns all matching articles. Use include_body=true to get full article content (token-expensive) or include_body=false to get metadata only (token-efficient). Essential for efficient processing when you have multiple article IDs from list-news, trending-tickers, or similar-articles. ALWAYS prefer this over multiple get-news-by-id calls.',
     inputSchema: z.object({
-      ids: z.array(z.string()).describe('Array of article IDs to fetch'),
-      include_body: z.boolean().default(false).describe('Include full article content')
+      ids: z.array(z.string()).describe('Array of article IDs to fetch. Can fetch many articles in one call.'),
+      include_body: z.boolean().default(false).describe('If true: includes full article body content (token-expensive). If false (default): returns only metadata (title, source, URL, tickers, topics, etc.) without body.')
     }).shape
   },
   handler: async (input: { ids: string[]; include_body?: boolean }) => {

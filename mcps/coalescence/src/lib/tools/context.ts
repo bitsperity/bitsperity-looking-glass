@@ -47,13 +47,13 @@ export const saveRunContextTool = {
   name: 'save-run-context',
   config: {
     title: 'Save Run Context',
-    description: 'Save run context for an agent (post-run knowledge persistence).',
+    description: 'Save run context for an agent AFTER executing a run. Persists knowledge from the current run for future runs to access via get-run-context. Include a context_summary describing what was processed, key findings, or important state. Optionally include kg_entities (Ariadne knowledge graph entity IDs) and manifold_thoughts (Manifold thought IDs) created during this run. This enables incremental processing, prevents duplicate work, and maintains continuity across agent runs. Always call this at the end of agent execution to preserve state.',
     inputSchema: z.object({
-      agent_name: z.string().describe('Agent name'),
-      run_id: z.string().describe('Run ID'),
-      context_summary: z.string().describe('Context summary'),
-      kg_entities: z.array(z.string()).optional().describe('Knowledge graph entity IDs'),
-      manifold_thoughts: z.array(z.string()).optional().describe('Manifold thought IDs')
+      agent_name: z.string().describe('Name of the agent (must match agent configuration name).'),
+      run_id: z.string().describe('Unique run ID for this execution (typically from orchestrator/runner).'),
+      context_summary: z.string().describe('Summary of this run: what was processed, key findings, important state. Keep concise but informative.'),
+      kg_entities: z.array(z.string()).optional().describe('Array of Ariadne knowledge graph entity IDs created/modified during this run.'),
+      manifold_thoughts: z.array(z.string()).optional().describe('Array of Manifold thought IDs created/modified during this run.')
     }).shape,
   },
   handler: async (input: {

@@ -91,4 +91,9 @@ export const ExplainSearchRequestSchema = z.object({
   limit: z.number().int().min(1).max(200).optional()
 });
 
+// Merge Thoughts
+export const MergeThoughtsRequestSchema = z.object({
+  strategy: z.enum(['keep_target', 'merge_content', 'keep_source']).default('keep_target').optional()
+});
+
 

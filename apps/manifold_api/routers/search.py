@@ -18,13 +18,19 @@ router = APIRouter(prefix="/v1/memory", tags=["search"])
 class SearchRequestV2(BaseModel):
     """Extended search with vector_type and include_content."""
     query: str
-    limit: int = 50
+    limit: int = 10  # Reduced from 50 for token efficiency
     offset: int = 0
     vector_type: str = "summary"  # "text" | "title" | "summary"
-    include_content: bool = True  # Phase 1 cheap: False → only id/title/summary/type/tickers/score
+    include_content: bool = False  # Default False to save tokens
     boosts: Optional[dict] = None
     diversity: Optional[dict] = None
     filters: Optional[dict] = None
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # HARD MAX LIMIT: Never exceed 50
+        if self.limit > 50:
+            raise HTTPException(status_code=400, detail=f"limit cannot exceed 50 (token safety). Received: {self.limit}")
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -48,7 +54,7 @@ def search_thoughts(
         vector_name=vector_name,
         query_vector=query_vec,
         payload_filter=qdrant_filter,
-        limit=request.limit or 50,
+        limit=min(request.limit or 10, 50),  # Hard cap at 50
         offset=request.offset or 0,
     )
     
@@ -126,16 +132,18 @@ def get_timeline(
     workspace_id: str | None = None,
     days: int | None = 30,
     bucket: str | None = "day",
-    limit: int = 1000,
+    limit: int = 20,  # Reduced from 1000 for token efficiency
+    include_content: bool = False,  # Default False to save tokens
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Timeline view: thoughts in date range, grouped by day or week.
-
-    - Filters: type (exact), tickers (OR across list), created_at range (from_dt/to_dt or last `days`), session_id, workspace_id.
-    - Bucketing: `bucket=day` (default) or `bucket=week`.
-    - Robustness: If created_at range filtering yields no results (e.g., index type mismatch),
-      fallback to filter by type/tickers only and apply the date filter in-app.
-    """
+    """Timeline view: thoughts in date range, grouped by day or week. Hard max limit of 100 for token safety."""
+    if limit > 100:
+        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
+    
+    # Filters: type (exact), tickers (OR across list), created_at range (from_dt/to_dt or last `days`), session_id, workspace_id.
+    # Bucketing: `bucket=day` (default) or `bucket=week`.
+    # Robustness: If created_at range filtering yields no results (e.g., index type mismatch),
+    #   fallback to filter by type/tickers only and apply the date filter in-app.
 
     # Determine effective date range
     eff_from = from_dt
@@ -216,6 +224,25 @@ def get_timeline(
                 key = created[:10]
         bucketed[key].append(payload)
         timeline.append(payload)
+
+    # Strip content if include_content=False (cheap discovery mode)
+    if not include_content:
+        def _prune_thought(thought: dict) -> dict:
+            """Keep only essential fields for timeline overview."""
+            return {
+                "id": thought.get("id"),
+                "title": thought.get("title"),
+                "summary": thought.get("summary"),
+                "type": thought.get("type"),
+                "tags": thought.get("tags", []),
+                "tickers": thought.get("tickers", []),
+                "confidence_score": thought.get("confidence_score"),
+                "created_at": thought.get("created_at"),
+                "status": thought.get("status"),
+            }
+        
+        timeline = [_prune_thought(t) for t in timeline]
+        bucketed = {k: [_prune_thought(t) for t in v] for k, v in bucketed.items()}
 
     return {
         "status": "ok",

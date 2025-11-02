@@ -15,42 +15,42 @@ const SendDocumentSchema = z.object({
 
 export const sendDocument = {
   name: "send_document",
-  description: "Send a document to the default Telegram chat. Chat ID is automatically used from config.",
+  description: "Send a document/file to Telegram. Chat ID is automatically used from TELEGRAM_DEFAULT_CHAT_ID config. Document can be a local file path, HTTP/HTTPS URL, or Telegram file_id. Supports any file type (PDF, DOCX, XLSX, ZIP, etc.) up to Telegram's size limits (typically 50MB). Optionally specify custom filename or add caption with formatting. Returns message ID, document file_id, filename, and file size. Use this for sharing reports, data files, exports, or any documents.",
   parameters: {
     type: "object",
     properties: {
       token: {
         type: "string",
-        description: "Telegram bot token (optional, uses TELEGRAM_BOT_TOKEN env var)"
+        description: "Telegram bot token (optional, defaults to TELEGRAM_BOT_TOKEN environment variable if not provided)"
       },
       chatId: {
         type: ["string", "number"],
-        description: "Chat ID or username (optional, automatically uses TELEGRAM_DEFAULT_CHAT_ID from config)"
+        description: "Chat ID or username (optional, automatically uses TELEGRAM_DEFAULT_CHAT_ID from config if not provided). Use this to override default chat."
       },
       document: {
         type: "string",
-        description: "Document file path, URL, or Telegram file_id"
+        description: "Document to send: local file path (e.g., '/path/to/file.pdf'), HTTP/HTTPS URL (e.g., 'https://example.com/data.csv'), or Telegram file_id (from previous message). Any file type supported (PDF, DOCX, CSV, JSON, etc.)."
       },
       caption: {
         type: "string",
-        description: "Document caption (optional)"
+        description: "Document caption text (optional). Max 1024 characters. Can include formatting if parseMode is set."
       },
       parseMode: {
         type: "string",
         enum: ["HTML", "Markdown", "MarkdownV2"],
-        description: "Parse mode for caption formatting"
+        description: "Parse mode for rich text formatting in caption: HTML (supports <b>, <i>, <code>, <a href>), Markdown (*bold*, _italic_, `code`, [link](url)), or MarkdownV2 (more strict syntax). Leave empty for plain text caption."
       },
       disableNotification: {
         type: "boolean",
-        description: "Send document silently (no notification)"
+        description: "If true: sends document silently without triggering notification sound/vibration on recipient devices. Useful for non-urgent file shares or bulk sends."
       },
       replyToMessageId: {
         type: "number",
-        description: "Reply to specific message ID"
+        description: "Optional message ID to reply to. Creates a threaded reply to the specified message. Get message IDs from previous message responses."
       },
       filename: {
         type: "string",
-        description: "Custom filename for the document"
+        description: "Custom filename for the document (optional). Overrides default filename from file path. Useful for renaming files or setting display names."
       }
     },
     required: ["document"]

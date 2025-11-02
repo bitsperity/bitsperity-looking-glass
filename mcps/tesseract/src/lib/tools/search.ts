@@ -11,7 +11,7 @@ export const searchTool = {
   name: 'semantic-search',
   config: {
     title: 'Semantic News Search',
-    description: 'Search Satbase news corpus semantically using multilingual embeddings (intfloat/multilingual-e5-large)',
+    description: 'Semantic vector search across the Satbase news corpus using multilingual embeddings (intfloat/multilingual-e5-large model). Searches article content, titles, and summaries. Returns semantically similar articles ranked by similarity score (0-1). Supports filtering by tickers, date ranges (from_date/to_date in YYYY-MM-DD format), topics, language (ISO codes), and body_available status. Can search title, summary, or body vectors (vector_type parameter). Much more powerful than keyword search - finds articles with similar meaning even if different words are used. Use this for discovery, finding related articles, understanding coverage patterns, or semantic exploration. For finding articles similar to a SPECIFIC article you already have, use find-similar-articles instead (more precise).',
     inputSchema: searchInputSchema.shape,
     outputSchema: searchOutputSchema.shape,
   },

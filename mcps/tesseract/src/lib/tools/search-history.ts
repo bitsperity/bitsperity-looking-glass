@@ -15,7 +15,7 @@ export const getSearchHistoryTool = {
   name: 'get-search-history',
   config: {
     title: 'Get Search History',
-    description: 'Get history of semantic searches performed. Useful for understanding search patterns, avoiding duplicate searches, and learning what queries were already tried. Can filter by query text or days ago.',
+    description: 'Get history of semantic searches performed in Tesseract. Returns past search queries with timestamps, result counts, and metadata. Useful for understanding search patterns, avoiding duplicate searches, learning what queries were already tried, or analyzing search behavior. Filter by query text (query_filter) to find similar past searches, or by days to see recent search activity. Helps agents avoid redundant semantic searches.',
     inputSchema: searchHistoryInputSchema.shape,
     outputSchema: searchHistoryOutputSchema.shape,
   },
@@ -69,7 +69,7 @@ export const getSearchStatsTool = {
   name: 'get-search-stats',
   config: {
     title: 'Get Search Statistics',
-    description: 'Get aggregated statistics about search patterns: total searches, unique queries, average result count, and top queries. Helps understand search behavior and identify frequently searched topics.',
+    description: 'Get aggregated statistics about semantic search patterns in Tesseract. Returns total searches, unique query count, average result count per search, most frequent queries, and search frequency over time. Helps understand search behavior, identify frequently searched topics, analyze search efficiency, or generate search usage reports. Filter by days to analyze specific time periods. Useful for optimizing search strategies or understanding what topics are most searched.',
     inputSchema: searchStatsInputSchema.shape,
     outputSchema: searchStatsOutputSchema.shape,
   },

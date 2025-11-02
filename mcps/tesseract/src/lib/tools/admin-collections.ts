@@ -18,7 +18,7 @@ export const listCollectionsTool = {
   name: 'list-collections',
   config: {
     title: 'List Collections',
-    description: 'List all Qdrant collections with metadata (points count, vector size, active alias)',
+    description: 'List all Qdrant collections with metadata including points count (number of embedded articles), vector dimensions, active alias status, and collection names. Collections are versioned storage for news article embeddings. The active alias points to the current collection used for searches. Useful for understanding vector database structure, checking collection sizes, or identifying active vs archived collections.',
     inputSchema: {},
     outputSchema: collectionsListOutputSchema.shape,
   },
@@ -64,7 +64,7 @@ export const switchCollectionTool = {
   name: 'switch-collection',
   config: {
     title: 'Switch Collection',
-    description: 'Switch the active collection alias to a different collection (zero-downtime)',
+    description: 'Switch the active collection alias to a different Qdrant collection for zero-downtime updates. This changes which collection is used for semantic searches without interrupting service. After creating a new collection with fresh embeddings (via batch-embedding), use this to activate it. The old collection remains but is no longer used for searches. Useful for rolling out new embedding versions or switching between test/production collections.',
     inputSchema: collectionSwitchInputSchema.shape,
     outputSchema: collectionSwitchOutputSchema.shape,
   },
@@ -106,7 +106,7 @@ export const deleteCollectionTool = {
   name: 'delete-collection',
   config: {
     title: 'Delete Collection',
-    description: 'Delete a Qdrant collection (with safety checks - cannot delete active collection)',
+    description: 'Delete a Qdrant collection permanently. Includes safety checks - cannot delete the active collection (the one currently used for searches). Use this to clean up old/archived collections after switching to new ones. Returns deletion confirmation. WARNING: This permanently removes the collection and all embedded articles in it. Ensure collection is not active before deleting.',
     inputSchema: collectionDeleteInputSchema.shape,
     outputSchema: collectionDeleteOutputSchema.shape,
   },

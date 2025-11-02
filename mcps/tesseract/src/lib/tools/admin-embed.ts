@@ -14,7 +14,7 @@ export const startBatchEmbeddingTool = {
   name: 'start-batch-embedding',
   config: {
     title: 'Start Batch Embedding',
-    description: 'Start background batch embedding of news articles from Satbase into Qdrant (can take several minutes)',
+    description: 'Start background batch embedding of news articles from Satbase into Qdrant vector database. Processes articles from specified date range and filters, computes embeddings using multilingual-e5-large model, and stores in Qdrant for semantic search. Can take several minutes for large batches - runs asynchronously. Filter by date range (from_date/to_date in YYYY-MM-DD), topics (comma-separated), tickers (comma-separated), language, or body_only (only articles with body content). Use incremental=true to skip already-embedded articles. Returns job status for tracking. Monitor progress with get-embedding-status.',
     inputSchema: embedBatchInputSchema.shape,
     outputSchema: embedBatchOutputSchema.shape,
   },
@@ -67,7 +67,7 @@ export const getEmbeddingStatusTool = {
   name: 'get-embedding-status',
   config: {
     title: 'Get Embedding Status',
-    description: 'Get current batch embedding status, progress, and collection metadata',
+    description: 'Get current batch embedding job status, progress percentage, and Qdrant collection metadata. Returns either active job status (if embedding is running) with progress %, or overall collection status (total points, vector dimensions, collection name). Use this to monitor embedding progress after starting batch embedding, or to check collection health. Shows completion percentage and estimated remaining time for active jobs.',
     inputSchema: {},
     // Union-Schema (JobStatus | OverallStatus) ist schwer als JSON Schema abzubilden
     // Für Tool-Registrierung genügt ein leeres Schema

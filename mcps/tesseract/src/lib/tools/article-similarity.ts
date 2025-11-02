@@ -11,7 +11,7 @@ export const articleSimilarityTool = {
   name: 'get-article-similarity',
   config: {
     title: 'Get Article Content Similarity',
-    description: 'Calculate cosine similarity between title/summary/body vectors of an article. Useful for content quality assessment, detecting clickbait, and validating extraction quality. High similarity (>0.8) indicates consistent, well-structured content. Low similarity (<0.5) may indicate clickbait, poor extraction, or misleading titles.',
+    description: 'Calculate cosine similarity between title, summary, and body vectors of a news article. Measures internal content consistency - how well the title and summary represent the body content. High similarity (>0.8) indicates consistent, well-structured content where title/summary accurately reflect the body. Low similarity (<0.5) may indicate clickbait titles, poor extraction quality, misleading summaries, or articles where title doesn\'t match content. Returns similarity scores for title-body and summary-body pairs. Useful for quality assessment, filtering low-quality articles, or validating news extraction.',
     inputSchema: articleSimilarityInputSchema.shape,
     outputSchema: articleSimilarityOutputSchema.shape,
   },

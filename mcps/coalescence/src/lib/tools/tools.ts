@@ -6,9 +6,9 @@ export const listAllToolsTool = {
   name: 'list-all-tools',
   config: {
     title: 'List All Tools',
-    description: 'List all available tools from all MCPs. This queries the orchestrator\'s ToolExecutor.',
+    description: 'List all available tools from all MCPs (Manifold, Satbase, Tesseract, Coalescence, etc.) registered with the orchestrator. Returns tool names, descriptions, input schemas, and MCP source for each tool. Optionally filter by mcp_name to see tools from a specific MCP only. Useful for discovering available tools, understanding tool capabilities, or verifying tool availability. Tools are prefixed with MCP name (e.g., "satbase_list-news", "manifold_mf-create-thought").',
     inputSchema: z.object({
-      mcp_name: z.string().optional().describe('Filter by MCP name (e.g., "satbase", "tesseract")')
+      mcp_name: z.string().optional().describe('Optional filter by MCP name (e.g., "satbase", "tesseract", "manifold", "coalescence"). If omitted, returns tools from all MCPs.')
     }).shape,
   },
   handler: async (input: { mcp_name?: string }) => {

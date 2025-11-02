@@ -14,38 +14,38 @@ const SendMessageSchema = z.object({
 
 export const sendMessage = {
   name: "send_message",
-  description: "Send a text message to the default Telegram chat. Chat ID is automatically used from config - agents only need to provide the message text.",
+  description: "Send a text message to Telegram. Chat ID is automatically used from TELEGRAM_DEFAULT_CHAT_ID config - agents typically only need to provide the message text. Supports rich text formatting via parse_mode (HTML, Markdown, MarkdownV2). Can disable link previews, send silently (no notification), or reply to specific messages. Returns message ID and confirmation. Essential for agent notifications, summaries, alerts, or user communication. Max message length: 4096 characters (split longer messages into multiple calls).",
   parameters: {
     type: "object",
     properties: {
       token: {
         type: "string",
-        description: "Telegram bot token (optional, uses TELEGRAM_BOT_TOKEN env var)"
+        description: "Telegram bot token (optional, defaults to TELEGRAM_BOT_TOKEN environment variable if not provided)"
       },
       chatId: {
         type: ["string", "number"],
-        description: "Chat ID or username (optional, automatically uses TELEGRAM_DEFAULT_CHAT_ID from config)"
+        description: "Chat ID or username (optional, automatically uses TELEGRAM_DEFAULT_CHAT_ID from config if not provided). Use this to override default chat."
       },
       text: {
         type: "string",
-        description: "Message text to send"
+        description: "Message text to send. Max 4096 characters. Can include formatting if parseMode is set. For longer messages, split into multiple calls."
       },
       parseMode: {
         type: "string",
         enum: ["HTML", "Markdown", "MarkdownV2"],
-        description: "Parse mode for text formatting"
+        description: "Parse mode for rich text formatting: HTML (supports <b>, <i>, <code>, <a href>), Markdown (*bold*, _italic_, `code`, [link](url)), or MarkdownV2 (more strict Markdown syntax). Leave empty for plain text."
       },
       disableWebPagePreview: {
         type: "boolean",
-        description: "Disable web page preview for links"
+        description: "If true: disables automatic link previews for URLs in the message. Useful when sending raw URLs without wanting preview cards."
       },
       disableNotification: {
         type: "boolean",
-        description: "Send message silently (no notification)"
+        description: "If true: sends message silently without triggering notification sound/vibration on recipient devices. Useful for non-urgent updates or bulk messages."
       },
       replyToMessageId: {
         type: "number",
-        description: "Reply to specific message ID"
+        description: "Optional message ID to reply to. Creates a threaded reply to the specified message. Get message IDs from previous message responses."
       }
     },
       required: ["text"]

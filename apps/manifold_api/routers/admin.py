@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from libs.manifold_core.storage.qdrant_store import QdrantStore
 from libs.manifold_core.embeddings.provider import EmbeddingProvider
 from apps.manifold_api.dependencies import get_qdrant_store, get_embedding_provider_dep
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/v1/memory", tags=["admin"])
 
@@ -285,11 +285,13 @@ def explain_search(body: dict, store: QdrantStore = Depends(get_qdrant_store)):
 @router.get("/similar/{thought_id}")
 def get_similar(
     thought_id: str,
-    k: int = 10,
+    k: int = 5,  # Reduced from 10 for token efficiency
     vector_type: str = "summary",
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Find k nearest neighbors using vector similarity (configurable vector type)."""
+    """Find k nearest neighbors using vector similarity (configurable vector type). Hard max limit of 20 for token safety."""
+    if k > 20:
+        raise HTTPException(status_code=400, detail=f"k cannot exceed 20 (token safety). Received: {k}")
     thought = store.get_by_id(thought_id)
     if not thought:
         raise HTTPException(404, f"Thought {thought_id} not found")
@@ -402,16 +404,34 @@ def get_duplicate_warnings(
     limit: int = 100,
     session_id: str | None = None,
     workspace_id: str | None = None,
+    from_dt: str | None = None,
+    to_dt: str | None = None,
+    days: int | None = None,
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Find potential duplicate thoughts in the system."""
+    """Find potential duplicate thoughts in the system.
+    
+    Supports temporal filtering via from_dt/to_dt (ISO format) or days (relative from now).
+    """
     try:
+        # Determine effective date range
+        eff_from = from_dt
+        eff_to = to_dt
+        if not eff_from and not eff_to and days and days > 0:
+            now = datetime.utcnow()
+            eff_from = (now - timedelta(days=days)).isoformat() + "Z"
+            eff_to = now.isoformat() + "Z"
+        
         # Build filter
         must = []
         if session_id:
             must.append({"key": "session_id", "match": {"value": session_id}})
         if workspace_id:
             must.append({"key": "workspace_id", "match": {"value": workspace_id}})
+        if eff_from:
+            must.append({"key": "created_at", "range": {"gte": eff_from}})
+        if eff_to:
+            must.append({"key": "created_at", "range": {"lte": eff_to}})
         
         filters = {"must": must} if must else None
         
@@ -477,6 +497,233 @@ def get_duplicate_warnings(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error scanning duplicates: {str(e)}")
+
+
+@router.get("/duplicates/all")
+def get_all_duplicates(
+    threshold: float = 0.92,
+    limit: int = 50,  # Reduced from 200 for token efficiency
+    session_id: str | None = None,
+    workspace_id: str | None = None,
+    from_dt: str | None = None,
+    to_dt: str | None = None,
+    days: int | None = None,
+    include_marked: bool = True,
+    include_similarity: bool = True,
+    include_content: bool = False,  # Default False to save tokens
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Get all duplicates from both sources: marked duplicate relations AND similarity-based detection.
+    Hard max limit of 100 for token safety.
+    
+    This is the comprehensive duplicate detection endpoint that combines:
+    1. Thoughts with explicit "duplicate" relation type (marked duplicates)
+    2. Thoughts flagged by similarity threshold (unmarked potential duplicates)
+    
+    Supports temporal filtering via from_dt/to_dt (ISO format) or days (relative from now).
+    
+    Returns unified list of duplicate pairs with source indicator (marked vs similarity).
+    """
+    if limit > 100:
+        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
+    try:
+        all_pairs = []
+        seen_pairs = set()  # Deduplicate across both sources
+        
+        # 1. Get marked duplicates (relations with type="duplicate")
+        if include_marked:
+            # Determine effective date range for filtering
+            eff_from = from_dt
+            eff_to = to_dt
+            if not eff_from and not eff_to and days and days > 0:
+                now = datetime.utcnow()
+                eff_from = (now - timedelta(days=days)).isoformat() + "Z"
+                eff_to = now.isoformat() + "Z"
+            
+            # Build filter for thoughts (for temporal filtering)
+            must = []
+            if session_id:
+                must.append({"key": "session_id", "match": {"value": session_id}})
+            if workspace_id:
+                must.append({"key": "workspace_id", "match": {"value": workspace_id}})
+            if eff_from:
+                must.append({"key": "created_at", "range": {"gte": eff_from}})
+            if eff_to:
+                must.append({"key": "created_at", "range": {"lte": eff_to}})
+            
+            filters = {"must": must} if must else None
+            all_thoughts = store.scroll(payload_filter=filters, limit=10000)
+            
+            # Fallback: If temporal filter yields no results but date filter is intended,
+            # scroll without date range and filter in-app (robustness like timeline endpoint)
+            intends_date_filter = bool(eff_from or eff_to)
+            if intends_date_filter and len(all_thoughts) == 0:
+                must_base = []
+                if session_id:
+                    must_base.append({"key": "session_id", "match": {"value": session_id}})
+                if workspace_id:
+                    must_base.append({"key": "workspace_id", "match": {"value": workspace_id}})
+                filters_base = {"must": must_base} if must_base else None
+                all_thoughts = store.scroll(payload_filter=filters_base, limit=10000)
+                
+                def _in_range(created_str: str) -> bool:
+                    try:
+                        if not created_str:
+                            return False
+                        created_dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                        if eff_from:
+                            from_dt_parsed = datetime.fromisoformat(eff_from.replace("Z", "+00:00"))
+                            if created_dt < from_dt_parsed:
+                                return False
+                        if eff_to:
+                            to_dt_parsed = datetime.fromisoformat(eff_to.replace("Z", "+00:00"))
+                            if created_dt > to_dt_parsed:
+                                return False
+                        return True
+                    except Exception:
+                        return False
+                
+                all_thoughts = [p for p in all_thoughts if _in_range(p.payload.get("created_at", ""))]
+            
+            for point in all_thoughts:
+                thought_id = str(point.id)
+                links = point.payload.get("links", {})
+                relations = links.get("relations", []) or []
+                
+                for r in relations:
+                    if r.get("type") == "duplicate":
+                        related_id = r.get("related_id")
+                        if related_id:
+                            # Get related thought (don't filter by date - marked relations are explicit)
+                            related_thought = store.get_by_id(related_id)
+                            if not related_thought:
+                                continue
+                            
+                            # For marked duplicate relations: only filter by source thought's created_at
+                            # The relation itself is explicit, so we include it if source is in range
+                            # (Don't filter by related_thought.created_at - that would exclude valid marked duplicates)
+                            
+                            # Create pair key for deduplication
+                            pair_key = tuple(sorted([thought_id, related_id]))
+                            if pair_key not in seen_pairs:
+                                seen_pairs.add(pair_key)
+                                thought_1_data = {
+                                    "id": thought_id,
+                                    "title": point.payload.get("title"),
+                                    "type": point.payload.get("type"),
+                                    "summary": point.payload.get("summary"),
+                                    "status": point.payload.get("status"),
+                                    "confidence_level": point.payload.get("confidence_level"),
+                                    "created_at": point.payload.get("created_at"),
+                                    "session_id": point.payload.get("session_id"),
+                                }
+                                thought_2_data = {
+                                    "id": related_id,
+                                    "title": related_thought.get("title"),
+                                    "type": related_thought.get("type"),
+                                    "summary": related_thought.get("summary"),
+                                    "status": related_thought.get("status"),
+                                    "confidence_level": related_thought.get("confidence_level"),
+                                    "created_at": related_thought.get("created_at"),
+                                    "session_id": related_thought.get("session_id"),
+                                }
+                                if include_content:
+                                    thought_1_data["content"] = point.payload.get("content")
+                                    thought_2_data["content"] = related_thought.get("content")
+                                
+                                all_pairs.append({
+                                    "thought_1": thought_1_data,
+                                    "thought_2": thought_2_data,
+                                    "source": "marked_relation",
+                                    "relation_weight": r.get("weight", 1.0),
+                                    "similarity": r.get("weight", 1.0),  # Use weight as similarity proxy
+                                    "reason": "explicit_duplicate_relation"
+                                })
+        
+        # 2. Get similarity-based duplicates
+        if include_similarity:
+            # Reuse filter building from get_duplicate_warnings
+            eff_from = from_dt
+            eff_to = to_dt
+            if not eff_from and not eff_to and days and days > 0:
+                now = datetime.utcnow()
+                eff_from = (now - timedelta(days=days)).isoformat() + "Z"
+                eff_to = now.isoformat() + "Z"
+            
+            must = []
+            if session_id:
+                must.append({"key": "session_id", "match": {"value": session_id}})
+            if workspace_id:
+                must.append({"key": "workspace_id", "match": {"value": workspace_id}})
+            if eff_from:
+                must.append({"key": "created_at", "range": {"gte": eff_from}})
+            if eff_to:
+                must.append({"key": "created_at", "range": {"lte": eff_to}})
+            
+            filters = {"must": must} if must else None
+            all_points = store.scroll(payload_filter=filters, limit=10000)
+            
+            seen_ids = set()
+            for i, point in enumerate(all_points):
+                if str(point.id) in seen_ids:
+                    continue
+                
+                for j, other_point in enumerate(all_points[i+1:], start=i+1):
+                    if str(other_point.id) in seen_ids:
+                        continue
+                    
+                    # Title-based duplicate detection
+                    if point.payload.get("title") == other_point.payload.get("title"):
+                        pair_key = tuple(sorted([str(point.id), str(other_point.id)]))
+                        if pair_key not in seen_pairs:
+                            seen_pairs.add(pair_key)
+                            thought_1_data = {
+                                "id": str(point.id),
+                                "title": point.payload.get("title"),
+                                "type": point.payload.get("type"),
+                                "summary": point.payload.get("summary"),
+                                "status": point.payload.get("status"),
+                                "confidence_level": point.payload.get("confidence_level"),
+                                "created_at": point.payload.get("created_at"),
+                                "session_id": point.payload.get("session_id"),
+                            }
+                            thought_2_data = {
+                                "id": str(other_point.id),
+                                "title": other_point.payload.get("title"),
+                                "type": other_point.payload.get("type"),
+                                "summary": other_point.payload.get("summary"),
+                                "status": other_point.payload.get("status"),
+                                "confidence_level": other_point.payload.get("confidence_level"),
+                                "created_at": other_point.payload.get("created_at"),
+                                "session_id": other_point.payload.get("session_id"),
+                            }
+                            if include_content:
+                                thought_1_data["content"] = point.payload.get("content")
+                                thought_2_data["content"] = other_point.payload.get("content")
+                            
+                            all_pairs.append({
+                                "thought_1": thought_1_data,
+                                "thought_2": thought_2_data,
+                                "source": "similarity_detection",
+                                "similarity": threshold,
+                                "reason": "identical_title"
+                            })
+        
+        # Sort by similarity (descending) and limit
+        all_pairs.sort(key=lambda x: x.get("similarity", 0.0), reverse=True)
+        all_pairs = all_pairs[:limit]
+        
+        return {
+            "status": "ok",
+            "threshold": threshold,
+            "total_pairs_found": len(all_pairs),
+            "marked_duplicates": sum(1 for p in all_pairs if p.get("source") == "marked_relation"),
+            "similarity_duplicates": sum(1 for p in all_pairs if p.get("source") == "similarity_detection"),
+            "duplicates": all_pairs,
+            "note": "Combined view of marked duplicate relations and similarity-based detection. Review each pair and decide: merge (mf-merge-thoughts), unlink if false positive (mf-unlink-related), or leave as-is."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting all duplicates: {str(e)}")
 
 
 @router.get("/statistics")

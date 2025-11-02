@@ -55,11 +55,13 @@ def list_workspaces(
 @router.get("/workspace/{workspace_id}/thoughts")
 def get_workspace_thoughts(
     workspace_id: str,
-    limit: int = 1000,
-    include_content: bool = True,
+    limit: int = 20,  # Reduced from 1000 for token efficiency
+    include_content: bool = False,  # Default False to save tokens
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Get all thoughts in a workspace."""
+    """Get all thoughts in a workspace. Hard max limit of 100 for token safety."""
+    if limit > 100:
+        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
     try:
         thoughts_points = store.scroll(
             payload_filter={"must": [{"key": "workspace_id", "match": {"value": workspace_id}}]},
@@ -87,10 +89,12 @@ def get_workspace_thoughts(
 @router.get("/workspace/{workspace_id}/graph")
 def get_workspace_graph(
     workspace_id: str,
-    limit: int = 500,
+    limit: int = 50,  # Reduced from 500 for token efficiency
     store: QdrantStore = Depends(get_qdrant_store),
 ):
-    """Get nodes and edges graph for a workspace (related_thoughts + parent-child)."""
+    """Get nodes and edges graph for a workspace (related_thoughts + parent-child). Hard max limit of 100 for token safety."""
+    if limit > 100:
+        raise HTTPException(status_code=400, detail=f"limit cannot exceed 100 (token safety). Received: {limit}")
     try:
         # Fetch all thoughts in workspace
         points = store.scroll(

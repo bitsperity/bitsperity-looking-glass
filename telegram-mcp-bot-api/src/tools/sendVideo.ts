@@ -18,54 +18,54 @@ const SendVideoSchema = z.object({
 
 export const sendVideo = {
   name: "send_video",
-  description: "Send a video to the default Telegram chat. Chat ID is automatically used from config.",
+  description: "Send a video file to Telegram. Chat ID is automatically used from TELEGRAM_DEFAULT_CHAT_ID config. Video can be a local file path, HTTP/HTTPS URL, or Telegram file_id. Supports MP4, MOV, AVI, and other video formats up to Telegram's size limits (typically 50MB). Optionally specify duration, dimensions (width/height), caption with formatting, or enable streaming support. Returns message ID, video file_id, duration, dimensions, and file size. Use this for sharing video content, recordings, or media files.",
   parameters: {
     type: "object",
     properties: {
       token: {
         type: "string",
-        description: "Telegram bot token (optional, uses TELEGRAM_BOT_TOKEN env var)"
+        description: "Telegram bot token (optional, defaults to TELEGRAM_BOT_TOKEN environment variable if not provided)"
       },
       chatId: {
         type: ["string", "number"],
-        description: "Chat ID or username (optional, automatically uses TELEGRAM_DEFAULT_CHAT_ID from config)"
+        description: "Chat ID or username (optional, automatically uses TELEGRAM_DEFAULT_CHAT_ID from config if not provided). Use this to override default chat."
       },
       video: {
         type: "string",
-        description: "Video file path, URL, or Telegram file_id"
+        description: "Video to send: local file path (e.g., '/path/to/video.mp4'), HTTP/HTTPS URL (e.g., 'https://example.com/video.mp4'), or Telegram file_id (from previous message). Supported formats: MP4, MOV, AVI, etc."
       },
       duration: {
         type: "number",
-        description: "Video duration in seconds (optional)"
+        description: "Video duration in seconds (optional). Helps Telegram optimize video handling. If omitted, Telegram may extract from file metadata."
       },
       width: {
         type: "number",
-        description: "Video width in pixels (optional)"
+        description: "Video width in pixels (optional). Helps Telegram optimize video handling. If omitted, Telegram may extract from file metadata."
       },
       height: {
         type: "number",
-        description: "Video height in pixels (optional)"
+        description: "Video height in pixels (optional). Helps Telegram optimize video handling. If omitted, Telegram may extract from file metadata."
       },
       caption: {
         type: "string",
-        description: "Video caption (optional)"
+        description: "Video caption text (optional). Max 1024 characters. Can include formatting if parseMode is set."
       },
       parseMode: {
         type: "string",
         enum: ["HTML", "Markdown", "MarkdownV2"],
-        description: "Parse mode for caption formatting"
+        description: "Parse mode for rich text formatting in caption: HTML (supports <b>, <i>, <code>, <a href>), Markdown (*bold*, _italic_, `code`, [link](url)), or MarkdownV2 (more strict syntax). Leave empty for plain text caption."
       },
       supportsStreaming: {
         type: "boolean",
-        description: "Pass True if the video is suitable for streaming"
+        description: "If true: indicates video is suitable for streaming (allows playback while downloading). If false or omitted: video must be fully downloaded before playback."
       },
       disableNotification: {
         type: "boolean",
-        description: "Send video silently (no notification)"
+        description: "If true: sends video silently without triggering notification sound/vibration on recipient devices. Useful for non-urgent videos or bulk sends."
       },
       replyToMessageId: {
         type: "number",
-        description: "Reply to specific message ID"
+        description: "Optional message ID to reply to. Creates a threaded reply to the specified message. Get message IDs from previous message responses."
       }
     },
     required: ["video"]

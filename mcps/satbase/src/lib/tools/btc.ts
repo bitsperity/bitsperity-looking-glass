@@ -13,7 +13,7 @@ export const btcOracleTool = {
   name: 'btc-oracle',
   config: {
     title: 'Get Bitcoin Oracle Price Data',
-    description: 'Fetch Bitcoin oracle price data for a date range.',
+    description: 'Fetch Bitcoin (BTC) historical price data from oracle sources for a specified date range. Returns price points with timestamps, open, high, low, close, and volume data. Useful for crypto analysis, BTC/USD conversions, or correlation studies with traditional markets. Dates in YYYY-MM-DD format. Oracle data provides authoritative BTC pricing data.',
     inputSchema: BtcOracleRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof BtcOracleRequestSchema>) => {
@@ -50,7 +50,7 @@ export const usdToBtcTool = {
   name: 'usd-to-btc',
   config: {
     title: 'Convert USD to BTC',
-    description: 'Convert USD value to BTC at historical rate for a given date.',
+    description: 'Convert USD value to Bitcoin (BTC) using historical exchange rate for a specific date. Returns BTC amount equivalent to the USD value on that date. Essential for crypto valuations, portfolio conversions, or historical price analysis. Date format: YYYY-MM-DD. Uses oracle price data for accurate historical rates.',
     inputSchema: UsdToBtcRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof UsdToBtcRequestSchema>) => {
@@ -87,7 +87,7 @@ export const btcToUsdTool = {
   name: 'btc-to-usd',
   config: {
     title: 'Convert BTC to USD',
-    description: 'Convert BTC value to USD at historical rate for a given date.',
+    description: 'Convert Bitcoin (BTC) value to USD using historical exchange rate for a specific date. Returns USD amount equivalent to the BTC value on that date. Essential for crypto valuations, portfolio conversions, or understanding BTC purchasing power historically. Date format: YYYY-MM-DD. Uses oracle price data for accurate historical rates.',
     inputSchema: BtcToUsdRequestSchema.shape,
   },
   handler: async (input: z.infer<typeof BtcToUsdRequestSchema>) => {

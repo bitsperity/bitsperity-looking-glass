@@ -7,7 +7,7 @@ export const healthCheckTool = {
   name: 'health-check',
   config: {
     title: 'Health Check',
-    description: 'Check Satbase API health and status.',
+    description: 'Check Satbase API health status and system availability. Returns API status, database connectivity, external service connections (Mediastack, Alpaca, FRED), and overall system health. Use this to verify the Satbase service is operational before performing operations, diagnose connectivity issues, or monitor system health. Returns detailed status including component health (API, database, adapters).',
     inputSchema: z.object({}).shape
   },
   handler: async () => {

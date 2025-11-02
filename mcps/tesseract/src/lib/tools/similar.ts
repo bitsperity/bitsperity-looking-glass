@@ -11,7 +11,7 @@ export const similarTool = {
   name: 'find-similar-articles',
   config: {
     title: 'Find Similar Articles',
-    description: 'Find similar news articles to a given article using vector similarity',
+    description: 'Find the most similar news articles to a SPECIFIC article by its news_id. Uses vector similarity to compare the given article\'s embeddings against all other articles in the corpus. Returns ranked list of similar articles with similarity scores (0-1). Much more precise than semantic-search when you have a specific article and want to find related ones - semantic-search is for general queries, this is for article-to-article similarity. Use this to find follow-up articles, related coverage, or clusters of similar news. Returns article metadata including title, source, published_at, tickers, topics, and similarity scores. Essential for understanding article relationships and news clustering.',
     inputSchema: similarInputSchema.shape,
     outputSchema: similarOutputSchema.shape,
   },
