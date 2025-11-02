@@ -51,3 +51,14 @@ mcps:
       TELEGRAM_BOT_TOKEN: "8455077673:AAGb_ifKaWXAt2Wj2RsnEkG3iCQFx-iqvtI"
       TELEGRAM_DEFAULT_CHAT_ID: "-5049991716"
     description: Telegram Bot API - Send messages, photos, documents, videos (auto-uses default chat)
+    
+  exploration:
+    command: node
+    args:
+      - ../../../mcps/exploration/dist/index-stdio.js
+    env:
+      JINA_API_KEY: "jina_7655e73e6fcb4b048e55dd80436afd3bCiz7DdoV6eVz7uW4OVC71acKxo6i"
+      JINA_API_URL: "https://mcp.jina.ai/sse"
+      MEDIASTACK_API_KEY: "6fa3ad5f3c37ec5e4c65b5298b853b77"
+      LOG_LEVEL: "info"
+    description: Web exploration and company discovery - Jina web search proxy + yfinance company search + Mediastack news discovery

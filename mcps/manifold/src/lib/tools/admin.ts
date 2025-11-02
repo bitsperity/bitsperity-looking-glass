@@ -115,7 +115,7 @@ export const checkDuplicateTool = {
   name: 'mf-check-duplicate',
   config: {
     title: 'Check Duplicate',
-    description: 'Check if a formulated thought (title/summary/content) is similar to existing thoughts BEFORE creating it. This prevents duplicate thought creation. Use this with a structured thought (not raw news headlines) that you plan to create - formulate the thought first, then check for duplicates. Returns is_duplicate boolean and array of similar thoughts with similarity scores. If is_duplicate=true, consider updating existing thought instead or linking as related. Recommended threshold: 0.85-0.92. Lower threshold (0.85) catches more variations, higher (0.90+) only near-exact duplicates. ALWAYS use this before mf-create-thought to avoid redundancy.',
+    description: 'Check if a formulated thought (title/summary/content) is similar to existing thoughts BEFORE creating it. This prevents duplicate thought creation. Use this with a structured thought (not raw news headlines) that you plan to create - formulate the thought first, then check for duplicates. Returns is_duplicate boolean and array of similar thoughts with similarity scores. If is_duplicate=true, consider updating existing thought instead or linking as related. Recommended threshold: 0.85-0.92. Lower threshold (0.85) catches more variations, higher (0.90+) only near-exact duplicates. ALWAYS use this before mf-create-thought to avoid redundancy. For checking multiple thoughts, use mf-bulk-check-duplicate instead (much more efficient).',
     inputSchema: z.object({
       title: z.string().optional().describe('Structured title of the thought to check. Should be formulated/structured, not raw news headline.'),
       summary: z.string().optional().describe('Summary of the thought to check. Include key metrics if relevant.'),
@@ -131,6 +131,34 @@ export const checkDuplicateTool = {
       if (input.content !== undefined) body.content = input.content;
       if (input.threshold !== undefined) body.threshold = input.threshold;
       const res = await callManifold('/v1/memory/check-duplicate', { method: 'POST', body: JSON.stringify(body) }, 20000);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+    } catch (e: any) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+};
+
+export const bulkCheckDuplicateTool = {
+  name: 'mf-bulk-check-duplicate',
+  config: {
+    title: 'Bulk Check Duplicate',
+    description: 'Check multiple thoughts for duplicates in a single batch. Much more efficient than multiple mf-check-duplicate calls. Supports 1-100 thoughts per batch. Each thought object should have title, summary, content (at least one required). Returns detailed results for each thought (is_duplicate, similar_count, similar thoughts). Use this BEFORE mf-bulk-create-thoughts to filter out duplicates - only create thoughts where is_duplicate=false. Token-efficient: single API call with batch embedding instead of N calls. Recommended workflow: 1) Prepare array of thoughts to create, 2) Call mf-bulk-check-duplicate, 3) Filter results (keep only non-duplicates), 4) Call mf-bulk-create-thoughts with filtered list.',
+    inputSchema: z.object({
+      thoughts: z.array(z.object({
+        title: z.string().optional().describe('Structured title of the thought to check.'),
+        summary: z.string().optional().describe('Summary of the thought to check.'),
+        content: z.string().optional().describe('Full content of the thought to check.')
+      })).min(1).max(100).describe('Array of 1-100 thought objects to check. Each thought should have at least one of: title, summary, content.'),
+      threshold: z.number().min(0).max(1).default(0.90).optional().describe('Similarity threshold 0-1. Default 0.90 (high precision). Lower values (0.85-0.87) catch more variations. Higher (0.92+) only near-exact duplicates.')
+    }).shape
+  },
+  handler: async (input: { thoughts: Array<{ title?: string; summary?: string; content?: string }>; threshold?: number }) => {
+    try {
+      const body: any = {
+        thoughts: input.thoughts
+      };
+      if (input.threshold !== undefined) body.threshold = input.threshold;
+      const res = await callManifold('/v1/memory/check-duplicate/bulk', { method: 'POST', body: JSON.stringify(body) }, 40000); // Longer timeout for bulk operations
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     } catch (e: any) {
       return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };

@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir \
     fastapi==0.120.4 \
     uvicorn[standard]==0.38.0 \
     pydantic==2.12.3 \
-    python-dotenv==1.2.1
+    python-dotenv==1.2.1 \
+    httpx>=0.27.0
 
 # Copy only coalescence_api and necessary files
 COPY apps/coalescence_api /app/apps/coalescence_api

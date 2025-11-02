@@ -391,6 +391,8 @@ def check_duplicate(
         
         candidates = []
         for hit in similar_points:
+            if hit.payload.get("status") == "deleted":
+                continue
             if hit.score >= threshold:
                 candidates.append({
                     "thought_id": str(hit.id),
@@ -407,6 +409,103 @@ def check_duplicate(
             "is_duplicate": is_duplicate,
             "similar_count": len(candidates),
             "similar": candidates
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking duplicates: {str(e)}")
+
+
+@router.post("/check-duplicate/bulk")
+def bulk_check_duplicate(
+    body: dict,
+    store: QdrantStore = Depends(get_qdrant_store),
+    embedder: EmbeddingProvider = Depends(get_embedding_provider_dep),
+):
+    """Check multiple thoughts for duplicates in a single batch. Much more efficient than multiple check-duplicate calls.
+    
+    Accepts array of thought objects (1-100 thoughts per batch).
+    Each thought object should have: title, summary, content (at least one required).
+    Returns detailed results for each thought (is_duplicate, similar_count, similar thoughts).
+    Use this before bulk-create-thoughts to filter out duplicates.
+    """
+    thoughts = body.get("thoughts", [])
+    threshold = body.get("threshold", 0.90)
+    
+    if not thoughts:
+        raise HTTPException(400, "No thoughts provided")
+    if len(thoughts) > 100:
+        raise HTTPException(400, "Maximum 100 thoughts per batch")
+    
+    results = []
+    
+    # Build texts for batch embedding
+    texts_to_check = []
+    for idx, thought_data in enumerate(thoughts):
+        title = thought_data.get("title", "")
+        summary = thought_data.get("summary", "")
+        content = thought_data.get("content", "")
+        text = f"{title} {summary} {content}".strip()
+        texts_to_check.append((idx, text, thought_data))
+    
+    if not texts_to_check:
+        return {"status": "ok", "results": [], "message": "No texts to check"}
+    
+    try:
+        # Batch embed all texts (much faster than individual calls)
+        query_texts = [text for _, text, _ in texts_to_check]
+        query_vectors = embedder.embed_batch(query_texts, is_query=True)
+        
+        # Check each thought
+        for (idx, text, thought_data), query_vec in zip(texts_to_check, query_vectors):
+            if not text:
+                results.append({
+                    "index": idx,
+                    "status": "ok",
+                    "is_duplicate": False,
+                    "similar_count": 0,
+                    "similar": [],
+                    "message": "No text to check",
+                    "thought": thought_data.get("title") or thought_data.get("id") or f"thought_{idx}"
+                })
+                continue
+            
+            # Search with summary vector (cheap discovery)
+            similar_points = store.query(
+                vector_name="summary",
+                query_vector=query_vec,
+                limit=50
+            )
+            
+            candidates = []
+            for hit in similar_points:
+                if hit.payload.get("status") == "deleted":
+                    continue
+                if hit.score >= threshold:
+                    candidates.append({
+                        "thought_id": str(hit.id),
+                        "similarity": float(hit.score),
+                        "title": hit.payload.get("title"),
+                        "type": hit.payload.get("type"),
+                        "status": hit.payload.get("status"),
+                    })
+            
+            is_duplicate = len(candidates) > 0
+            results.append({
+                "index": idx,
+                "status": "ok",
+                "threshold": threshold,
+                "is_duplicate": is_duplicate,
+                "similar_count": len(candidates),
+                "similar": candidates,
+                "thought": thought_data.get("title") or thought_data.get("id") or f"thought_{idx}"
+            })
+        
+        return {
+            "status": "ok",
+            "threshold": threshold,
+            "total": len(thoughts),
+            "duplicates_found": sum(1 for r in results if r.get("is_duplicate")),
+            "unique_count": sum(1 for r in results if not r.get("is_duplicate")),
+            "results": results
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error checking duplicates: {str(e)}")

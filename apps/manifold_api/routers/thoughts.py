@@ -48,6 +48,100 @@ def create_thought(
     return CreateResponse(status="created", thought_id=thought.id)
 
 
+@router.post("/thought/bulk")
+def bulk_create_thoughts(
+    body: dict,
+    store: QdrantStore = Depends(get_qdrant_store),
+    embedder: EmbeddingProvider = Depends(get_embedding_provider_dep),
+):
+    """Create multiple thoughts in a single batch. Much more efficient than multiple create-thought calls.
+    
+    Accepts array of thought objects (1-100 thoughts per batch).
+    Each thought follows ThoughtEnvelope schema.
+    Returns detailed results for each thought (created, skipped, errors).
+    """
+    thoughts = body.get("thoughts", [])
+    if not thoughts:
+        raise HTTPException(400, "No thoughts provided")
+    if len(thoughts) > 100:
+        raise HTTPException(400, "Maximum 100 thoughts per batch")
+    
+    now = datetime.utcnow().isoformat() + "Z"
+    results = []
+    created_count = 0
+    error_count = 0
+    
+    # Validate all thoughts first
+    validated_thoughts = []
+    for idx, thought_data in enumerate(thoughts):
+        try:
+            thought = ThoughtEnvelope(**thought_data)
+            if not thought.id:
+                thought.id = str(uuid4())
+            thought.created_at = now
+            thought.updated_at = now
+            validated_thoughts.append((idx, thought))
+        except Exception as e:
+            error_count += 1
+            results.append({
+                "index": idx,
+                "status": "error",
+                "error": f"Validation failed: {str(e)}",
+                "thought_data": thought_data.get("title") or thought_data.get("id") or f"thought_{idx}"
+            })
+    
+    # Batch embed all texts, titles, summaries for efficiency
+    texts = [t.content or "" for _, t in validated_thoughts]
+    titles = [t.title or "" for _, t in validated_thoughts]
+    summaries = [
+        t.summary or t.title or (t.content[:280] if t.content else "")
+        for _, t in validated_thoughts
+    ]
+    
+    # Batch embedding (much faster than individual calls)
+    text_vectors = embedder.embed_batch(texts)
+    title_vectors = embedder.embed_batch(titles)
+    summary_vectors = embedder.embed_batch(summaries)
+    
+    # Process each thought with pre-computed embeddings
+    for (idx, thought), text_vec, title_vec, summary_vec in zip(
+        validated_thoughts, text_vectors, title_vectors, summary_vectors
+    ):
+        try:
+            vectors = {
+                "text": text_vec,
+                "title": title_vec,
+                "summary": summary_vec
+            }
+            
+            payload = thought.model_dump()
+            store.upsert_point(thought.id, payload, vectors)
+            
+            created_count += 1
+            results.append({
+                "thought_id": thought.id,
+                "status": "created",
+                "title": thought.title
+            })
+        except Exception as e:
+            error_count += 1
+            results.append({
+                "index": idx,
+                "status": "error",
+                "error": f"Storage failed: {str(e)}",
+                "thought_data": thought.title or thought.id or f"thought_{idx}"
+            })
+    
+    return {
+        "status": "ok",
+        "total": len(thoughts),
+        "created": created_count,
+        "errors": error_count,
+        "results": results,
+        "created_at": now
+    }
+
+
 @router.get("/thought/{tid}")
 def get_thought(
     tid: str,

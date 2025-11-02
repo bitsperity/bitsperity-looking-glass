@@ -189,6 +189,7 @@ services:
       - ./mcps/manifold:/mcps/manifold:ro
       - ./mcps/ariadne:/mcps/ariadne:ro
       - ./mcps/coalescence:/mcps/coalescence:ro
+      - ./mcps/exploration:/mcps/exploration:ro
     depends_on:
       - satbase-api
       - tesseract-api

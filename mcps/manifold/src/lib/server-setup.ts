@@ -4,12 +4,12 @@ import { logger } from '../logger.js';
 
 // Tools
 import { getHealthTool, getConfigTool, getDeviceTool } from './tools/health.js';
-import { createThoughtTool, getThoughtTool, patchThoughtTool, deleteThoughtTool, getThoughtChildrenTool, mergeThoughtsTool } from './tools/thoughts.js';
+import { createThoughtTool, bulkCreateThoughtsTool, getThoughtTool, patchThoughtTool, deleteThoughtTool, getThoughtChildrenTool, mergeThoughtsTool } from './tools/thoughts.js';
 import { searchThoughtsTool, getTimelineTool, getStatsTool } from './tools/search.js';
 import { linkRelatedTool, batchLinkRelatedTool, unlinkRelatedTool, getRelatedTool, getRelatedFacetsTool, getRelatedGraphTool, getThoughtTreeTool, getThoughtsWithRelationTypeTool } from './tools/relations.js';
 import { getBirdviewGraphTool } from './tools/graph.js';
 import { promoteThoughtTool, syncAriadneTool } from './tools/promote.js';
-import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool, checkDuplicateTool, getDuplicateWarningsTool, getAllDuplicatesTool, getStatisticsTool, getGraphMetricsTool, getOverviewTool, getRelationTimelineTool, quarantineThoughtTool, unquarantineThoughtTool, explainSearchTool } from './tools/admin.js';
+import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool, checkDuplicateTool, bulkCheckDuplicateTool, getDuplicateWarningsTool, getAllDuplicatesTool, getStatisticsTool, getGraphMetricsTool, getOverviewTool, getRelationTimelineTool, quarantineThoughtTool, unquarantineThoughtTool, explainSearchTool } from './tools/admin.js';
 import { listSessionsTool, getSessionThoughtsTool, getSessionGraphTool, getSessionSummaryTool, upsertSessionSummaryTool } from './tools/sessions.js';
 import { listWorkspacesTool, getWorkspaceThoughtsTool, getWorkspaceGraphTool, getWorkspaceSummaryTool, upsertWorkspaceSummaryTool } from './tools/workspaces.js';
 
@@ -25,6 +25,7 @@ export function createMcpServer(): McpServer {
 
   // Thoughts CRUD
   server.registerTool(createThoughtTool.name, createThoughtTool.config, createThoughtTool.handler);
+  server.registerTool(bulkCreateThoughtsTool.name, bulkCreateThoughtsTool.config, bulkCreateThoughtsTool.handler);
   server.registerTool(getThoughtTool.name, getThoughtTool.config, getThoughtTool.handler);
   server.registerTool(patchThoughtTool.name, patchThoughtTool.config, patchThoughtTool.handler);
   server.registerTool(deleteThoughtTool.name, deleteThoughtTool.config, deleteThoughtTool.handler);
@@ -78,6 +79,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(restoreFromTrashTool.name, restoreFromTrashTool.config, restoreFromTrashTool.handler);
   server.registerTool(getSimilarTool.name, getSimilarTool.config, getSimilarTool.handler);
   server.registerTool(checkDuplicateTool.name, checkDuplicateTool.config, checkDuplicateTool.handler);
+  server.registerTool(bulkCheckDuplicateTool.name, bulkCheckDuplicateTool.config, bulkCheckDuplicateTool.handler);
   server.registerTool(getDuplicateWarningsTool.name, getDuplicateWarningsTool.config, getDuplicateWarningsTool.handler);
   server.registerTool(getAllDuplicatesTool.name, getAllDuplicatesTool.config, getAllDuplicatesTool.handler);
   server.registerTool(getStatisticsTool.name, getStatisticsTool.config, getStatisticsTool.handler);
