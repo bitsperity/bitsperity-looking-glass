@@ -209,13 +209,23 @@
                         <div class="font-medium text-neutral-200 truncate">
                           {item.title}
                         </div>
-                        <div class="text-neutral-500 flex items-center gap-2 mt-0.5">
+                        <div class="text-neutral-500 flex items-center gap-2 mt-0.5 flex-wrap">
                           <span class="px-1.5 py-0.5 bg-neutral-700/50 rounded">{item.type}</span>
                           <span class="px-1.5 py-0.5 bg-neutral-700/50 rounded">{item.status}</span>
                           {#if item.confidence_score}
                             <span class="px-1.5 py-0.5 bg-indigo-950/50 rounded text-indigo-300">
                               {Math.round(item.confidence_score * 100)}%
                             </span>
+                          {/if}
+                          {#if item.workspace_id}
+                            <a 
+                              href={`/manifold/workspaces/${encodeURIComponent(item.workspace_id)}`}
+                              class="px-1.5 py-0.5 bg-blue-950/50 rounded text-blue-300 hover:bg-blue-900/50 transition-colors"
+                              title="Workspace: {item.workspace_id}"
+                              on:click|stopPropagation={() => {}}
+                            >
+                              📁 {item.workspace_id}
+                            </a>
                           {/if}
                         </div>
                       </div>

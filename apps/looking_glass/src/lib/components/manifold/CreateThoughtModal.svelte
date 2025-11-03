@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as api from '$lib/api/manifold';
   import GlassPanel from './GlassPanel.svelte';
+  import SessionWorkspaceSelector from './SessionWorkspaceSelector.svelte';
 
   export let open: boolean = false;
   export let onSuccess: () => void = () => {};
@@ -12,7 +13,8 @@
     summary: '',
     content: '',
     type: 'analysis',
-    session_id: 'default',
+    session_id: '',
+    workspace_id: '',
     status: 'active',
     confidence_level: 'medium'
   };
@@ -23,15 +25,21 @@
     error = null;
 
     try {
-      const body = {
+      const body: any = {
         title: form.title,
         summary: form.summary,
         content: form.content,
         type: form.type,
-        session_id: form.session_id,
         status: form.status,
         confidence_level: form.confidence_level
       };
+      
+      if (form.session_id) {
+        body.session_id = form.session_id;
+      }
+      if (form.workspace_id) {
+        body.workspace_id = form.workspace_id;
+      }
 
       const result = await api.createThought(body);
 
@@ -42,7 +50,8 @@
           summary: '',
           content: '',
           type: 'analysis',
-          session_id: 'default',
+          session_id: '',
+          workspace_id: '',
           status: 'active',
           confidence_level: 'medium'
         };
@@ -162,16 +171,13 @@
             </div>
           </div>
 
-          <!-- Session ID -->
-          <div>
-            <label class="text-sm font-medium text-neutral-300 mb-1 block">Session ID</label>
-            <input
-              type="text"
-              bind:value={form.session_id}
-              placeholder="default"
-              class="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-neutral-200 placeholder-neutral-500 focus:outline-none focus:border-indigo-500"
-            />
-          </div>
+          <!-- Session & Workspace Selector -->
+          <SessionWorkspaceSelector
+            bind:sessionId={form.session_id}
+            bind:workspaceId={form.workspace_id}
+            onSessionChange={(id) => form.session_id = id}
+            onWorkspaceChange={(id) => form.workspace_id = id}
+          />
 
           <!-- Buttons -->
           <div class="flex gap-2 pt-4 border-t border-white/10">

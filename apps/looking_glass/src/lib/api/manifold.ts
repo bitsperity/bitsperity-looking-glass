@@ -103,6 +103,26 @@ export const upsertSessionSummary = (sid: string, body: any) =>
     body: JSON.stringify(body) 
   });
 
+// Workspaces (NEW)
+export const getWorkspaces = (limit = 100) => 
+  http<any>(`/v1/memory/workspaces?limit=${limit}`);
+
+export const getWorkspaceThoughts = (wid: string, include_content = true) => 
+  http<any>(`/v1/memory/workspace/${wid}/thoughts?include_content=${include_content}`);
+
+export const getWorkspaceGraph = (wid: string) => 
+  http<any>(`/v1/memory/workspace/${wid}/graph`);
+
+export const getWorkspaceSummary = (wid: string) => 
+  http<any>(`/v1/memory/workspace/${wid}/summary`);
+
+export const upsertWorkspaceSummary = (wid: string, body: any) => 
+  http<any>(`/v1/memory/workspace/${wid}/summary`, { 
+    method: 'POST', 
+    headers: { 'Content-Type': 'application/json' }, 
+    body: JSON.stringify(body) 
+  });
+
 // Children & Tree (NEW)
 export const getChildren = (id: string) => 
   http<any>(`/v1/memory/thought/${id}/children`);

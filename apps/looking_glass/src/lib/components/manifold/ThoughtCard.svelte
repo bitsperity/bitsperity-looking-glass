@@ -34,6 +34,30 @@
       </span>
     {/if}
   </div>
+
+  <!-- Session & Workspace Badges -->
+  {#if thought.session_id || thought.workspace_id}
+    <div class="flex items-center gap-2 mb-2 flex-wrap">
+      {#if thought.session_id}
+        <a 
+          href={`/manifold/sessions/${encodeURIComponent(thought.session_id)}`}
+          class="text-xs bg-purple-950/50 text-purple-300 px-2 py-0.5 rounded hover:bg-purple-900/50 transition-colors"
+          title="Session: {thought.session_id}"
+        >
+          📊 {thought.session_id}
+        </a>
+      {/if}
+      {#if thought.workspace_id}
+        <a 
+          href={`/manifold/workspaces/${encodeURIComponent(thought.workspace_id)}`}
+          class="text-xs bg-blue-950/50 text-blue-300 px-2 py-0.5 rounded hover:bg-blue-900/50 transition-colors"
+          title="Workspace: {thought.workspace_id}"
+        >
+          📁 {thought.workspace_id}
+        </a>
+      {/if}
+    </div>
+  {/if}
   
   <!-- Content -->
   <div class="text-base font-semibold text-neutral-100 mb-1">{thought.title}</div>

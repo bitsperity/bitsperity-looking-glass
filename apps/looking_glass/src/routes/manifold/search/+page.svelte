@@ -265,9 +265,29 @@
                   on:change={(e) => onRowSelectedChange(r.id, e)}
                 />
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-1">
+                  <div class="flex items-center gap-2 mb-1 flex-wrap">
                     <span class="text-xs font-medium text-indigo-400">{r.thought?.type}</span>
                     <span class="text-xs text-neutral-500">{r.thought?.status}</span>
+                    {#if r.thought?.session_id}
+                      <a 
+                        href={`/manifold/sessions/${encodeURIComponent(r.thought.session_id)}`}
+                        class="text-xs bg-purple-950/50 text-purple-300 px-1.5 py-0.5 rounded hover:bg-purple-900/50 transition-colors"
+                        title="Session: {r.thought.session_id}"
+                        on:click|stopPropagation={() => {}}
+                      >
+                        📊 {r.thought.session_id}
+                      </a>
+                    {/if}
+                    {#if r.thought?.workspace_id}
+                      <a 
+                        href={`/manifold/workspaces/${encodeURIComponent(r.thought.workspace_id)}`}
+                        class="text-xs bg-blue-950/50 text-blue-300 px-1.5 py-0.5 rounded hover:bg-blue-900/50 transition-colors"
+                        title="Workspace: {r.thought.workspace_id}"
+                        on:click|stopPropagation={() => {}}
+                      >
+                        📁 {r.thought.workspace_id}
+                      </a>
+                    {/if}
                   </div>
                   <div class="font-semibold text-neutral-100 truncate">{r.thought?.title}</div>
                   {#if !cheapMode && r.thought?.summary}

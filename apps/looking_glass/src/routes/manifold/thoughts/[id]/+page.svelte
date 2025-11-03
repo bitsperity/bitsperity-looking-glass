@@ -8,6 +8,8 @@
   import NetworkCard from '$lib/components/manifold/NetworkCard.svelte';
   import TypePayloadRenderer from '$lib/components/manifold/TypePayloadRenderer.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
+  import SessionWorkspaceSelector from '$lib/components/manifold/SessionWorkspaceSelector.svelte';
+  import { goto } from '$app/navigation';
 
   let id = '';
   let item: any = null;
@@ -232,6 +234,35 @@
               <div class="text-xs text-neutral-400 mb-1">Sectors</div>
               <input class="px-3 py-2 rounded bg-neutral-800 w-full" bind:value={sectorsStr} />
             </div>
+          </div>
+          <div class="bg-neutral-900 rounded p-4 border border-neutral-800 space-y-2">
+            <div class="text-sm text-neutral-400 mb-2">Session & Workspace</div>
+            <SessionWorkspaceSelector
+              sessionId={item.session_id || ''}
+              workspaceId={item.workspace_id || ''}
+              onSessionChange={(id) => item.session_id = id || undefined}
+              onWorkspaceChange={(id) => item.workspace_id = id || undefined}
+            />
+            {#if item.session_id}
+              <div class="mt-2">
+                <a 
+                  href={`/manifold/sessions/${encodeURIComponent(item.session_id)}`}
+                  class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  → View Session
+                </a>
+              </div>
+            {/if}
+            {#if item.workspace_id}
+              <div class="mt-2">
+                <a 
+                  href={`/manifold/workspaces/${encodeURIComponent(item.workspace_id)}`}
+                  class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  → View Workspace
+                </a>
+              </div>
+            {/if}
           </div>
           <div class="bg-neutral-900 rounded p-4 border border-neutral-800 space-y-2">
             <div class="text-sm text-neutral-400">Epistemology</div>

@@ -4,8 +4,10 @@
 
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { page } from '$app/stores';
   import { globalGraph } from '$lib/api/manifold';
   import { search as searchThoughts } from '$lib/api/manifold';
+  import { getSessions, getWorkspaces } from '$lib/api/manifold';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import ThoughtPreviewModal from '$lib/components/manifold/ThoughtPreviewModal.svelte';
   
@@ -34,6 +36,11 @@
   let searchResults: string[] = []; // IDs of matching thoughts
   let searchActive = false;
 
+  // Session/Workspace Selectors
+  let sessions: any[] = [];
+  let workspaces: any[] = [];
+  let loadingSelectors = false;
+
   async function load() {
     loading = true; 
     error = null;
@@ -46,8 +53,34 @@
         session_id: sessionId || undefined,
         workspace_id: workspaceId || undefined,
       });
-      nodes = resp.nodes || []; 
-      edges = resp.edges || [];
+      let allNodes = resp.nodes || []; 
+      let allEdges = resp.edges || [];
+      
+      // Additional filtering: If workspace_id or session_id is set, filter nodes strictly
+      if (workspaceId) {
+        allNodes = allNodes.filter((n: any) => {
+          const payload = n.payload || n;
+          return payload.workspace_id === workspaceId;
+        });
+        // Filter edges to only include edges between filtered nodes
+        const nodeIds = new Set(allNodes.map((n: any) => String(n.id)));
+        allEdges = allEdges.filter((e: any) => 
+          nodeIds.has(String(e.from)) && nodeIds.has(String(e.to))
+        );
+      } else if (sessionId) {
+        allNodes = allNodes.filter((n: any) => {
+          const payload = n.payload || n;
+          return payload.session_id === sessionId;
+        });
+        // Filter edges to only include edges between filtered nodes
+        const nodeIds = new Set(allNodes.map((n: any) => String(n.id)));
+        allEdges = allEdges.filter((e: any) => 
+          nodeIds.has(String(e.from)) && nodeIds.has(String(e.to))
+        );
+      }
+      
+      nodes = allNodes;
+      edges = allEdges;
       
       // Warte auf DOM-Update und render dann
       await tick();
@@ -140,7 +173,34 @@
     renderer.refresh();
   }
 
+  async function loadSelectors() {
+    loadingSelectors = true;
+    try {
+      const [sessionsResp, workspacesResp] = await Promise.all([
+        getSessions(100),
+        getWorkspaces(100),
+      ]);
+      sessions = sessionsResp.sessions || [];
+      workspaces = workspacesResp.workspaces || [];
+    } catch (e) {
+      console.error('Error loading selectors:', e);
+    } finally {
+      loadingSelectors = false;
+    }
+  }
+
   onMount(async () => {
+    // Read URL parameters
+    const params = $page.url.searchParams;
+    sessionId = params.get('session_id') || '';
+    workspaceId = params.get('workspace_id') || '';
+    type = params.get('type') || '';
+    status = params.get('status') || '';
+    tickers = params.get('tickers') || '';
+
+    // Load selectors
+    await loadSelectors();
+
     // Dynamische Imports nur im Browser
     const sigmaMod = await import('sigma');
     SigmaCtor = sigmaMod.default;
@@ -399,19 +459,33 @@
       </div>
       <div>
         <label class="text-xs text-neutral-400 mb-1 block">Session</label>
-        <input 
-          class="px-3 py-2 rounded bg-neutral-800 w-full text-sm" 
-          placeholder="session-alpha" 
-          bind:value={sessionId} 
-        />
+        <select
+          class="px-3 py-2 rounded bg-neutral-800 w-full text-sm border border-neutral-700 focus:border-indigo-500 focus:outline-none"
+          bind:value={sessionId}
+          on:change={load}
+        >
+          <option value="">All Sessions</option>
+          {#each sessions as session (session.session_id)}
+            <option value={session.session_id}>
+              {session.session_id} ({session.count})
+            </option>
+          {/each}
+        </select>
       </div>
       <div>
         <label class="text-xs text-neutral-400 mb-1 block">Workspace</label>
-        <input 
-          class="px-3 py-2 rounded bg-neutral-800 w-full text-sm" 
-          placeholder="workspace-id" 
-          bind:value={workspaceId} 
-        />
+        <select
+          class="px-3 py-2 rounded bg-neutral-800 w-full text-sm border border-neutral-700 focus:border-indigo-500 focus:outline-none"
+          bind:value={workspaceId}
+          on:change={load}
+        >
+          <option value="">All Workspaces</option>
+          {#each workspaces as workspace (workspace.workspace_id)}
+            <option value={workspace.workspace_id}>
+              {workspace.workspace_id} ({workspace.count})
+            </option>
+          {/each}
+        </select>
       </div>
     </div>
     <button 

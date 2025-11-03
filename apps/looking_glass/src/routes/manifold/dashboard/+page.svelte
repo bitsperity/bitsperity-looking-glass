@@ -4,6 +4,7 @@
   import KpiCard from '$lib/components/manifold/KpiCard.svelte';
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import SessionCard from '$lib/components/manifold/SessionCard.svelte';
+  import WorkspaceCard from '$lib/components/manifold/WorkspaceCard.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
   import * as api from '$lib/api/manifold';
   import { goto } from '$app/navigation';
@@ -12,20 +13,23 @@
   let data: any = {};
   let error: string | null = null;
   let sessions: any[] = [];
+  let workspaces: any[] = [];
   let duplicateWarnings: any[] = [];
   let timelineData: any = {};
 
   onMount(async () => {
     try {
-      const [dashboard, sessionsResp, warningsResp, timeline] = await Promise.all([
+      const [dashboard, sessionsResp, workspacesResp, warningsResp, timeline] = await Promise.all([
         fetchDashboard(),
         api.getSessions(10),
+        api.getWorkspaces(10),
         api.getDuplicateWarnings(0.92, 5),
         api.timeline({ type: undefined, tickers: undefined }),
       ]);
       
       data = dashboard;
       sessions = sessionsResp.sessions || [];
+      workspaces = workspacesResp.workspaces || [];
       duplicateWarnings = warningsResp.duplicates || [];
       timelineData = timeline || {};
     } catch (e: any) {
@@ -41,6 +45,14 @@
 
   function openGraph(sessionId: string) {
     goto(`/manifold/graph?session_id=${encodeURIComponent(sessionId)}`);
+  }
+
+  function openWorkspaceSearch(workspaceId: string) {
+    goto(`/manifold/search?workspace_id=${encodeURIComponent(workspaceId)}`);
+  }
+
+  function openWorkspaceGraph(workspaceId: string) {
+    goto(`/manifold/graph?workspace_id=${encodeURIComponent(workspaceId)}`);
   }
 
   $: timelineEntries = Object.entries(timelineData.bucketed || {}).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14);
@@ -63,6 +75,7 @@
       <GlassPanel loading={true} />
     </div>
     <GlassPanel title="📊 Active Sessions" loading={true} />
+    <GlassPanel title="📁 Active Workspaces" loading={true} />
   {:else if error}
     <GlassPanel error={error} title="❌ Error" />
   {:else}
@@ -89,22 +102,58 @@
       />
     </div>
 
-    <!-- Sessions Panel -->
-    {#if sessions.length > 0}
-      <GlassPanel title="📊 Active Sessions">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {#each sessions as session (session.session_id)}
-            <SessionCard 
-              {session}
-              onOpenSearch={openSearch}
-              onOpenGraph={openGraph}
-            />
-          {/each}
-        </div>
-      </GlassPanel>
-    {:else}
-      <GlassPanel title="📊 Active Sessions" emptyMessage="No active sessions yet" />
-    {/if}
+    <!-- Sessions & Workspaces Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Sessions Panel -->
+      {#if sessions.length > 0}
+        <GlassPanel title="📊 Active Sessions">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {#each sessions as session (session.session_id)}
+              <SessionCard 
+                {session}
+                onOpenSearch={openSearch}
+                onOpenGraph={openGraph}
+              />
+            {/each}
+          </div>
+          <div class="mt-4">
+            <a 
+              href="/manifold/sessions"
+              class="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+            >
+              View all sessions →
+            </a>
+          </div>
+        </GlassPanel>
+      {:else}
+        <GlassPanel title="📊 Active Sessions" emptyMessage="No active sessions yet" />
+      {/if}
+
+      <!-- Workspaces Panel -->
+      {#if workspaces.length > 0}
+        <GlassPanel title="📁 Active Workspaces">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {#each workspaces as workspace (workspace.workspace_id)}
+              <WorkspaceCard 
+                {workspace}
+                onOpenSearch={openWorkspaceSearch}
+                onOpenGraph={openWorkspaceGraph}
+              />
+            {/each}
+          </div>
+          <div class="mt-4">
+            <a 
+              href="/manifold/workspaces"
+              class="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+            >
+              View all workspaces →
+            </a>
+          </div>
+        </GlassPanel>
+      {:else}
+        <GlassPanel title="📁 Active Workspaces" emptyMessage="No active workspaces yet" />
+      {/if}
+    </div>
 
     <!-- Duplicate Warnings KPI -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
