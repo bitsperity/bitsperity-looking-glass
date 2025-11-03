@@ -2,16 +2,11 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { coalescenceClient, type AgentConfig } from '$lib/coalescence-client';
-  import AgentModal from '$lib/components/coalescence/AgentModal.svelte';
-
   let agents: (AgentConfig & { stats?: any })[] = [];
   let agentStats: any[] = [];
-  let availableRules: any[] = [];
   let loading = true;
   let error: string | null = null;
   let successMessage = '';
-  let showModal = false;
-  let selectedAgent: AgentConfig | null = null;
 
   async function loadData() {
     try {
@@ -19,15 +14,13 @@
       loading = true;
       error = null;
       
-      // Load agents from new API, stats, and rules in parallel
-      const [agentsResponse, stats, rules] = await Promise.all([
+      // Load agents from new API and stats in parallel
+      const [agentsResponse, stats] = await Promise.all([
         coalescenceClient.listAgents(),
-        coalescenceClient.getAgents(),
-        coalescenceClient.getAllRules()
+        coalescenceClient.getAgents()
       ]);
       
       agentStats = stats.agents || [];
-      availableRules = rules || [];
       
       // Merge agents with stats
       agents = agentsResponse.agents.map(agent => {
@@ -50,134 +43,6 @@
     }
   }
 
-  async function saveAgent(event: CustomEvent) {
-    const formData = event.detail;
-    try {
-      error = null;
-      successMessage = '';
-      
-      // Validate name is not empty
-      if (!formData.name || formData.name.trim() === '') {
-        error = 'Agent-Name darf nicht leer sein';
-        return;
-      }
-      
-      const trimmedName = formData.name.trim();
-      
-      // Prepare agent config
-      const agentConfig: Omit<AgentConfig, 'created_at' | 'updated_at'> = {
-        name: trimmedName,
-        enabled: formData.enabled,
-        model: formData.model,
-        schedule: formData.schedule,
-        system_prompt: formData.system_prompt || undefined,
-        max_tokens_per_turn: formData.max_tokens_per_turn,
-        max_steps: formData.max_steps || 5,
-        budget_daily_tokens: formData.budget_daily_tokens,
-        timeout_minutes: formData.timeout_minutes,
-        turns: formData.turns.map((turn: any, index: number) => ({
-          id: turn.id !== undefined ? turn.id : index,  // 0-based IDs: 0, 1, 2, ...
-          name: turn.name || `Turn ${index + 1}`,
-          max_tokens: turn.max_tokens || 1500,
-          max_steps: turn.max_steps,
-          mcps: turn.mcps || [],
-          tools: turn.tools || [],  // Include tools array
-          prompt: turn.prompt || undefined,
-          prompt_file: turn.prompt_file || undefined,
-          model: turn.model && turn.model !== formData.model ? turn.model : undefined,
-          rules: turn.rules || undefined
-        }))
-      };
-      
-      // Get original name if editing
-      // Handle both 'name' and 'agent' properties (API might return 'agent' for backwards compatibility)
-      const selectedAgentAny = selectedAgent as any;
-      const originalName = selectedAgent?.name || selectedAgentAny?.agent || '';
-      const isEditing = selectedAgent !== null && selectedAgent !== undefined;
-      
-      // Debug logging
-      console.log('[saveAgent] Debug:', {
-        originalName,
-        trimmedName,
-        isEditing,
-        selectedAgent: selectedAgent ? { 
-          name: selectedAgent.name, 
-          agent: selectedAgentAny?.agent,
-          keys: Object.keys(selectedAgent),
-          hasTurns: !!selectedAgent.turns 
-        } : null,
-        agentsList: agents.map(a => a.name)
-      });
-      
-      // If editing existing agent with same name - just update it
-      // Check this FIRST before any existence checks
-      if (isEditing && originalName && originalName === trimmedName) {
-        console.log('[saveAgent] Updating existing agent with same name');
-        console.log('[saveAgent] AgentConfig being sent:', JSON.stringify(agentConfig, null, 2));
-        // Update existing agent (same name) - no need to check for conflicts
-        await coalescenceClient.updateAgent(trimmedName, agentConfig);
-        successMessage = `✅ Agent "${trimmedName}" aktualisiert`;
-        await coalescenceClient.reloadAgents();
-      } else {
-        console.log('[saveAgent] Not updating same name - checking for conflicts');
-        // Either renaming or creating new agent - check if name already exists
-        // When renaming, exclude the agent we're editing from the check
-        const existingAgent = agents.find(a => {
-          // If we're editing and this is the agent we're editing, exclude it
-          if (isEditing && originalName && a.name === originalName) {
-            console.log('[saveAgent] Excluding agent we\'re editing:', a.name);
-            return false;
-          }
-          // Otherwise, check if name matches
-          const matches = a.name === trimmedName;
-          if (matches) {
-            console.log('[saveAgent] Found conflicting agent:', a.name);
-          }
-          return matches;
-        });
-        
-        if (existingAgent) {
-          console.log('[saveAgent] Conflict detected:', existingAgent);
-          // Agent with this name already exists (and we're not editing it)
-          error = `Agent "${trimmedName}" existiert bereits`;
-          return;
-        }
-        
-        // No conflict - proceed with create or rename
-        if (isEditing && originalName && originalName !== trimmedName) {
-          // Renaming agent - delete old and create new one with new name
-          try {
-            if (originalName.trim() !== '') {
-              await coalescenceClient.deleteAgent(originalName);
-            }
-          } catch (e) {
-            // Ignore delete errors (might already be deleted or have empty name)
-            console.warn('Could not delete old agent:', e);
-          }
-          await coalescenceClient.createAgent(agentConfig);
-          successMessage = `✅ Agent "${trimmedName}" erstellt (umbenannt von "${originalName || '(ohne Namen)'}")`;
-          await coalescenceClient.reloadAgents();
-        } else {
-          // Create new agent
-          await coalescenceClient.createAgent(agentConfig);
-          successMessage = `✅ Agent "${trimmedName}" erstellt`;
-          await coalescenceClient.reloadAgents();
-        }
-      }
-      
-      setTimeout(() => {
-        successMessage = '';
-      }, 3000);
-      
-      // Don't reset selectedAgent here - keep it for potential retry
-      showModal = false;
-      selectedAgent = null; // Reset after successful save
-      await loadData();
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to save agent';
-    }
-  }
-
   async function deleteAgent(agentName: string) {
     if (!agentName || agentName.trim() === '') {
       error = 'Agent-Name ist leer - kann nicht gelöscht werden';
@@ -197,40 +62,18 @@
     }
   }
 
-  async function editAgent(agent: AgentConfig) {
-    try {
-      error = null;
-      // Check if agent has a name
-      const agentAny = agent as any;
-      const agentName = agent.name || agentAny?.agent || '';
-      if (!agentName || agentName.trim() === '') {
-        error = 'Agent hat keinen Namen - bitte geben Sie einen Namen ein';
-        // Still open modal so user can fix it
-        selectedAgent = agent;
-        showModal = true;
-        return;
-      }
-      
-      // Load full agent config from API
-      const fullAgent = await coalescenceClient.getAgent(agentName.trim()) as any;
-      // Ensure name is set (API might return 'agent' instead of 'name')
-      if (!fullAgent.name && fullAgent.agent) {
-        fullAgent.name = fullAgent.agent;
-      }
-      selectedAgent = fullAgent as AgentConfig;
-      console.log('[editAgent] Loaded agent:', { name: fullAgent.name, agent: fullAgent.agent, keys: Object.keys(fullAgent) });
-      showModal = true;
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Failed to load agent details';
-      // Fallback to list agent if API fails
-      selectedAgent = agent;
-      showModal = true;
+  function editAgent(agent: AgentConfig) {
+    const agentAny = agent as any;
+    const agentName = agent.name || agentAny?.agent || '';
+    if (!agentName || agentName.trim() === '') {
+      error = 'Agent hat keinen Namen - bitte geben Sie einen Namen ein';
+      return;
     }
+    goto(`/coalescence/agents/${agentName.trim()}/edit`);
   }
 
   function createNewAgent() {
-    selectedAgent = null;
-    showModal = true;
+    goto('/coalescence/agents/new/edit');
   }
 
   async function toggleAgent(agentName: string, enabled: boolean) {
@@ -403,11 +246,3 @@
   {/if}
 </div>
 
-<!-- Modal -->
-<AgentModal
-  bind:isOpen={showModal}
-  agent={selectedAgent}
-  on:close={() => showModal = false}
-  on:save={saveAgent}
-  availableRules={availableRules}
-/>

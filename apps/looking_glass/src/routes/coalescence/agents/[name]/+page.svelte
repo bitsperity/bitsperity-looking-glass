@@ -161,7 +161,7 @@
           <StatusBadge status={agent.enabled ? 'success' : 'error'} />
         </div>
         <button
-          on:click={() => goto(`/coalescence/agents?edit=${agent.name}`)}
+          on:click={() => goto(`/coalescence/agents/${agent.name}/edit`)}
           class="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors flex items-center gap-2"
         >
           <span>✏️</span>

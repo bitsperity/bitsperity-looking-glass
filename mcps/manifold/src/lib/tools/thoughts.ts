@@ -147,18 +147,22 @@ export const bulkCreateThoughtsTool = {
     title: 'Bulk Create Thoughts',
     description: 'Create multiple thoughts in a single batch. Much more efficient than multiple mf-create-thought calls. Supports 1-100 thoughts per batch. **IMPORTANT**: Each thought MUST have workspace_id (required). session_id is optional but must be within the same workspace if provided. Each thought follows ThoughtEnvelope schema (type, title, content, summary, tags, tickers, sectors, workspace_id, session_id, etc.). Automatically computes embeddings for all thoughts. Returns detailed results for each thought (created, errors). Use this when creating multiple related thoughts (e.g., TOP-3 discoveries, multiple observations from one analysis). Token-efficient: single API call instead of N calls.',
     inputSchema: z.object({
-      thoughts: z.array(ThoughtEnvelopeSchema).min(1).max(100).describe('Array of 1-100 thought objects to create. Each thought follows ThoughtEnvelope schema with type, title, content, summary, tags, tickers, sectors, workspace_id (REQUIRED), session_id (optional), etc. All thoughts are created atomically - if one fails, others still succeed.')
+      thoughts: z.array(ThoughtEnvelopeSchema).min(1).max(100).describe('Array of 1-100 thought objects to create. Each thought follows ThoughtEnvelope schema with type (required), title, content, summary, tags, tickers, sectors, workspace_id (REQUIRED), session_id (optional), etc. All thoughts are created atomically - if one fails, others still succeed.')
     }).shape
   },
-  handler: async (input: { thoughts: z.infer<typeof ThoughtEnvelopeSchema>[] }) => {
-    logger.info({ tool: 'mf-bulk-create-thoughts', count: input.thoughts.length }, 'Tool invoked');
+  handler: async (input: { thoughts: any[] }) => {
+    logger.info({ tool: 'mf-bulk-create-thoughts', count: input.thoughts?.length || 0 }, 'Tool invoked');
     try {
+      if (!input.thoughts || !Array.isArray(input.thoughts) || input.thoughts.length === 0) {
+        return { content: [{ type: 'text', text: 'Error: thoughts array is required and must contain at least one thought' }], isError: true };
+      }
       const res = await callManifold('/v1/memory/thought/bulk', {
         method: 'POST',
         body: JSON.stringify({ thoughts: input.thoughts })
       }, 60000); // Longer timeout for bulk operations
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     } catch (e: any) {
+      logger.error({ tool: 'mf-bulk-create-thoughts', error: e }, 'Tool failed');
       return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
     }
   }
