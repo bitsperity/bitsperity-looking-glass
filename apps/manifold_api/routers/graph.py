@@ -66,12 +66,15 @@ def get_graph(
         for r in links.get("relations", []) or []:
             rid = str(r.get("related_id"))
             if rid in id_set:
-                edges.append({
+                edge_dict = {
                     "from": nid,
                     "to": rid,
                     "type": r.get("type", "related"),
                     "weight": float(r.get("weight", 1.0)),
-                })
+                }
+                if r.get("description"):
+                    edge_dict["description"] = r.get("description")
+                edges.append(edge_dict)
         
         # Parent-child edges
         parent_id = n["payload"].get("parent_id")

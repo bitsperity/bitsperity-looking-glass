@@ -40,7 +40,13 @@ export const stats = (params: { tickers?: string; timeframe?: string }) => {
 
 // Relations
 export const getRelated = (id: string) => http<any>(`/v1/memory/thought/${id}/related`);
-export const linkRelated = (id: string, related_id: string) => http<{ status: string }>(`/v1/memory/thought/${id}/related`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ related_id }) });
+export const linkRelated = (id: string, related_id: string, relation_type?: string, weight?: number, description?: string) => {
+  const body: any = { related_id };
+  if (relation_type) body.relation_type = relation_type;
+  if (weight !== undefined) body.weight = weight;
+  if (description) body.description = description;
+  return http<{ status: string }>(`/v1/memory/thought/${id}/related`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+};
 export const unlinkRelated = (id: string, related_id: string) => http<{ status: string }>(`/v1/memory/thought/${id}/related/${related_id}`, { method: 'DELETE' });
 
 // Promote & Sync

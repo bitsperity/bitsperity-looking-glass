@@ -34,13 +34,15 @@ export const SearchRequestSchema = z.object({
 export const RelationPayloadSchema = z.object({
   related_id: z.string(),
   relation_type: z.enum(['supports','contradicts','followup','duplicate','related']).default('related'),
-  weight: z.number().min(0).max(1).default(1.0)
+  weight: z.number().min(0).max(1).default(1.0),
+  description: z.string().optional().describe('Optional explanation of why this relation exists. Use this to clarify the specific connection, reasoning, or context that links these thoughts. Examples: "Both articles discuss the same regulatory change", "Thought B provides evidence for Thought A\'s hypothesis", "Contradicts on timeline but agrees on impact".')
 });
 
 export const BatchLinkRelationSchema = z.object({
   related_id: z.string(),
   relation_type: z.enum(['supports','contradicts','followup','duplicate','related']).default('related'),
-  weight: z.number().min(0).max(1).default(1.0)
+  weight: z.number().min(0).max(1).default(1.0),
+  description: z.string().optional().describe('Optional explanation of why this relation exists. Use this to clarify the specific connection, reasoning, or context that links these thoughts. Examples: "Both articles discuss the same regulatory change", "Thought B provides evidence for Thought A\'s hypothesis", "Contradicts on timeline but agrees on impact".')
 });
 
 export const BatchLinkRequestSchema = z.object({

@@ -6,10 +6,10 @@ export const linkRelatedTool = {
   name: 'mf-link-related',
   config: {
     title: 'Link Related Thought',
-    description: 'Create a single typed relation from one thought to another. Relation types: supports (thought B supports claim A), contradicts (thought B contradicts A), followup (B is a follow-up to A), duplicate (B is duplicate of A), related (general connection). Weight (0-1) indicates relation strength. For creating multiple relations efficiently, use mf-batch-link-related instead. Relations are bidirectional for querying but stored directionally. Returns creation timestamp.',
+    description: 'Create a single typed relation from one thought to another. Relation types: supports (thought B supports claim A), contradicts (thought B contradicts A), followup (B is a follow-up to A), duplicate (B is duplicate of A), related (general connection). Weight (0-1) indicates relation strength. Optional description field explains WHY the relation exists (e.g., "Both discuss same regulatory change", "Thought B provides evidence for A\'s hypothesis"). Always provide description when creating relations to make connections transparent. For creating multiple relations efficiently, use mf-batch-link-related instead. Relations are bidirectional for querying but stored directionally. Returns creation timestamp.',
     inputSchema: z.object({ 
       thought_id: z.string().describe('Source thought ID (the thought creating the relation).'),
-      payload: RelationPayloadSchema.describe('Relation payload containing related_id, relation_type, and optional weight (0-1, default 1.0).')
+      payload: RelationPayloadSchema.describe('Relation payload containing related_id, relation_type, optional weight (0-1, default 1.0), and optional description explaining why this relation exists.')
     }).shape
   },
   handler: async (input: { thought_id: string; payload: z.infer<typeof RelationPayloadSchema> }) => {
@@ -22,10 +22,10 @@ export const batchLinkRelatedTool = {
   name: 'mf-batch-link-related',
   config: {
     title: 'Batch Link Related Thoughts',
-    description: 'Create multiple relations from one thought to multiple other thoughts in a single API call. Much more efficient than multiple mf-link-related calls. Supports up to 100 relations per call. Each relation can have its own type (supports, contradicts, followup, duplicate, related) and weight (0-1). Use this when linking a thought to multiple similar thoughts, creating a network of connections, or establishing complex relationship structures. Returns detailed results for each relation (linked, skipped, updated).',
+    description: 'Create multiple relations from one thought to multiple other thoughts in a single API call. Much more efficient than multiple mf-link-related calls. Supports up to 100 relations per call. Each relation can have its own type (supports, contradicts, followup, duplicate, related), weight (0-1), and optional description explaining WHY the relation exists. Always provide descriptions to make connections transparent (e.g., "Both discuss same regulatory change", "Thought B provides evidence for A\'s hypothesis"). Use this when linking a thought to multiple similar thoughts, creating a network of connections, or establishing complex relationship structures. Returns detailed results for each relation (linked, skipped, updated).',
     inputSchema: z.object({ 
       thought_id: z.string().describe('Source thought ID (the thought creating all relations).'),
-      relations: BatchLinkRequestSchema.shape.relations.describe('Array of 1-100 relation objects. Each must have related_id, optional relation_type (default: "related"), and optional weight (default: 1.0).')
+      relations: BatchLinkRequestSchema.shape.relations.describe('Array of 1-100 relation objects. Each must have related_id, optional relation_type (default: "related"), optional weight (default: 1.0), and optional description explaining why the relation exists.')
     }).shape
   },
   handler: async (input: { thought_id: string; relations: z.infer<typeof BatchLinkRequestSchema>['relations'] }) => {

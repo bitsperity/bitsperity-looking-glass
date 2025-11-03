@@ -15,6 +15,7 @@ class BatchLinkRelation(BaseModel):
     related_id: str
     relation_type: Literal["supports", "contradicts", "followup", "duplicate", "related"] = "related"
     weight: float = 1.0
+    description: str | None = None  # Optional explanation of why this relation exists
 
 
 class BatchLinkRequest(BaseModel):
@@ -34,6 +35,7 @@ def link_related(
         raise HTTPException(400, "related_id required")
     relation_type: Literal["supports","contradicts","followup","duplicate","related"] = body.get("relation_type", "related")
     weight = body.get("weight", 1.0)
+    description = body.get("description")  # Optional explanation of the relation
     
     # Fetch source
     source = store.get_by_id(thought_id)
@@ -51,12 +53,15 @@ def link_related(
     now = datetime.utcnow().isoformat() + "Z"
     typed: List[Dict[str, Any]] = links.get("relations", [])
     if not any(r.get("related_id") == related_id for r in typed):
-        typed.append({
+        relation_dict = {
             "related_id": related_id,
             "type": relation_type,
             "weight": float(weight),
             "created_at": now,
-        })
+        }
+        if description:
+            relation_dict["description"] = description
+        typed.append(relation_dict)
     links["relations"] = typed
     source["links"] = links
     
@@ -96,6 +101,7 @@ def batch_link_related(
         related_id = relation.related_id
         relation_type = relation.relation_type
         weight = relation.weight
+        description = relation.description  # Optional explanation
         
         # Check if already linked
         already_in_related = related_id in related
@@ -116,35 +122,46 @@ def batch_link_related(
         
         # Add to typed relations if not present
         if not already_typed:
-            typed.append({
+            relation_dict = {
                 "related_id": related_id,
                 "type": relation_type,
                 "weight": float(weight),
                 "created_at": now,
-            })
+            }
+            if description:
+                relation_dict["description"] = description
+            typed.append(relation_dict)
             linked_count += 1
-            results.append({
+            result = {
                 "related_id": related_id,
                 "status": "linked",
                 "relation_type": relation_type,
                 "weight": weight,
                 "created_at": now
-            })
+            }
+            if description:
+                result["description"] = description
+            results.append(result)
         else:
             # Update existing typed relation
             for r in typed:
                 if r.get("related_id") == related_id:
                     r["type"] = relation_type
                     r["weight"] = float(weight)
+                    if description:
+                        r["description"] = description
                     r["updated_at"] = now
                     linked_count += 1
-                    results.append({
+                    result = {
                         "related_id": related_id,
                         "status": "updated",
                         "relation_type": relation_type,
                         "weight": weight,
                         "updated_at": now
-                    })
+                    }
+                    if description:
+                        result["description"] = description
+                    results.append(result)
                     break
     
     # Update source
@@ -211,12 +228,15 @@ def get_related(
     # Typed outgoing
     typed_outgoing = []
     for r in source.get("links", {}).get("relations", []) or []:
-        typed_outgoing.append({
+        rel_dict = {
             "from_id": thought_id,
             "to_id": r.get("related_id"),
             "relation_type": r.get("type", "related"),
             "weight": r.get("weight", 1.0),
-        })
+        }
+        if r.get("description"):
+            rel_dict["description"] = r.get("description")
+        typed_outgoing.append(rel_dict)
     
     # Find incoming links (scan all thoughts that link to this one)
     # CRITICAL: Only scan active thoughts (exclude deleted)
@@ -236,12 +256,15 @@ def get_related(
         # typed incoming
         for r in point.payload.get("links", {}).get("relations", []) or []:
             if r.get("related_id") == thought_id:
-                typed_incoming.append({
+                rel_dict = {
                     "from_id": point.id,
                     "to_id": thought_id,
                     "relation_type": r.get("type", "related"),
                     "weight": r.get("weight", 1.0),
-                })
+                }
+                if r.get("description"):
+                    rel_dict["description"] = r.get("description")
+                typed_incoming.append(rel_dict)
     
     # Get full thought objects
     related_ids: Set[str] = set(outgoing_ids)
@@ -348,7 +371,10 @@ def get_related_graph(
             for r in links.get("relations", []) or []:
                 rid = r.get("related_id")
                 if rid:
-                    edges.append({"from": nid, "to": rid, "type": r.get("type","related"), "weight": r.get("weight",1.0)})
+                    edge_dict = {"from": nid, "to": rid, "type": r.get("type","related"), "weight": r.get("weight",1.0)}
+                    if r.get("description"):
+                        edge_dict["description"] = r.get("description")
+                    edges.append(edge_dict)
                     next_frontier.add(rid)
         frontier = next_frontier
     return {
@@ -515,6 +541,8 @@ def get_thoughts_with_relation_type(
                         "weight": r.get("weight", 1.0),
                         "created_at": r.get("created_at"),
                     }
+                    if r.get("description"):
+                        pair["description"] = r.get("description")
                     
                     # Include full thoughts if requested
                     if include_thoughts:

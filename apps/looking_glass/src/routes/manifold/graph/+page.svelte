@@ -202,6 +202,7 @@
             color: edgeColor,
             type: 'arrow', // Sigma supports only 'arrow' and 'line'
             relationWeight: e.weight || 1.0,
+            relationDescription: e.description || null, // Store description for hover tooltip
             isDashed: isSection,
           });
         }
@@ -267,6 +268,7 @@
           id: edge,
           type: edgeData.label || 'related',
           weight: edgeData.relationWeight || 1.0,
+          description: edgeData.relationDescription || null,
           from: {
             id: sourceId,
             title: sourceNode?.payload?.title || sourceId,
@@ -514,6 +516,16 @@
                   <span class="text-xs font-mono text-neutral-200">{hoveredEdge.weight.toFixed(2)}</span>
                 </div>
               </div>
+              
+              <!-- Description -->
+              {#if hoveredEdge.description}
+                <div class="pt-2 border-t border-neutral-800">
+                  <div class="text-[11px] text-neutral-500 mb-1">Explanation</div>
+                  <div class="text-xs text-neutral-300 leading-relaxed">
+                    {hoveredEdge.description}
+                  </div>
+                </div>
+              {/if}
               
               <!-- From → To -->
               <div class="pt-2 border-t border-neutral-800">

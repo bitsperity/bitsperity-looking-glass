@@ -10,6 +10,7 @@
   let relatedId = '';
   let relationType: 'supports'|'contradicts'|'followup'|'duplicate'|'related' = 'related';
   let relationWeight: number = 1.0;
+  let relationDescription: string = '';
   let suggest: any[] = [];
   let previewId: string | null = null;
   let facets: Record<string, any[]> = {};
@@ -39,8 +40,11 @@
   }
 
   async function addLink() {
-    await linkRelated(id, relatedId);
+    await linkRelated(id, relatedId, relationType, relationWeight, relationDescription || undefined);
     relatedId = '';
+    relationType = 'related';
+    relationWeight = 1.0;
+    relationDescription = '';
     await load();
   }
 
@@ -68,6 +72,14 @@
       </select>
       <input type="number" min="0" max="1" step="0.1" class="px-3 py-2 rounded bg-neutral-800" placeholder="weight" bind:value={relationWeight} />
       <button class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500" on:click={addLink}>Link</button>
+    </div>
+    <div class="mt-2">
+      <textarea 
+        class="w-full px-3 py-2 rounded bg-neutral-800 text-sm" 
+        placeholder="Description (optional): Explain why this relation exists..."
+        bind:value={relationDescription}
+        rows="2"
+      ></textarea>
     </div>
     {#if suggest.length > 0}
       <div class="mt-3 text-xs text-neutral-400">Suggestions</div>
@@ -97,25 +109,45 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="bg-neutral-900 rounded p-4 border border-neutral-800">
         <div class="text-sm text-neutral-400">Outgoing</div>
-        <ul class="mt-2 space-y-1">
-          {#each data.outgoing as edge}
+        <ul class="mt-2 space-y-2">
+          {#each data.typed_outgoing || [] as edge}
             <li class="text-sm">
               {#if idToThought[edge.to_id]}
                 <div class="bg-neutral-800 rounded p-2">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs text-neutral-500">{edge.relation_type || 'related'}</span>
+                    {#if edge.weight !== undefined}
+                      <span class="text-xs text-neutral-500">weight: {edge.weight.toFixed(2)}</span>
+                    {/if}
+                  </div>
+                  {#if edge.description}
+                    <div class="text-xs text-neutral-400 mb-2 italic">"{edge.description}"</div>
+                  {/if}
                   <ThoughtCard thought={idToThought[edge.to_id]} showActions={true} onPreview={(id)=>{ previewId = id; }} />
                   <div class="mt-2 flex justify-end">
                     <button class="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800 text-xs" on:click={() => removeLink(edge.to_id)}>Unlink</button>
                   </div>
                 </div>
               {:else}
-                <div class="flex items-center justify-between bg-neutral-800 rounded px-2 py-1">
-                  <div class="truncate flex items-center gap-2">
-                    <a class="hover:underline" href={`/manifold/thoughts/${edge.to_id}`}>{edge.to_id}</a>
-                    <button class="px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-xs" on:click={() => { previewId = edge.to_id; }}>Preview</button>
+                <div class="bg-neutral-800 rounded px-2 py-1">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs text-neutral-500">{edge.relation_type || 'related'}</span>
+                    {#if edge.weight !== undefined}
+                      <span class="text-xs text-neutral-500">weight: {edge.weight.toFixed(2)}</span>
+                    {/if}
                   </div>
-                  <div class="flex gap-2">
-                    <a class="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800" href={`/manifold/thoughts/${edge.to_id}`}>Open</a>
-                    <button class="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800" on:click={() => removeLink(edge.to_id)}>Unlink</button>
+                  {#if edge.description}
+                    <div class="text-xs text-neutral-400 mb-2 italic">"{edge.description}"</div>
+                  {/if}
+                  <div class="flex items-center justify-between">
+                    <div class="truncate flex items-center gap-2">
+                      <a class="hover:underline" href={`/manifold/thoughts/${edge.to_id}`}>{edge.to_id}</a>
+                      <button class="px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-xs" on:click={() => { previewId = edge.to_id; }}>Preview</button>
+                    </div>
+                    <div class="flex gap-2">
+                      <a class="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800" href={`/manifold/thoughts/${edge.to_id}`}>Open</a>
+                      <button class="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800" on:click={() => removeLink(edge.to_id)}>Unlink</button>
+                    </div>
                   </div>
                 </div>
               {/if}
@@ -125,20 +157,40 @@
       </div>
       <div class="bg-neutral-900 rounded p-4 border border-neutral-800">
         <div class="text-sm text-neutral-400">Incoming</div>
-        <ul class="mt-2 space-y-1">
-          {#each data.incoming as edge}
+        <ul class="mt-2 space-y-2">
+          {#each data.typed_incoming || [] as edge}
             <li class="text-sm">
               {#if idToThought[edge.from_id]}
                 <div class="bg-neutral-800 rounded p-2">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs text-neutral-500">{edge.relation_type || 'related'}</span>
+                    {#if edge.weight !== undefined}
+                      <span class="text-xs text-neutral-500">weight: {edge.weight.toFixed(2)}</span>
+                    {/if}
+                  </div>
+                  {#if edge.description}
+                    <div class="text-xs text-neutral-400 mb-2 italic">"{edge.description}"</div>
+                  {/if}
                   <ThoughtCard thought={idToThought[edge.from_id]} showActions={true} onPreview={(id)=>{ previewId = id; }} />
                 </div>
               {:else}
-                <div class="flex items-center justify-between bg-neutral-800 rounded px-2 py-1">
-                  <div class="flex items-center gap-2">
-                    <a class="hover:underline" href={`/manifold/thoughts/${edge.from_id}`}>{edge.from_id}</a>
-                    <button class="px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-xs" on:click={() => { previewId = edge.from_id; }}>Preview</button>
+                <div class="bg-neutral-800 rounded px-2 py-1">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs text-neutral-500">{edge.relation_type || 'related'}</span>
+                    {#if edge.weight !== undefined}
+                      <span class="text-xs text-neutral-500">weight: {edge.weight.toFixed(2)}</span>
+                    {/if}
                   </div>
-                  <a class="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800" href={`/manifold/thoughts/${edge.from_id}`}>Open</a>
+                  {#if edge.description}
+                    <div class="text-xs text-neutral-400 mb-2 italic">"{edge.description}"</div>
+                  {/if}
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <a class="hover:underline" href={`/manifold/thoughts/${edge.from_id}`}>{edge.from_id}</a>
+                      <button class="px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 text-xs" on:click={() => { previewId = edge.from_id; }}>Preview</button>
+                    </div>
+                    <a class="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800" href={`/manifold/thoughts/${edge.from_id}`}>Open</a>
+                  </div>
                 </div>
               {/if}
             </li>
@@ -180,7 +232,12 @@
           <div class="text-xs text-neutral-500 mb-1">Edges</div>
           <div class="max-h-40 overflow-auto space-y-1">
             {#each graph.edges as e}
-              <div class="text-xs bg-neutral-800 rounded px-2 py-1">{e.from} —[{e.type}]→ {e.to}</div>
+              <div class="text-xs bg-neutral-800 rounded px-2 py-1">
+                <div>{e.from} —[{e.type}]→ {e.to}</div>
+                {#if e.description}
+                  <div class="text-[10px] text-neutral-500 italic mt-0.5">"{e.description}"</div>
+                {/if}
+              </div>
             {/each}
           </div>
         </div>
