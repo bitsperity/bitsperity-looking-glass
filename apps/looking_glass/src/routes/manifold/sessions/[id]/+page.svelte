@@ -6,6 +6,7 @@
   import ManifoldNav from '$lib/components/manifold/ManifoldNav.svelte';
   import GlassPanel from '$lib/components/manifold/GlassPanel.svelte';
   import ThoughtCard from '$lib/components/manifold/ThoughtCard.svelte';
+  import MiniGraph from '$lib/components/manifold/MiniGraph.svelte';
   import { goto } from '$app/navigation';
 
   let sessionId = '';
@@ -23,15 +24,43 @@
   let summaryContent = '';
   let editingSummary = false;
   let savingSummary = false;
+  
+  let currentLimit = 20;
+  let isLoadingMore = false;
+  let hasMore = true;
 
   $: sessionId = $page.params.id || '';
 
-  async function loadThoughts() {
+  async function loadThoughts(reset = false) {
     try {
-      const resp = await getSessionThoughts(sessionId, false);
-      thoughts = resp.thoughts || [];
+      if (reset) {
+        currentLimit = 20;
+        thoughts = [];
+        hasMore = true;
+      }
+      const resp = await getSessionThoughts(sessionId, false, currentLimit);
+      const newThoughts = resp.thoughts || [];
+      if (reset) {
+        thoughts = newThoughts;
+      } else {
+        // Append new thoughts, avoiding duplicates
+        const existingIds = new Set(thoughts.map(t => t.id));
+        thoughts = [...thoughts, ...newThoughts.filter(t => !existingIds.has(t.id))];
+      }
+      hasMore = newThoughts.length === currentLimit && currentLimit < 100;
     } catch (e: any) {
       console.error('Error loading thoughts:', e);
+    }
+  }
+  
+  async function loadMoreThoughts() {
+    if (isLoadingMore || !hasMore) return;
+    isLoadingMore = true;
+    try {
+      currentLimit = Math.min(currentLimit + 20, 100);
+      await loadThoughts(false);
+    } finally {
+      isLoadingMore = false;
     }
   }
 
@@ -87,7 +116,7 @@
     error = null;
     try {
       await Promise.all([
-        loadThoughts(),
+        loadThoughts(true),
         loadGraph(),
         loadTimeline(),
         loadSummary(),
@@ -181,28 +210,54 @@
 
     <!-- Tab Content -->
     {#if activeTab === 'thoughts'}
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {#each thoughts as thought (thought.id)}
-          <div on:click={() => openThought(thought.id)} class="cursor-pointer">
-            <ThoughtCard thought={thought} />
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {#each thoughts as thought (thought.id)}
+            <div on:click={() => openThought(thought.id)} class="cursor-pointer">
+              <ThoughtCard thought={thought} />
+            </div>
+          {/each}
+        </div>
+        {#if thoughts.length === 0}
+          <GlassPanel emptyMessage="No thoughts in this session" />
+        {:else if hasMore}
+          <div class="flex justify-center pt-4">
+            <button
+              class="px-6 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              on:click={loadMoreThoughts}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? 'Loading...' : `Load More (${thoughts.length} / ${currentLimit})`}
+            </button>
           </div>
-        {/each}
+        {/if}
       </div>
-      {#if thoughts.length === 0}
-        <GlassPanel emptyMessage="No thoughts in this session" />
-      {/if}
     {:else if activeTab === 'graph'}
       <GlassPanel>
         <div class="space-y-4">
-          <div class="text-sm text-neutral-400">
-            Graph: {graphData?.nodes?.length || 0} nodes, {graphData?.edges?.length || 0} edges
-          </div>
-          <button
-            class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
-            on:click={openGraph}
-          >
-            Open in Graph View →
-          </button>
+          {#if graphData?.nodes && graphData.nodes.length > 0}
+            <MiniGraph nodes={graphData.nodes} edges={graphData.edges || []} height={400} />
+            <div class="flex justify-center pt-2">
+              <button
+                class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
+                on:click={openGraph}
+              >
+                Open in Full Graph View →
+              </button>
+            </div>
+          {:else}
+            <div class="text-sm text-neutral-400 text-center py-8">
+              No graph data available for this session
+            </div>
+            <div class="flex justify-center">
+              <button
+                class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
+                on:click={openGraph}
+              >
+                Open in Graph View →
+              </button>
+            </div>
+          {/if}
         </div>
       </GlassPanel>
     {:else if activeTab === 'timeline'}
@@ -279,8 +334,8 @@
             {#if summary}
               <div class="space-y-4">
                 <div>
-                  <h3 class="text-lg font-semibold text-neutral-100 mb-2">{summary.title}</h3>
-                  <p class="text-sm text-neutral-300 whitespace-pre-wrap">{summary.summary || summary.content}</p>
+                  <h3 class="text-lg font-semibold text-neutral-100 mb-2">{summary.title || 'Untitled Summary'}</h3>
+                  <p class="text-sm text-neutral-300 whitespace-pre-wrap">{summary.summary || summary.content || 'No summary content available.'}</p>
                 </div>
                 <button
                   class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"

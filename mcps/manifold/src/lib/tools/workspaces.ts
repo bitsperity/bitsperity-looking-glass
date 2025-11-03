@@ -38,6 +38,24 @@ export const getWorkspaceThoughtsTool = {
   }
 };
 
+export const getWorkspaceSessionsTool = {
+  name: 'mf-workspace-sessions',
+  config: {
+    title: 'Workspace Sessions',
+    description: 'List all sessions within a workspace. **IMPORTANT**: Sessions live WITHIN workspaces. This tool returns only sessions that belong to the specified workspace. Sessions are temporary work units within workspaces (e.g., "week-1-analysis", "initial-research"). Returns session IDs, thought counts per session, type distributions, and metadata. Useful for understanding how thoughts are organized chronologically or by work phase within a workspace. Use limit to control result size (default 100, max 10000).',
+    inputSchema: z.object({ 
+      workspace_id: z.string().describe('Workspace ID to get sessions for. Returns only sessions within this workspace.'),
+      limit: z.number().int().min(1).max(10000).default(100).describe('Maximum number of sessions to return. Default 100, max 10000.')
+    }).shape
+  },
+  handler: async (input: { workspace_id: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (input.limit) params.append('limit', String(input.limit));
+    const res = await callManifold(`/v1/memory/workspace/${encodeURIComponent(input.workspace_id)}/sessions?${params.toString()}`, {}, 10000);
+    return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+  }
+};
+
 export const getWorkspaceGraphTool = {
   name: 'mf-workspace-graph',
   config: {

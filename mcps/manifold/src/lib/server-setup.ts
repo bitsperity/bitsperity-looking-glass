@@ -11,7 +11,7 @@ import { getBirdviewGraphTool } from './tools/graph.js';
 import { promoteThoughtTool, syncAriadneTool } from './tools/promote.js';
 import { getHistoryTool, reembedThoughtTool, reindexCollectionTool, dedupeThoughtsTool, bulkQuarantineTool, bulkUnquarantineTool, bulkReembedTool, bulkPromoteTool, getTrashTool, restoreFromTrashTool, getSimilarTool, checkDuplicateTool, bulkCheckDuplicateTool, getDuplicateWarningsTool, getAllDuplicatesTool, getStatisticsTool, getGraphMetricsTool, getOverviewTool, getRelationTimelineTool, quarantineThoughtTool, unquarantineThoughtTool, explainSearchTool } from './tools/admin.js';
 import { listSessionsTool, getSessionThoughtsTool, getSessionGraphTool, getSessionSummaryTool, upsertSessionSummaryTool } from './tools/sessions.js';
-import { listWorkspacesTool, getWorkspaceThoughtsTool, getWorkspaceGraphTool, getWorkspaceSummaryTool, upsertWorkspaceSummaryTool } from './tools/workspaces.js';
+import { listWorkspacesTool, getWorkspaceThoughtsTool, getWorkspaceSessionsTool, getWorkspaceGraphTool, getWorkspaceSummaryTool, upsertWorkspaceSummaryTool } from './tools/workspaces.js';
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({ name: config.SERVER_NAME, version: '1.0.0' });
@@ -62,6 +62,7 @@ export function createMcpServer(): McpServer {
   // Workspaces (Primary Organization)
   server.registerTool(listWorkspacesTool.name, listWorkspacesTool.config, listWorkspacesTool.handler);
   server.registerTool(getWorkspaceThoughtsTool.name, getWorkspaceThoughtsTool.config, getWorkspaceThoughtsTool.handler);
+  server.registerTool(getWorkspaceSessionsTool.name, getWorkspaceSessionsTool.config, getWorkspaceSessionsTool.handler);
   server.registerTool(getWorkspaceGraphTool.name, getWorkspaceGraphTool.config, getWorkspaceGraphTool.handler);
   server.registerTool(getWorkspaceSummaryTool.name, getWorkspaceSummaryTool.config, getWorkspaceSummaryTool.handler);
   server.registerTool(upsertWorkspaceSummaryTool.name, upsertWorkspaceSummaryTool.config, upsertWorkspaceSummaryTool.handler);

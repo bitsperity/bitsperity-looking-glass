@@ -96,7 +96,42 @@
         {/each}
       </div>
     {:else}
-      <GlassPanel emptyMessage="No sessions found" />
+      <GlassPanel>
+        <div class="text-center py-12 space-y-4">
+          <div class="text-lg font-semibold text-neutral-300">
+            {searchQuery ? 'No sessions match your search' : 'No sessions yet'}
+          </div>
+          <div class="text-sm text-neutral-400 max-w-md mx-auto">
+            {#if searchQuery}
+              Try adjusting your search query or clear the filter to see all sessions.
+            {:else}
+              Sessions are created automatically when thoughts are assigned to them. Create a thought and assign it to a session to get started.
+            {/if}
+          </div>
+          <div class="flex gap-3 justify-center pt-4">
+            {#if searchQuery}
+              <button
+                class="px-4 py-2 rounded bg-neutral-700 hover:bg-neutral-600 text-sm font-medium text-neutral-200 transition-colors"
+                on:click={() => searchQuery = ''}
+              >
+                Clear Search
+              </button>
+            {/if}
+            <button
+              class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
+              on:click={() => goto('/manifold/thoughts')}
+            >
+              Browse Thoughts
+            </button>
+            <button
+              class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors"
+              on:click={() => goto('/manifold/search')}
+            >
+              Search Thoughts
+            </button>
+          </div>
+        </div>
+      </GlassPanel>
     {/if}
   {/if}
 </div>

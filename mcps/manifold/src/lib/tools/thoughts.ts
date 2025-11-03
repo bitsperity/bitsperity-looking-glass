@@ -7,7 +7,7 @@ export const createThoughtTool = {
   name: 'mf-create-thought',
   config: {
     title: 'Create Thought',
-    description: 'Create a new thought in the knowledge graph. Automatically computes embeddings for title, summary, and content vectors on the server. Valid thought types: observation (factual observation), hypothesis (testable claim), analysis (detailed examination), decision (action taken), reflection (meta-thinking), question (unanswered query), summary (aggregate overview). Use structured titles (not raw news headlines), include metadata (tags, tickers, sectors) for organization, and set confidence_score (0-1) based on evidence quality. Always check for duplicates before creating using mf-check-duplicate.',
+    description: 'Create a new thought in the knowledge graph. **IMPORTANT**: workspace_id is REQUIRED - every thought must belong to a workspace. session_id is optional but must be within the same workspace if provided. Automatically computes embeddings for title, summary, and content vectors on the server. Valid thought types: observation (factual observation), hypothesis (testable claim), analysis (detailed examination), decision (action taken), reflection (meta-thinking), question (unanswered query), summary (aggregate overview). Use structured titles (not raw news headlines), include metadata (tags, tickers, sectors) for organization, and set confidence_score (0-1) based on evidence quality. Always check for duplicates before creating using mf-check-duplicate.',
     inputSchema: z.object({
       id: z.string().optional().describe('Optional custom ID. If omitted, UUID is auto-generated.'),
       type: z.string().min(1).describe('Thought type: observation, hypothesis, analysis, decision, reflection, question, or summary. Each type has different semantics and use cases.'),
@@ -20,7 +20,9 @@ export const createThoughtTool = {
       sectors: z.array(z.string()).optional().describe('Array of sector classifications (e.g., ["Technology", "Energy"]). Useful for sector-based analysis.'),
       confidence_score: z.number().min(0).max(1).optional().describe('Confidence level 0-1. 0.9+ = high certainty, 0.7-0.9 = medium, <0.7 = low/speculative. Based on evidence quality and source reliability.'),
       epistemology: z.record(z.any()).optional().describe('Optional reasoning structure: assumptions, evidence, reasoning chains. For complex analytical thoughts.'),
-      links: z.record(z.any()).optional().describe('Optional links: ariadne_entities, ariadne_facts, news_ids, price_event_ids. Usually set via relations tools, not here.')
+      links: z.record(z.any()).optional().describe('Optional links: ariadne_entities, ariadne_facts, news_ids, price_event_ids. Usually set via relations tools, not here.'),
+      workspace_id: z.string().describe('REQUIRED: Every thought must belong to a workspace. Workspaces are persistent organizational units (projects, topics, themes). Use existing workspace_id or create new one (e.g., "tesla-analysis-2025", "market-research-q4").'),
+      session_id: z.string().optional().describe('OPTIONAL: Session ID within the workspace. Sessions are temporary work units within a workspace (e.g., "week-1-analysis", "initial-research"). If provided, must belong to the same workspace_id. Sessions help organize thoughts chronologically or by work phase. Can be omitted if not using session-based organization.')
     }).shape
   },
   handler: async (input: z.infer<typeof ThoughtEnvelopeSchema>) => {
@@ -143,9 +145,9 @@ export const bulkCreateThoughtsTool = {
   name: 'mf-bulk-create-thoughts',
   config: {
     title: 'Bulk Create Thoughts',
-    description: 'Create multiple thoughts in a single batch. Much more efficient than multiple mf-create-thought calls. Supports 1-100 thoughts per batch. Each thought follows ThoughtEnvelope schema (type, title, content, summary, tags, tickers, sectors, workspace_id, etc.). Automatically computes embeddings for all thoughts. Returns detailed results for each thought (created, errors). Use this when creating multiple related thoughts (e.g., TOP-3 discoveries, multiple observations from one analysis). Token-efficient: single API call instead of N calls.',
+    description: 'Create multiple thoughts in a single batch. Much more efficient than multiple mf-create-thought calls. Supports 1-100 thoughts per batch. **IMPORTANT**: Each thought MUST have workspace_id (required). session_id is optional but must be within the same workspace if provided. Each thought follows ThoughtEnvelope schema (type, title, content, summary, tags, tickers, sectors, workspace_id, session_id, etc.). Automatically computes embeddings for all thoughts. Returns detailed results for each thought (created, errors). Use this when creating multiple related thoughts (e.g., TOP-3 discoveries, multiple observations from one analysis). Token-efficient: single API call instead of N calls.',
     inputSchema: z.object({
-      thoughts: z.array(ThoughtEnvelopeSchema).min(1).max(100).describe('Array of 1-100 thought objects to create. Each thought follows ThoughtEnvelope schema with type, title, content, summary, tags, tickers, sectors, workspace_id, etc. All thoughts are created atomically - if one fails, others still succeed.')
+      thoughts: z.array(ThoughtEnvelopeSchema).min(1).max(100).describe('Array of 1-100 thought objects to create. Each thought follows ThoughtEnvelope schema with type, title, content, summary, tags, tickers, sectors, workspace_id (REQUIRED), session_id (optional), etc. All thoughts are created atomically - if one fails, others still succeed.')
     }).shape
   },
   handler: async (input: { thoughts: z.infer<typeof ThoughtEnvelopeSchema>[] }) => {

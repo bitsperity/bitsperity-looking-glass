@@ -60,8 +60,8 @@
   {/if}
   
   <!-- Content -->
-  <div class="text-base font-semibold text-neutral-100 mb-1">{thought.title}</div>
-  <div class="text-xs text-neutral-400 line-clamp-2">{thought.content}</div>
+  <div class="text-base font-semibold text-neutral-100 mb-1">{thought.title || 'Untitled'}</div>
+  <div class="text-xs text-neutral-400 line-clamp-2">{thought.summary || thought.content || 'No content available'}</div>
   
   <!-- Tickers -->
   {#if thought.tickers && thought.tickers.length > 0}

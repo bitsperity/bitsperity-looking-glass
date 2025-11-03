@@ -277,19 +277,6 @@ def check_integrity():
         )
 
 
-@router.get("/news/{article_id}")
-def get_news_by_id(article_id: str):
-    """Get a single news article by its ID"""
-    s = load_settings()
-    db = NewsDB(s.stage_dir.parent / "news.db")
-    
-    articles = db.get_articles_by_ids([article_id])
-    
-    if not articles:
-        return JSONResponse({"error": "Article not found"}, status_code=404)
-    
-    return articles[0]
-
 @router.get("/news")
 def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, 
               tickers: str | None = None, categories: str | None = None, sources: str | None = None,
@@ -405,6 +392,139 @@ def list_news(from_: str = Query(None, alias="from"), to: str | None = None, q: 
     }
 
 
+@router.get("/news/overview")
+def list_news_overview(from_: str = Query(None, alias="from"), to: str | None = None, q: str | None = None, 
+              tickers: str | None = None, categories: str | None = None, sources: str | None = None,
+              countries: str | None = None, languages: str | None = None, sort: str = "published_desc",
+              limit: int = 100, offset: int = 0):
+    """
+    Lightweight news discovery endpoint. Returns only metadata (id, title, source, published_at, 
+    tickers, topics, url, description) WITHOUT body content. Token-efficient for discovery phase.
+    Use bulk-news-bodies to fetch full content for selected articles.
+    """
+    s = load_settings()
+    if not from_ or not to:
+        return {"items": [], "from": from_, "to": to, "limit": limit, "offset": offset, "total": 0}
+    
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    # Get configured topics to check if q is a topic name
+    try:
+        from ..topics import get_configured_topics
+        configured_topics = [t["name"] for t in get_configured_topics().get("topics", [])]
+    except:
+        configured_topics = []
+    
+    # Parse topic filter - only if q matches a configured topic
+    topics_filter = None
+    search_query = None
+    
+    if q:
+        # Check if q (or any part of comma-separated q) is a configured topic
+        q_parts = [t.strip() for t in q.split(',') if t.strip()]
+        
+        # If any part matches a topic (case-insensitive), use topic filtering with the correct case from configured_topics
+        matching_topics = []
+        for q_part in q_parts:
+            for conf_topic in configured_topics:
+                if q_part.lower() == conf_topic.lower():
+                    matching_topics.append(conf_topic)  # Use the correctly-cased topic name
+                    break
+        
+        if matching_topics:
+            topics_filter = matching_topics
+        else:
+            # Otherwise treat as text search
+            search_query = q
+    
+    # Parse ticker filter
+    tickers_filter = None
+    if tickers:
+        tickers_filter = [t.strip().upper() for t in tickers.split(',') if t.strip()]
+    
+    # Parse category filter (support exclude with -)
+    categories_filter = None
+    if categories:
+        categories_filter = [c.strip() for c in categories.split(',') if c.strip()]
+    
+    # Parse source filter (support exclude with -)
+    sources_filter = None
+    if sources:
+        sources_filter = [s.strip() for s in sources.split(',') if s.strip()]
+    
+    # Parse country filter (support exclude with -)
+    countries_filter = None
+    if countries:
+        countries_filter = [c.strip() for c in countries.split(',') if c.strip()]
+    
+    # Parse language filter (support exclude with -)
+    languages_filter = None
+    if languages:
+        languages_filter = [l.strip() for l in languages.split(',') if l.strip()]
+    
+    # Validate sort parameter
+    if sort not in ["published_desc", "published_asc"]:
+        sort = "published_desc"
+    
+    # Query articles - ALWAYS without body (include_body=False hardcoded)
+    articles = db.query_articles(
+        from_date=from_,
+        to_date=to,
+        search_query=search_query,
+        topics=topics_filter,
+        tickers=tickers_filter,
+        categories=categories_filter,
+        sources=sources_filter,
+        countries=countries_filter,
+        languages=languages_filter,
+        sort=sort,
+        has_body=False,  # No has_body filter in overview
+        limit=limit,
+        offset=offset
+    )
+    
+    # Remove body text - ALWAYS (hardcoded)
+    for item in articles:
+        item.pop("body_text", None)
+        item.pop("content_text", None)
+        item.pop("content_html", None)
+    
+    total = db.count_articles(
+        from_date=from_,
+        to_date=to,
+        topics=topics_filter,
+        search_query=search_query,
+        categories=categories_filter,
+        sources=sources_filter,
+        countries=countries_filter,
+        languages=languages_filter
+    )
+    
+    return {
+        "items": articles,
+        "from": from_, 
+        "to": to, 
+        "limit": limit,
+        "offset": offset,
+        "total": total,
+        "has_more": offset + limit < total
+    }
+
+
+@router.get("/news/{article_id}")
+def get_news_by_id(article_id: str):
+    """Get a single news article by its ID"""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    articles = db.get_articles_by_ids([article_id])
+    
+    if not articles:
+        return JSONResponse({"error": "Article not found"}, status_code=404)
+    
+    return articles[0]
+
+
 @router.delete("/news/{news_id}")
 def delete_news(news_id: str):
     """Delete a news article by ID"""
@@ -467,6 +587,65 @@ def bulk_get_news(body: dict):
         "items": articles,
         "count": len(articles),
         "found": len(articles),
+        "missing": len(missing_ids),
+        "missing_ids": missing_ids
+    }
+
+
+@router.post("/news/bulk-bodies")
+def bulk_get_news_bodies(body: dict):
+    """
+    Fetch article bodies for specific article IDs. Returns only id, body_text, published_at, and title.
+    Token-efficient for drilldown phase after discovery. ALWAYS includes bodies (no include_body parameter).
+    
+    Request body:
+    {
+        "ids": ["id1", "id2", "id3", ...]
+    }
+    
+    Response:
+    {
+        "items": [
+            {"id": "...", "body_text": "...", "published_at": "...", "title": "..."},
+            ...
+        ],
+        "count": 3,
+        "found": 3,
+        "missing": 0,
+        "missing_ids": []
+    }
+    """
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    
+    ids = body.get("ids", [])
+    
+    if not ids:
+        return {"items": [], "count": 0, "found": 0, "missing": 0, "missing_ids": []}
+    
+    if not isinstance(ids, list):
+        return JSONResponse({"error": "ids must be a list"}, status_code=400)
+    
+    # Fetch articles by IDs
+    articles = db.get_articles_by_ids(ids)
+    
+    # Filter to only relevant fields: id, body_text, published_at, title
+    filtered_items = []
+    for article in articles:
+        filtered_items.append({
+            "id": article.get("id"),
+            "body_text": article.get("body_text"),
+            "published_at": article.get("published_at"),
+            "title": article.get("title")
+        })
+    
+    found_ids = {item["id"] for item in filtered_items if item["id"]}
+    missing_ids = [id for id in ids if id not in found_ids]
+    
+    return {
+        "items": filtered_items,
+        "count": len(filtered_items),
+        "found": len(filtered_items),
         "missing": len(missing_ids),
         "missing_ids": missing_ids
     }

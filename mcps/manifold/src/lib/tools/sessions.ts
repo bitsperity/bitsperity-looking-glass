@@ -5,13 +5,15 @@ export const listSessionsTool = {
   name: 'mf-list-sessions',
   config: {
     title: 'List Sessions',
-    description: 'List all sessions in the knowledge graph with counts and type distribution. Sessions are logical groupings of thoughts (e.g., analysis sessions, research periods). Returns session IDs, thought counts per session, type distributions, and metadata. Useful for understanding how thoughts are organized, finding specific sessions, or getting an overview of session-based structure. Use limit to control result size (default 100, max 10000).',
+    description: 'List sessions in the knowledge graph with counts and type distribution. **IMPORTANT**: Sessions live WITHIN workspaces. If workspace_id is provided, returns only sessions within that workspace. If omitted, returns all sessions (for backward compatibility). Sessions are temporary work units within workspaces (e.g., "week-1-analysis", "initial-research"). Returns session IDs, workspace_id, thought counts per session, type distributions, and metadata. Useful for understanding how thoughts are organized within a workspace, finding specific sessions, or getting an overview of session-based structure. Use limit to control result size (default 100, max 10000).',
     inputSchema: z.object({ 
+      workspace_id: z.string().optional().describe('Optional workspace ID. If provided, returns only sessions within this workspace. If omitted, returns all sessions (less efficient).'),
       limit: z.number().int().min(1).max(10000).default(100).describe('Maximum number of sessions to return. Default 100, max 10000.')
     }).shape
   },
-  handler: async (input: { limit?: number }) => {
+  handler: async (input: { workspace_id?: string; limit?: number }) => {
     const params = new URLSearchParams();
+    if (input.workspace_id) params.append('workspace_id', input.workspace_id);
     if (input.limit) params.append('limit', String(input.limit));
     const res = await callManifold(`/v1/memory/sessions?${params.toString()}`, {}, 10000);
     return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
@@ -22,15 +24,17 @@ export const getSessionThoughtsTool = {
   name: 'mf-session-thoughts',
   config: {
     title: 'Session Thoughts',
-    description: 'Get all thoughts belonging to a specific session. **KRITISCH - TOKEN-KOSTEN**: Default limit=20, include_content=false (saves massive tokens!). Max limit=100. Each full thought object costs ~500-2000 tokens. Returns array of thought objects with metadata. Useful for analyzing session content, understanding what was discussed in a session. Use lower limits (10-20) to save tokens.',
+    description: 'Get all thoughts belonging to a specific session. **IMPORTANT**: Sessions live WITHIN workspaces. If workspace_id is provided, ensures session belongs to that workspace. **KRITISCH - TOKEN-KOSTEN**: Default limit=20, include_content=false (saves massive tokens!). Max limit=100. Each full thought object costs ~500-2000 tokens. Returns array of thought objects with metadata. Useful for analyzing session content, understanding what was discussed in a session. Use lower limits (10-20) to save tokens.',
     inputSchema: z.object({
-      session_id: z.string().describe('Session ID to retrieve thoughts for.'),
+      session_id: z.string().describe('Session ID to retrieve thoughts for. Session must belong to a workspace.'),
+      workspace_id: z.string().optional().describe('Optional workspace ID. If provided, ensures session belongs to this workspace. Helps filter correctly if session_id exists in multiple workspaces (should not happen but provides safety).'),
       limit: z.number().int().min(1).max(100).default(20).describe('KRITISCH: Maximum thoughts to return. Default 20 (token-efficient), max 100. Each thought object costs ~500-2000 tokens! Use lower limits (10-20) to save tokens.'),
       include_content: z.boolean().default(false).describe('KRITISCH: If false (default): returns only metadata (title, summary, tags, tickers) without full content - MUCH more token-efficient! Set to true ONLY when you need full content. Default false saves massive tokens.')
     }).shape
   },
-  handler: async (input: { session_id: string; limit?: number; include_content?: boolean }) => {
+  handler: async (input: { session_id: string; workspace_id?: string; limit?: number; include_content?: boolean }) => {
     const params = new URLSearchParams();
+    if (input.workspace_id) params.append('workspace_id', input.workspace_id);
     if (input.limit) params.append('limit', String(input.limit));
     if (typeof input.include_content === 'boolean') params.append('include_content', String(input.include_content));
     const res = await callManifold(`/v1/memory/session/${encodeURIComponent(input.session_id)}/thoughts?${params.toString()}`, {}, 15000);

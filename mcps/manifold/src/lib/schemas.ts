@@ -14,6 +14,8 @@ export const ThoughtEnvelopeSchema = z.object({
   confidence_score: z.number().min(0).max(1).optional(),
   epistemology: z.record(z.any()).optional(),
   links: z.record(z.any()).optional(),
+  workspace_id: z.string().describe('REQUIRED: Every thought must belong to a workspace. Workspaces are persistent organizational units (projects, topics, themes). Create or use existing workspace_id.'),
+  session_id: z.string().optional().describe('OPTIONAL: Session ID within the workspace. Sessions are temporary work units within a workspace (e.g., "week-1-analysis", "initial-research"). If provided, must belong to the same workspace_id. Sessions help organize thoughts chronologically or by work phase.')
 });
 
 export const PatchThoughtSchema = z.object({}).passthrough();

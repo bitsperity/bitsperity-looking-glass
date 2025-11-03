@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 
 // Import all tools
-import { listNewsTool, deleteNewsTool, newsHeatmapTool, trendingTickersTool, newsAnalyticsTool, getNewsByIdTool, bulkNewsTool, newsHealthTool, integrityCheckTool } from './tools/news.js';
+import { listNewsTool, listNewsOverviewTool, deleteNewsTool, newsHeatmapTool, trendingTickersTool, newsAnalyticsTool, getNewsByIdTool, bulkNewsTool, bulkNewsBodiesTool, newsHealthTool, integrityCheckTool } from './tools/news.js';
 import { fredSearchTool, fredObservationsTool, fredCategoriesTool, fredRefreshCoreTool, macroStatusTool } from './tools/macro.js';
 import { listPricesTool, searchPricesTool, pricesInfoTool, pricesFundamentalsTool, pricesStatusTool, listPricesBulkTool } from './tools/prices.js';
 import { btcOracleTool, usdToBtcTool, btcToUsdTool } from './tools/btc.js';
@@ -27,14 +27,16 @@ export function createMcpServer(): McpServer {
   // Status (1 tool)
   server.registerTool(getCoverageTool.name, getCoverageTool.config, getCoverageTool.handler);
 
-  // News (9 tools)
+  // News (11 tools)
   server.registerTool(listNewsTool.name, listNewsTool.config, listNewsTool.handler);
+  server.registerTool(listNewsOverviewTool.name, listNewsOverviewTool.config, listNewsOverviewTool.handler);
   server.registerTool(deleteNewsTool.name, deleteNewsTool.config, deleteNewsTool.handler);
   server.registerTool(newsHeatmapTool.name, newsHeatmapTool.config, newsHeatmapTool.handler);
   server.registerTool(trendingTickersTool.name, trendingTickersTool.config, trendingTickersTool.handler);
   server.registerTool(newsAnalyticsTool.name, newsAnalyticsTool.config, newsAnalyticsTool.handler);
   server.registerTool(getNewsByIdTool.name, getNewsByIdTool.config, getNewsByIdTool.handler);
   server.registerTool(bulkNewsTool.name, bulkNewsTool.config, bulkNewsTool.handler);
+  server.registerTool(bulkNewsBodiesTool.name, bulkNewsBodiesTool.config, bulkNewsBodiesTool.handler);
   server.registerTool(newsHealthTool.name, newsHealthTool.config, newsHealthTool.handler);
   server.registerTool(integrityCheckTool.name, integrityCheckTool.config, integrityCheckTool.handler);
 
@@ -107,6 +109,6 @@ export function createMcpServer(): McpServer {
   server.registerTool(listAdaptersTool.name, listAdaptersTool.config, listAdaptersTool.handler);
   server.registerTool(backfillMonitorTool.name, backfillMonitorTool.config, backfillMonitorTool.handler);
 
-  logger.info('60 tools registered successfully (48 core + 12 admin/quality)');
+  logger.info('62 tools registered successfully (50 core + 12 admin/quality)');
   return server;
 }

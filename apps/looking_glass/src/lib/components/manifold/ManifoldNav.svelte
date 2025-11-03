@@ -5,7 +5,6 @@
   
   const links = [
     { href: '/manifold/dashboard', label: 'Dashboard' },
-    { href: '/manifold/sessions', label: 'Sessions' },
     { href: '/manifold/workspaces', label: 'Workspaces' },
     { href: '/manifold/search', label: 'Search' },
     { href: '/manifold/timeline', label: 'Timeline' },

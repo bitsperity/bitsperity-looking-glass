@@ -104,6 +104,53 @@ export const DeleteNewsResponseSchema = z.object({
   message: z.string()
 });
 
+// --- News Overview Schemas (Token-Efficient Discovery) ---
+
+export const ListNewsOverviewRequestSchema = z.object({
+  from: DateStringSchema.describe('Start date (YYYY-MM-DD)'),
+  to: DateStringSchema.describe('End date (YYYY-MM-DD)'),
+  q: z.string().optional().describe('Search query'),
+  tickers: z.string().optional().describe('Comma-separated ticker symbols'),
+  limit: z.number().int().min(1).max(10000).default(100).describe('Maximum number of results'),
+  offset: z.number().int().min(0).default(0).describe('Pagination offset'),
+  categories: z.string().optional().describe('Comma-separated categories (e.g., "business,technology" or "business,-sports" for exclude)'),
+  sources: z.string().optional().describe('Comma-separated source names (e.g., "Reuters,CNN" or "cnn,-bbc" for exclude)'),
+  countries: z.string().optional().describe('Comma-separated ISO country codes (e.g., "us,gb,de")'),
+  languages: z.string().optional().describe('Comma-separated ISO language codes (e.g., "en,de")'),
+  sort: z.enum(['published_desc', 'published_asc']).default('published_desc').describe('Sort order: published_desc (newest first) or published_asc (oldest first)')
+});
+
+export const ListNewsOverviewResponseSchema = z.object({
+  items: z.array(NewsItemSchema),
+  from: z.string(),
+  to: z.string(),
+  limit: z.number(),
+  offset: z.number(),
+  total: z.number(),
+  has_more: z.boolean()
+});
+
+// --- Bulk News Bodies Schemas (Token-Efficient Body Fetch) ---
+
+export const BulkNewsBodiesRequestSchema = z.object({
+  ids: z.array(z.string()).describe('Array of article IDs to fetch bodies for')
+});
+
+export const BulkNewsBodyItemSchema = z.object({
+  id: z.string(),
+  body_text: z.string().nullable(),
+  published_at: z.string(),
+  title: z.string()
+});
+
+export const BulkNewsBodiesResponseSchema = z.object({
+  items: z.array(BulkNewsBodyItemSchema),
+  count: z.number(),
+  found: z.number(),
+  missing: z.number(),
+  missing_ids: z.array(z.string())
+});
+
 // --- Macro (FRED) Schemas ---
 
 export const FredSearchRequestSchema = z.object({

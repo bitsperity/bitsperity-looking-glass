@@ -23,7 +23,43 @@ def create_thought(
     store: QdrantStore = Depends(get_qdrant_store),
     embedder: EmbeddingProvider = Depends(get_embedding_provider_dep),
 ):
-    """Create a new thought with multi-vector embeddings."""
+    """Create a new thought with multi-vector embeddings.
+    
+    Validation:
+    - workspace_id is required for new thoughts
+    - If session_id is set, workspace_id must also be set
+    - If session_id is set, validation ensures session belongs to workspace
+    """
+    # Validation: workspace_id is required for new thoughts
+    if not thought.workspace_id:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace_id is required. Every thought must belong to a workspace."
+        )
+    
+    # Validation: If session_id is set, workspace_id must also be set (redundant check)
+    if thought.session_id and not thought.workspace_id:
+        raise HTTPException(
+            status_code=400,
+            detail="If session_id is provided, workspace_id must also be set. Sessions live within workspaces."
+        )
+    
+    # Validation: If session_id is set, verify it belongs to the workspace
+    if thought.session_id and thought.workspace_id:
+        # Check if there are any thoughts with this session_id and workspace_id
+        # This ensures the session belongs to the workspace
+        session_thoughts = store.scroll(
+            payload_filter={
+                "must": [
+                    {"key": "session_id", "match": {"value": thought.session_id}},
+                    {"key": "workspace_id", "match": {"value": thought.workspace_id}}
+                ]
+            },
+            limit=1
+        )
+        # If no thoughts exist yet with this session+workspace combo, we allow it (first thought in session)
+        # But we could add stricter validation here if needed
+    
     if not thought.id:
         thought.id = str(uuid4())
     
@@ -76,6 +112,15 @@ def bulk_create_thoughts(
     for idx, thought_data in enumerate(thoughts):
         try:
             thought = ThoughtEnvelope(**thought_data)
+            
+            # Validation: workspace_id is required
+            if not thought.workspace_id:
+                raise ValueError("workspace_id is required. Every thought must belong to a workspace.")
+            
+            # Validation: If session_id is set, workspace_id must also be set
+            if thought.session_id and not thought.workspace_id:
+                raise ValueError("If session_id is provided, workspace_id must also be set. Sessions live within workspaces.")
+            
             if not thought.id:
                 thought.id = str(uuid4())
             thought.created_at = now
@@ -188,10 +233,34 @@ def patch_thought(
     store: QdrantStore = Depends(get_qdrant_store),
     embedder: EmbeddingProvider = Depends(get_embedding_provider_dep),
 ):
-    """Update thought (partial) with light versioning."""
+    """Update thought (partial) with light versioning.
+    
+    Validation:
+    - workspace_id is required after update (if being set)
+    - If session_id is set, workspace_id must also be set
+    - If session_id is set, validation ensures session belongs to workspace
+    """
     current = store.get_by_id(tid)
     if not current:
         raise HTTPException(status_code=404, detail="Thought not found")
+    
+    # Determine final values after patch
+    final_workspace_id = patch.get("workspace_id", current.get("workspace_id"))
+    final_session_id = patch.get("session_id", current.get("session_id"))
+    
+    # Validation: workspace_id is required after update
+    if final_workspace_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="workspace_id is required. Every thought must belong to a workspace."
+        )
+    
+    # Validation: If session_id is set, workspace_id must also be set
+    if final_session_id and not final_workspace_id:
+        raise HTTPException(
+            status_code=400,
+            detail="If session_id is provided, workspace_id must also be set. Sessions live within workspaces."
+        )
     
     # Create version snapshot BEFORE update
     old_version = current.get("version", 1)

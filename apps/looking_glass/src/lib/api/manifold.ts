@@ -84,11 +84,15 @@ export const bulkReembed = (ids: string[], vectors: ('text'|'title')[] = ['text'
 export const bulkPromote = (ids: string[]) => http<{ status: string; marked: number }>(`/v1/memory/bulk/promote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
 
 // Sessions (NEW)
-export const getSessions = (limit = 100) => 
-  http<any>(`/v1/memory/sessions?limit=${limit}`);
+export const getSessions = (limit = 100, workspace_id?: string) => {
+  const q = new URLSearchParams();
+  q.set('limit', String(limit));
+  if (workspace_id) q.set('workspace_id', workspace_id);
+  return http<any>(`/v1/memory/sessions?${q.toString()}`);
+};
 
-export const getSessionThoughts = (sid: string, include_content = true) => 
-  http<any>(`/v1/memory/session/${sid}/thoughts?include_content=${include_content}`);
+export const getSessionThoughts = (sid: string, include_content = true, limit = 20) => 
+  http<any>(`/v1/memory/session/${sid}/thoughts?include_content=${include_content}&limit=${limit}`);
 
 export const getSessionGraph = (sid: string) => 
   http<any>(`/v1/memory/session/${sid}/graph`);
@@ -107,11 +111,14 @@ export const upsertSessionSummary = (sid: string, body: any) =>
 export const getWorkspaces = (limit = 100) => 
   http<any>(`/v1/memory/workspaces?limit=${limit}`);
 
-export const getWorkspaceThoughts = (wid: string, include_content = true) => 
-  http<any>(`/v1/memory/workspace/${wid}/thoughts?include_content=${include_content}`);
+export const getWorkspaceThoughts = (wid: string, include_content = true, limit = 20) => 
+  http<any>(`/v1/memory/workspace/${wid}/thoughts?include_content=${include_content}&limit=${limit}`);
 
 export const getWorkspaceGraph = (wid: string) => 
   http<any>(`/v1/memory/workspace/${wid}/graph`);
+
+export const getWorkspaceSessions = (wid: string, limit = 100) => 
+  http<any>(`/v1/memory/workspace/${wid}/sessions?limit=${limit}`);
 
 export const getWorkspaceSummary = (wid: string) => 
   http<any>(`/v1/memory/workspace/${wid}/summary`);

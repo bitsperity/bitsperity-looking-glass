@@ -7,7 +7,11 @@ import {
   NewsHeatmapRequestSchema,
   NewsHeatmapResponseSchema,
   TrendingTickersRequestSchema,
-  TrendingTickersResponseSchema
+  TrendingTickersResponseSchema,
+  ListNewsOverviewRequestSchema,
+  ListNewsOverviewResponseSchema,
+  BulkNewsBodiesRequestSchema,
+  BulkNewsBodiesResponseSchema
 } from '../schemas.js';
 import logger from '../../logger.js';
 
@@ -53,6 +57,54 @@ export const listNewsTool = {
       };
     } catch (error: any) {
       logger.error({ tool: 'list-news', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const listNewsOverviewTool = {
+  name: 'list-news-overview',
+  config: {
+    title: 'List News Overview (Token-Efficient Discovery)',
+    description: 'Lightweight news discovery tool. Returns only metadata (id, title, source, published_at, tickers, topics, url, description) WITHOUT body content. Use this for discovery phase to identify relevant articles efficiently. Then use bulk-news-bodies for full content. Token-efficient alternative to list-news for initial article discovery.',
+    inputSchema: ListNewsOverviewRequestSchema.shape
+  },
+  handler: async (input: z.infer<typeof ListNewsOverviewRequestSchema>) => {
+    logger.info({ tool: 'list-news-overview', input }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const params = new URLSearchParams({
+        from: input.from,
+        to: input.to,
+        limit: input.limit.toString(),
+        offset: input.offset.toString(),
+        sort: input.sort || 'published_desc'
+      });
+
+      if (input.q) params.append('q', input.q);
+      if (input.tickers) params.append('tickers', input.tickers);
+      if (input.categories) params.append('categories', input.categories);
+      if (input.sources) params.append('sources', input.sources);
+      if (input.countries) params.append('countries', input.countries);
+      if (input.languages) params.append('languages', input.languages);
+
+      const result = await callSatbase<z.infer<typeof ListNewsOverviewResponseSchema>>(
+        `/v1/news/overview?${params.toString()}`
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'list-news-overview', duration, count: result.total }, 'Tool completed');
+      
+      // Compact JSON (no pretty-print for token efficiency)
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'list-news-overview', error }, 'Tool failed');
       return {
         content: [{ type: 'text', text: `Error: ${error.message}` }],
         isError: true
@@ -290,6 +342,46 @@ export const bulkNewsTool = {
       };
     } catch (error: any) {
       logger.error({ tool: 'bulk-news', error }, 'Tool failed');
+      return {
+        content: [{ type: 'text', text: `Error: ${error.message}` }],
+        isError: true
+      };
+    }
+  }
+};
+
+export const bulkNewsBodiesTool = {
+  name: 'bulk-news-bodies',
+  config: {
+    title: 'Bulk Fetch News Bodies (Token-Efficient Body Fetch)',
+    description: 'Fetch article bodies for specific article IDs. Returns only id, body_text, published_at, and title. Use this after list-news-overview to get full content for selected articles. Much more token-efficient than list-news with include_body=true. ALWAYS includes bodies (no include_body parameter).',
+    inputSchema: BulkNewsBodiesRequestSchema.shape
+  },
+  handler: async (input: z.infer<typeof BulkNewsBodiesRequestSchema>) => {
+    logger.info({ tool: 'bulk-news-bodies', input: { ids_count: input.ids.length } }, 'Tool invoked');
+    const start = performance.now();
+
+    try {
+      const result = await callSatbase<z.infer<typeof BulkNewsBodiesResponseSchema>>(
+        '/v1/news/bulk-bodies',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            ids: input.ids
+          })
+        },
+        30000
+      );
+
+      const duration = performance.now() - start;
+      logger.info({ tool: 'bulk-news-bodies', duration, found: result.found, missing: result.missing }, 'Tool completed');
+
+      // Compact JSON (no pretty-print for token efficiency)
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }]
+      };
+    } catch (error: any) {
+      logger.error({ tool: 'bulk-news-bodies', error }, 'Tool failed');
       return {
         content: [{ type: 'text', text: `Error: ${error.message}` }],
         isError: true

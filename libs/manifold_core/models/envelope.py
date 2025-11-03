@@ -101,8 +101,9 @@ class ThoughtEnvelope(BaseModel):
     timeframe: Optional[str] = None
 
     # Session/Workspace/Tree structure
+    # NOTE: workspace_id is required for new thoughts. session_id is optional but must be within workspace.
     session_id: Optional[str] = None
-    workspace_id: Optional[str] = None
+    workspace_id: Optional[str] = None  # Required for new thoughts (validation in endpoints)
     parent_id: Optional[str] = None  # for chunking: reference to parent thought
     ordinal: Optional[int] = None  # order within parent
     section: Optional[str] = None  # section title (e.g. "Revenue Model", "Margin Analysis")

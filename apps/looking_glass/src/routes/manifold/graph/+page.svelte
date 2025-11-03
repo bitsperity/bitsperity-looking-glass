@@ -3,8 +3,9 @@
 </script>
 
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { globalGraph } from '$lib/api/manifold';
   import { search as searchThoughts } from '$lib/api/manifold';
   import { getSessions, getWorkspaces } from '$lib/api/manifold';
@@ -30,7 +31,11 @@
   let renderer: any = null;
   let selectedNode: any = null;
   let hoveredEdge: any = null;
-  
+  let hoveredNode: any = null;
+  let tooltipEl: HTMLDivElement | null = null;
+  let tooltipX = 0;
+  let tooltipY = 0;
+
   // Search & Mask
   let searchQuery = '';
   let searchResults: string[] = []; // IDs of matching thoughts
@@ -41,7 +46,21 @@
   let workspaces: any[] = [];
   let loadingSelectors = false;
 
+  function updateURL() {
+    const params = new URLSearchParams();
+    if (type) params.set('type', type);
+    if (status) params.set('status', status);
+    if (tickers) params.set('tickers', tickers);
+    if (sessionId) params.set('session_id', sessionId);
+    if (workspaceId) params.set('workspace_id', workspaceId);
+    
+    const queryString = params.toString();
+    const newUrl = queryString ? `/manifold/graph?${queryString}` : '/manifold/graph';
+    goto(newUrl, { keepFocus: true, replaceState: true, noScroll: true });
+  }
+
   async function load() {
+    updateURL(); // Sync URL before loading
     loading = true; 
     error = null;
     try {
@@ -209,6 +228,14 @@
     
     await load();
   });
+  
+  onDestroy(() => {
+    // Clean up renderer
+    if (renderer) {
+      renderer.kill();
+      renderer = null;
+    }
+  });
 
   function renderSigma() {
     if (!containerEl) {
@@ -233,7 +260,7 @@
       // Build graphology graph
       const graph = new GraphCtor();
       
-      // Add nodes
+      // Add nodes with label attributes that prevent background rendering
       for (const n of nodes) {
         graph.addNode(n.id, {
           label: n.payload?.title || n.id,
@@ -244,6 +271,9 @@
           color: colorForType(n.payload?.type, n.payload?.status),
           x: Math.random(),
           y: Math.random(),
+          // Force no label background
+          labelBackgroundColor: 'transparent',
+          labelBackgroundOpacity: 0,
         });
       }
       
@@ -287,21 +317,31 @@
         renderer = null;
       }
       
-      // Create new Sigma renderer
+      // Create new Sigma renderer with dark mode optimized settings
       renderer = new SigmaCtor(graph, containerEl, { 
-        renderLabels: true,
-        renderEdgeLabels: true,
+        renderLabels: false,
+        renderEdgeLabels: false,
         enableEdgeEvents: true,
         labelSize: 14,
         labelWeight: 'bold',
-        labelColor: { color: '#e5e5e5' },
+        labelColor: { color: '#e5e5e5' }, // Light text for dark background
         edgeLabelSize: 11,
         edgeLabelWeight: 'normal',
         edgeLabelColor: { color: '#a3a3a3' },
         defaultNodeColor: '#9ca3af',
         defaultEdgeColor: '#4b5563',
         labelRenderedSizeThreshold: 8,
+        zIndex: true,
       });
+      (window as any).__sigmaRenderer = renderer;
+      
+      if (renderer?.setSetting) {
+        renderer.setSetting('hoverRenderer', () => undefined);
+        renderer.setSetting('enableHovering', true);
+      }
+      
+      // CRITICAL: Disable Sigma's default label rendering when hovering
+      // We'll handle hover tooltips ourselves via custom dark tooltip
       
       // Node click handlers
       renderer.on('clickNode', ({ node }) => {
@@ -314,6 +354,39 @@
       
       renderer.on('doubleClickNode', ({ node }) => { 
         previewId = String(node); 
+      });
+      
+      // Node hover handlers for custom dark tooltip
+      renderer.on('enterNode', ({ node }) => {
+        const nodeData = nodes.find((x) => String(x.id) === String(node));
+        const graph = renderer.getGraph();
+        const nodePosition = renderer.graphToViewport({ 
+          x: graph.getNodeAttribute(node, 'x'), 
+          y: graph.getNodeAttribute(node, 'y') 
+        });
+        const rect = containerEl.getBoundingClientRect();
+        
+        hoveredNode = {
+          id: String(node),
+          payload: nodeData?.payload,
+        };
+        
+        // Set initial tooltip position
+        tooltipX = nodePosition.x + 15;
+        tooltipY = nodePosition.y - 10;
+      });
+      
+      renderer.on('leaveNode', () => {
+        hoveredNode = null;
+      });
+      
+      // Update tooltip position on mouse move within graph
+      renderer.on('mousemove', ({ event }) => {
+        if (hoveredNode) {
+          const rect = containerEl.getBoundingClientRect();
+          tooltipX = event.x - rect.left + 15;
+          tooltipY = event.y - rect.top - 10;
+        }
       });
       
       // Edge hover handlers
@@ -438,7 +511,9 @@
         <input 
           class="px-3 py-2 rounded bg-neutral-800 w-full text-sm" 
           placeholder="observation, hypothesis…" 
-          bind:value={type} 
+          bind:value={type}
+          on:blur={updateURL}
+          on:keydown={(e) => e.key === 'Enter' && updateURL()}
         />
       </div>
       <div>
@@ -446,7 +521,9 @@
         <input 
           class="px-3 py-2 rounded bg-neutral-800 w-full text-sm" 
           placeholder="active, validated…" 
-          bind:value={status} 
+          bind:value={status}
+          on:blur={updateURL}
+          on:keydown={(e) => e.key === 'Enter' && updateURL()}
         />
       </div>
       <div>
@@ -454,7 +531,9 @@
         <input 
           class="px-3 py-2 rounded bg-neutral-800 w-full text-sm" 
           placeholder="NVDA,AMD,TSLA" 
-          bind:value={tickers} 
+          bind:value={tickers}
+          on:blur={updateURL}
+          on:keydown={(e) => e.key === 'Enter' && updateURL()}
         />
       </div>
       <div>
@@ -547,17 +626,48 @@
     <!-- Graph Layout -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <!-- Graph Canvas -->
-      <div class="md:col-span-3">
+      <div class="md:col-span-3 relative">
         <div class="h-[70vh] bg-neutral-900 rounded-lg border border-neutral-800 overflow-hidden">
           <div bind:this={containerEl} class="w-full h-full"></div>
         </div>
+        
+        <!-- Custom Dark Tooltip for Node Hover -->
+        {#if hoveredNode}
+          <div 
+            bind:this={tooltipEl}
+            class="absolute z-50 pointer-events-none px-3 py-2 rounded-lg border border-neutral-700 shadow-2xl max-w-xs"
+            style="background: rgba(23, 23, 23, 0.95); backdrop-filter: blur(8px); left: {tooltipX}px; top: {tooltipY}px;"
+          >
+            <div class="flex items-center gap-2 mb-1">
+              <div 
+                class="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+                style="background-color: {colorForType(hoveredNode.payload?.type, hoveredNode.payload?.status)}"
+              ></div>
+              <span class="text-xs font-semibold text-neutral-300 truncate">
+                {hoveredNode.payload?.title || hoveredNode.id}
+              </span>
+            </div>
+            <div class="text-[10px] text-neutral-500">
+              {hoveredNode.payload?.type || 'unknown'} · {hoveredNode.payload?.status || 'unknown'}
+            </div>
+            {#if hoveredNode.payload?.tickers?.length}
+              <div class="mt-1.5 flex gap-1 flex-wrap">
+                {#each hoveredNode.payload.tickers.slice(0, 3) as ticker}
+                  <span class="text-[10px] text-neutral-400 font-mono bg-neutral-800/50 px-1.5 py-0.5 rounded">
+                    {ticker}
+                  </span>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
       </div>
 
       <!-- Info Panel -->
       <div class="md:col-span-1 space-y-3">
         <!-- Edge Hover Info Card -->
         {#if hoveredEdge}
-          <div class="bg-neutral-900 rounded-lg p-4 border border-amber-500 animate-pulse-subtle">
+          <div class="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-4 border border-neutral-700 shadow-lg">
             <div class="text-sm font-semibold text-amber-400 mb-3 flex items-center gap-2">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -628,7 +738,7 @@
           </div>
         {/if}
 
-        <div class="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+        <div class="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-4 border border-neutral-800 shadow-lg">
           <div class="text-sm font-semibold text-neutral-300 mb-3">Node Info</div>
           {#if selectedNode}
             <div class="space-y-2">

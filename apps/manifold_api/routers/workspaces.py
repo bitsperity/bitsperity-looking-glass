@@ -194,6 +194,52 @@ def get_workspace_summary(
         raise HTTPException(status_code=500, detail=f"Error fetching workspace summary: {str(e)}")
 
 
+@router.get("/workspace/{workspace_id}/sessions")
+def get_workspace_sessions(
+    workspace_id: str,
+    limit: int = 100,
+    store: QdrantStore = Depends(get_qdrant_store),
+):
+    """Get list of all sessions within a workspace with thought counts."""
+    try:
+        # Scroll all thoughts in workspace
+        all_points = store.scroll(
+            payload_filter={"must": [{"key": "workspace_id", "match": {"value": workspace_id}}]},
+            limit=10000
+        )
+        
+        sessions: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"count": 0, "types": defaultdict(int)})
+        
+        for point in all_points:
+            payload = point.payload
+            session_id = payload.get("session_id")
+            if session_id:
+                sessions[session_id]["count"] += 1
+                thought_type = payload.get("type", "unknown")
+                sessions[session_id]["types"][thought_type] += 1
+        
+        # Format response
+        sessions_list = [
+            {
+                "session_id": sid,
+                "workspace_id": workspace_id,
+                "count": data["count"],
+                "types": dict(data["types"]),
+                "created_at": None  # TODO: track session creation
+            }
+            for sid, data in sorted(sessions.items())
+        ]
+        
+        return {
+            "status": "ok",
+            "workspace_id": workspace_id,
+            "sessions_count": len(sessions_list),
+            "sessions": sessions_list[:limit]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing workspace sessions: {str(e)}")
+
+
 @router.post("/workspace/{workspace_id}/summary")
 def upsert_workspace_summary(
     workspace_id: str,
