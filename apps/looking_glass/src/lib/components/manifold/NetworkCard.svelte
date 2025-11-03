@@ -22,7 +22,12 @@
     }
   }
 
-  function navigateToThought(id: string) {
+  function navigateToThought(id: string | undefined) {
+    if (!id) {
+      console.error('No ID provided to navigateToThought');
+      return;
+    }
+    console.log('Navigating to thought:', id);
     goto(`/manifold/thoughts/${id}`);
   }
 </script>
@@ -37,18 +42,37 @@
   {:else}
     <div class="space-y-2 max-h-64 overflow-y-auto">
       {#each relations as rel, idx (idx)}
-        <div class="bg-neutral-900/50 border border-neutral-700 rounded p-3 hover:border-indigo-500/50 transition-colors cursor-pointer" on:click={() => navigateToThought(rel.target_id)}>
+        {@const targetId = rel.target_id || rel.related_id}
+        {@const targetTitle = rel.target_title || 'Untitled'}
+        <div 
+          class="bg-neutral-900/50 border border-neutral-700 rounded p-3 hover:border-indigo-500/50 transition-colors cursor-pointer" 
+          on:click|stopPropagation={() => {
+            if (targetId) {
+              navigateToThought(targetId);
+            } else {
+              console.error('No target ID found in relation:', rel);
+            }
+          }}
+          role="button"
+          tabindex="0"
+          on:keydown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (targetId) navigateToThought(targetId);
+            }
+          }}
+        >
           <div class="flex items-start gap-2 mb-2">
             <div 
               class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" 
-              style="background-color: {getRelationColor(rel.type)}"
+              style="background-color: {getRelationColor(rel.type || 'related')}"
             />
             <div class="flex-1 min-w-0">
-              <div class="text-xs font-semibold text-neutral-300">{getRelationLabel(rel.type)}</div>
+              <div class="text-xs font-semibold text-neutral-300">{getRelationLabel(rel.type || 'related')}</div>
               <div class="text-xs text-neutral-400 truncate">{rel.weight ? `Weight: ${(rel.weight * 100).toFixed(0)}%` : ''}</div>
             </div>
           </div>
-          <div class="text-sm font-medium text-neutral-200 truncate">{rel.target_title || 'Untitled'}</div>
+          <div class="text-sm font-medium text-neutral-200 truncate">{targetTitle}</div>
         </div>
       {/each}
     </div>

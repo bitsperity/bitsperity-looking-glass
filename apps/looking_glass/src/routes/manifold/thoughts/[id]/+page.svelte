@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { loadThought, saveThought, reembed, relateThoughts } from '$lib/services/manifoldService';
   import { similar, unlinkRelated } from '$lib/api/manifold';
@@ -27,6 +26,11 @@
   let newRelatedId = '';
 
   $: id = $page.params.id;
+  
+  // Reload when id changes (route parameter change)
+  $: if (id) {
+    load();
+  }
 
   async function load() {
     loading = true; error = null;
@@ -34,6 +38,35 @@
       item = await loadThought(id);
       const s = await similar(id, 10);
       sim = s.similar || [];
+      
+      // Enrich relations with titles from related thoughts
+      if (item.links?.relations && Array.isArray(item.links.relations)) {
+        const relationPromises = item.links.relations.map(async (rel: any) => {
+          if (rel.related_id && !rel.target_title) {
+            try {
+              const relatedThought = await loadThought(rel.related_id);
+              return {
+                ...rel,
+                target_id: rel.related_id,
+                target_title: relatedThought.title || 'Untitled'
+              };
+            } catch (e) {
+              return {
+                ...rel,
+                target_id: rel.related_id,
+                target_title: 'Unknown'
+              };
+            }
+          }
+          return {
+            ...rel,
+            target_id: rel.related_id,
+            target_title: rel.target_title || 'Untitled'
+          };
+        });
+        item.links.relations = await Promise.all(relationPromises);
+      }
+      
       // initialize helpers from item
       tickersStr = (item.tickers || []).join(', ');
       tagsStr = (item.tags || []).join(', ');
@@ -96,8 +129,6 @@
     await unlinkRelated(id, rid);
     await load();
   }
-
-  onMount(load);
 
   function onTypeChange(e: Event) {
     const target = e.currentTarget as HTMLSelectElement;

@@ -113,7 +113,7 @@ def search_thoughts(
     if not request.include_content:
         for cand in candidates:
             thought = cand["thought"]
-            # Keep: id, title, summary, type, tickers, score
+            # Keep: id, title, summary, type, tickers, score, status, version, workspace_id, session_id
             # Strip: content, links, epistemology, etc.
             cand["thought"] = {
                 "id": thought.get("id"),
@@ -123,6 +123,10 @@ def search_thoughts(
                 "tickers": thought.get("tickers", []),
                 "confidence_score": thought.get("confidence_score"),
                 "created_at": thought.get("created_at"),
+                "status": thought.get("status", "active"),  # Default to active if missing
+                "version": thought.get("version", 1),  # Default to 1 if missing
+                "workspace_id": thought.get("workspace_id"),
+                "session_id": thought.get("session_id"),
             }
     
     # Facets

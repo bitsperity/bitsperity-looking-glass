@@ -1,5 +1,5 @@
 <script lang="ts">
-  export let status: string;
+  export let status: string | null | undefined;
   
   const colorMap: Record<string, string> = {
     active: 'bg-green-900 text-green-200',
@@ -10,10 +10,11 @@
     quarantined: 'bg-yellow-900 text-yellow-200'
   };
   
-  $: colorClass = colorMap[status] || 'bg-neutral-800 text-neutral-200';
+  $: displayStatus = status || 'active';
+  $: colorClass = colorMap[displayStatus] || 'bg-neutral-800 text-neutral-200';
 </script>
 
 <span class="text-xs px-2 py-0.5 rounded {colorClass}">
-  {status}
+  {displayStatus}
 </span>
 
