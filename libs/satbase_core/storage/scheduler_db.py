@@ -382,6 +382,15 @@ class SchedulerDB:
                 WHERE id = ?
             """, (fill_job_id, gap_id))
     
+    def delete_job(self, job_id: str) -> bool:
+        """Delete a job from the database."""
+        with self.conn() as conn:
+            cursor = conn.execute(
+                "DELETE FROM scheduler_jobs WHERE job_id = ?",
+                (job_id,)
+            )
+            return cursor.rowcount > 0
+    
     # Configuration
     def set_config(self, key: str, value: Any) -> None:
         """Set a configuration value."""

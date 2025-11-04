@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from fastapi import APIRouter, Query, status, BackgroundTasks, Body
 from fastapi.responses import JSONResponse
 from pathlib import Path
@@ -204,6 +204,38 @@ async def get_prices_status(ticker: str):
         "source": status_info['source'],
         "invalid": status_info['invalid'],
         "invalid_reason": status_info.get('invalid_reason')
+    }
+
+
+@router.get("/prices/gaps/{ticker}")
+async def get_price_gaps(
+    ticker: str,
+    from_date: str | None = Query(None, alias="from"),
+    to_date: str | None = Query(None, alias="to"),
+    days: int = Query(90, description="Lookback days if from/to not provided")
+):
+    """
+    Get concrete missing trading days for a ticker.
+    
+    Returns list of missing dates in the specified range.
+    """
+    db = _get_prices_db()
+    
+    if from_date and to_date:
+        from_dt = date.fromisoformat(from_date)
+        to_dt = date.fromisoformat(to_date)
+    else:
+        to_dt = date.today()
+        from_dt = to_dt - timedelta(days=days)
+    
+    missing_days = db.get_missing_days(ticker, from_dt, to_dt)
+    
+    return {
+        "ticker": ticker.upper(),
+        "from_date": from_dt.isoformat(),
+        "to_date": to_dt.isoformat(),
+        "missing_days": [d.isoformat() for d in missing_days],
+        "missing_count": len(missing_days)
     }
 
 

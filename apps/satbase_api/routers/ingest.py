@@ -110,30 +110,72 @@ def enqueue_news(query: str, from_date: str | None = None, to_date: str | None =
 
 
 def _run_prices_daily(job_id: str, tickers: list[str]) -> None:
+    """Run daily price ingestion with automatic fallback for crypto tickers."""
     s = load_settings()
     db = NewsDB(s.stage_dir.parent / "news.db")
     db.update_job_status(job_id, "running", started_at=datetime.utcnow())
     _JOBS[job_id]["status"] = "running"
     
     reg = registry()
-    fetch, normalize, sink = reg["stooq"]
-    cfg = _load_cfg()
-    params = dict(cfg.get("stooq", {}))
-    params["tickers"] = [t.upper() for t in tickers]
-    try:
-        raw = fetch(params)
-        models = list(normalize(raw))
-        if not models:
-            result = {"count": 0, "message": "No new data (already up-to-date)"}
-            db.complete_job(job_id, status="done", result=result)
-            _JOBS[job_id].update({"status": "done", "result": result})
-            return
-        info = sink(models, date.today())
-        db.complete_job(job_id, status="done", result=info)
-        _JOBS[job_id].update({"status": "done", "result": info})
-    except Exception as e:
-        db.complete_job(job_id, status="error", error=str(e))
-        _JOBS[job_id].update({"status": "error", "error": str(e)})
+    
+    # Separate crypto tickers (Stooq doesn't support them well)
+    crypto_prefixes = {'BTC', 'ETH', 'DOGE', 'ADA', 'XRP'}
+    crypto_tickers = [t.upper() for t in tickers if any(t.upper().startswith(p) for p in crypto_prefixes)]
+    stock_tickers = [t.upper() for t in tickers if t.upper() not in crypto_tickers]
+    
+    total_count = 0
+    results = {}
+    
+    # Process stock tickers with Stooq (with yfinance fallback)
+    if stock_tickers:
+        try:
+            fetch, normalize, sink = reg["stooq"]
+            cfg = _load_cfg()
+            params = dict(cfg.get("stooq", {}))
+            params["tickers"] = stock_tickers
+            raw = fetch(params)
+            models = list(normalize(raw))
+            if models:
+                info = sink(models, date.today())
+                total_count += info.get("count", 0)
+                results["stocks"] = info
+        except Exception as e:
+            # Fallback to yfinance for stocks if Stooq fails
+            try:
+                fetch, normalize, sink = reg["eod_yfinance"]
+                params = {"tickers": stock_tickers}
+                raw = fetch(params)
+                models = list(normalize(raw))
+                if models:
+                    info = sink(models, date.today())
+                    total_count += info.get("count", 0)
+                    results["stocks"] = info
+            except Exception as e2:
+                results["stocks_error"] = str(e2)
+    
+    # Process crypto tickers with yfinance (Stooq doesn't support crypto)
+    if crypto_tickers:
+        try:
+            fetch, normalize, sink = reg["eod_yfinance"]
+            params = {"tickers": crypto_tickers}
+            raw = fetch(params)
+            models = list(normalize(raw))
+            if models:
+                info = sink(models, date.today())
+                total_count += info.get("count", 0)
+                results["crypto"] = info
+        except Exception as e:
+            results["crypto_error"] = str(e)
+    
+    if total_count == 0:
+        result = {"count": 0, "message": "No new data (already up-to-date)", "details": results}
+        db.complete_job(job_id, status="done", result=result)
+        _JOBS[job_id].update({"status": "done", "result": result})
+        return
+    
+    result = {"count": total_count, "tickers_processed": len(tickers), "details": results}
+    db.complete_job(job_id, status="done", result=result)
+    _JOBS[job_id].update({"status": "done", "result": result})
 
 
 def _run_macro_fred(job_id: str, series: list[str]) -> None:
@@ -280,6 +322,145 @@ async def ingest_prices_daily(body: dict[str, Any], background_tasks: Background
         "job_id": job_id, 
         "status": "accepted", 
         "message": "Price ingestion started in background"
+    }, status_code=status.HTTP_202_ACCEPTED)
+
+
+def _run_prices_backfill(job_id: str, tickers: list[str], from_date: date, to_date: date) -> None:
+    """Run historical price backfill for specific date range using yfinance."""
+    s = load_settings()
+    db = NewsDB(s.stage_dir.parent / "news.db")
+    db.update_job_status(job_id, "running", started_at=datetime.utcnow())
+    _JOBS[job_id]["status"] = "running"
+    
+    reg = registry()
+    
+    # Use yfinance for backfill (better historical support)
+    try:
+        fetch, normalize, sink = reg["eod_yfinance"]
+        
+        # Process each ticker individually with date range
+        total_count = 0
+        ticker_results = {}
+        
+        for ticker in tickers:
+            try:
+                # Use yfinance with explicit date range
+                import yfinance as yf
+                import warnings
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                
+                # Denormalize for yfinance: BTCUSD → BTC-USD, etc
+                yf_ticker = ticker.upper()
+                if len(ticker) == 6 and ticker[:3] in ('BTC', 'ETH', 'ADA', 'XRP', 'DOG'):
+                    yf_ticker = f"{ticker[:3]}-{ticker[3:]}"
+                
+                # Fetch with date range
+                df = yf.download(
+                    yf_ticker,
+                    start=from_date.isoformat(),
+                    end=(to_date + timedelta(days=1)).isoformat(),  # yfinance end is exclusive
+                    interval="1d",
+                    progress=False,
+                    auto_adjust=False
+                )
+                
+                if df is None or df.empty:
+                    ticker_results[ticker] = {"count": 0, "message": "No data from yfinance"}
+                    continue
+                
+                # Convert to DailyBar models
+                from libs.satbase_core.models.price import DailyBar
+                bars = []
+                for idx, row in df.iterrows():
+                    dt = idx.date()
+                    # Skip if outside requested range
+                    if dt < from_date or dt > to_date:
+                        continue
+                    
+                    bars.append(DailyBar(
+                        ticker=ticker.upper(),
+                        date=dt,
+                        open=float(row['Open'].item()) if 'Open' in row and row['Open'] is not None else 0.0,
+                        high=float(row['High'].item()) if 'High' in row and row['High'] is not None else 0.0,
+                        low=float(row['Low'].item()) if 'Low' in row and row['Low'] is not None else 0.0,
+                        close=float(row['Close'].item()) if 'Close' in row and row['Close'] is not None else 0.0,
+                        volume=int(row['Volume'].item()) if 'Volume' in row and row['Volume'] is not None else None,
+                        source="yfinance",
+                    ))
+                
+                if bars:
+                    # Use sink to write to database (sink expects iterable of DailyBar)
+                    info = sink(iter(bars), date.today())
+                    count = info.get("count", len(bars))
+                    total_count += count
+                    ticker_results[ticker] = {"count": count, "bars": len(bars)}
+                else:
+                    ticker_results[ticker] = {"count": 0, "message": "No bars in date range"}
+                    
+            except Exception as e:
+                ticker_results[ticker] = {"error": str(e)}
+        
+        result = {
+            "count": total_count,
+            "tickers_processed": len(tickers),
+            "from_date": from_date.isoformat(),
+            "to_date": to_date.isoformat(),
+            "ticker_results": ticker_results
+        }
+        db.complete_job(job_id, status="done", result=result)
+        _JOBS[job_id].update({"status": "done", "result": result})
+        
+    except Exception as e:
+        db.complete_job(job_id, status="error", error=str(e))
+        _JOBS[job_id].update({"status": "error", "error": str(e)})
+
+
+@router.post("/ingest/prices/backfill", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_prices_backfill(body: dict[str, Any], background_tasks: BackgroundTasks):
+    """
+    Backfill historical price data for specific date range.
+    
+    Body:
+    - tickers: list[str] (required)
+    - from_date: str (ISO date YYYY-MM-DD, required)
+    - to_date: str (ISO date YYYY-MM-DD, required)
+    """
+    tickers = body.get("tickers", [])
+    from_date_str = body.get("from_date")
+    to_date_str = body.get("to_date")
+    
+    if not tickers:
+        return JSONResponse({"error": "tickers required"}, status_code=400)
+    if not from_date_str or not to_date_str:
+        return JSONResponse({"error": "from_date and to_date required"}, status_code=400)
+    
+    try:
+        from_date = date.fromisoformat(from_date_str)
+        to_date = date.fromisoformat(to_date_str)
+    except ValueError as e:
+        return JSONResponse({"error": f"Invalid date format: {e}"}, status_code=400)
+    
+    if from_date > to_date:
+        return JSONResponse({"error": "from_date must be <= to_date"}, status_code=400)
+    
+    # Limit date range to max 365 days per job
+    days_diff = (to_date - from_date).days
+    if days_diff > 365:
+        return JSONResponse({
+            "error": f"Date range too large ({days_diff} days). Maximum 365 days per backfill job."
+        }, status_code=400)
+    
+    job_id = _new_job("prices_backfill", {
+        "tickers": tickers,
+        "from_date": from_date_str,
+        "to_date": to_date_str
+    })
+    background_tasks.add_task(_run_prices_backfill, job_id, tickers, from_date, to_date)
+    
+    return JSONResponse({
+        "job_id": job_id,
+        "status": "accepted",
+        "message": f"Price backfill started for {len(tickers)} ticker(s) from {from_date_str} to {to_date_str}"
     }, status_code=status.HTTP_202_ACCEPTED)
 
 

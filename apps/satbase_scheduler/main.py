@@ -15,7 +15,7 @@ from libs.satbase_core.config.settings import load_settings
 from libs.satbase_core.storage.scheduler_db import SchedulerDB
 from scheduler_logging import log_scheduler_event
 
-from jobs import watchlist, topics, topics_backfill, fred, prices, gaps, tesseract
+from jobs import watchlist, topics, topics_backfill, fred, prices, tesseract
 
 
 def setup_scheduler() -> AsyncIOScheduler:
@@ -92,28 +92,6 @@ def setup_scheduler() -> AsyncIOScheduler:
             "enabled": True
         },
         
-        # Gap Detection - All Types
-        {
-            "job_id": "gaps_detect",
-            "name": "Detect Data Gaps",
-            "func": gaps.detect_gaps,
-            "trigger": CronTrigger(day_of_week='sun', hour=2, minute=0, timezone='UTC'),  # Weekly Sunday 2:00 UTC
-            "trigger_config": {"day_of_week": "sun", "hour": 2, "minute": 0, "timezone": "UTC", "type": "cron"},
-            "max_instances": 1,
-            "enabled": True
-        },
-        
-        # Gap Filling - All Types
-        {
-            "job_id": "gaps_fill",
-            "name": "Fill Data Gaps",
-            "func": gaps.fill_gaps,
-            "trigger": CronTrigger(hour=3, minute=30, timezone='UTC'),  # Daily 3:30 UTC
-            "trigger_config": {"hour": 3, "minute": 30, "timezone": "UTC", "type": "cron"},
-            "max_instances": 1,
-            "enabled": True
-        },
-        
         # Tesseract Embedding - New Articles
         {
             "job_id": "tesseract_embed_new",
@@ -142,6 +120,15 @@ def setup_scheduler() -> AsyncIOScheduler:
             "enabled": True
         },
     ]
+    
+    # Cleanup: Remove jobs from DB that are no longer in code
+    db_job_ids = {job['job_id'] for job in db.list_jobs()}
+    code_job_ids = {job['job_id'] for job in jobs_config}
+    orphaned_job_ids = db_job_ids - code_job_ids
+    
+    for orphaned_job_id in orphaned_job_ids:
+        log_scheduler_event("job_removed", job_id=orphaned_job_id, reason="no longer in code")
+        db.delete_job(orphaned_job_id)
     
     # Register jobs in scheduler and database
     for job_config in jobs_config:
